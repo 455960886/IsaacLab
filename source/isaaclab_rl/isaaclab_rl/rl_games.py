@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -42,7 +42,7 @@ from rl_games.common import env_configurations
 from rl_games.common.vecenv import IVecEnv
 
 from isaaclab.envs import DirectRLEnv, ManagerBasedRLEnv, VecEnvObs
-
+# import mandb
 """
 Vectorized environment wrapper.
 """
@@ -110,6 +110,7 @@ class RlGamesVecEnvWrapper(IVecEnv):
             self.rlg_num_states = 0
         else:
             self.rlg_num_states = self.state_space.shape[0]
+        # wandb.init(project="cartpole_features")
 
     def __str__(self):
         """Returns the wrapper name and the :attr:`env` representation string."""
@@ -147,6 +148,7 @@ class RlGamesVecEnvWrapper(IVecEnv):
             )
         # note: maybe should check if we are a sub-set of the actual space. don't do it right now since
         #   in ManagerBasedRLEnv we are setting action space as (-inf, inf).
+        # print("policy_obs_space: ",policy_obs_space.shape)
         return gym.spaces.Box(-self._clip_obs, self._clip_obs, policy_obs_space.shape)
 
     @property
@@ -242,7 +244,7 @@ class RlGamesVecEnvWrapper(IVecEnv):
         actions = torch.clamp(actions, -self._clip_actions, self._clip_actions)
         # perform environment step
         obs_dict, rew, terminated, truncated, extras = self.env.step(actions)
-
+        # print("reward: ",rew)
         # move time out information to the extras dict
         # this is only needed for infinite horizon tasks
         # note: only useful when `value_bootstrap` is True in the agent configuration

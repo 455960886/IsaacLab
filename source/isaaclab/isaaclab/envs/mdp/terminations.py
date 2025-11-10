@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensor
+from isaaclab.sensors import FrameTransformer
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -60,7 +61,8 @@ def bad_orientation(
 
 
 def root_height_below_minimum(
-    env: ManagerBasedRLEnv, minimum_height: float, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+    env: ManagerBasedRLEnv, minimum_height: float, asset_cfg:SceneEntityCfg = SceneEntityCfg("robot"),
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:
     """Terminate when the asset's root height is below the minimum height.
 
@@ -69,7 +71,9 @@ def root_height_below_minimum(
     """
     # extract the used quantities (to enable type-hinting)
     asset: RigidObject = env.scene[asset_cfg.name]
-    return asset.data.root_pos_w[:, 2] < minimum_height
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+
+    return (asset.data.root_pos_w[:, 2] < minimum_height) | (ee_frame.data.target_pos_w[..., 0, 2] <0.006)
 
 
 """
@@ -156,3 +160,81 @@ def illegal_contact(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneE
     return torch.any(
         torch.max(torch.norm(net_contact_forces[:, :, sensor_cfg.body_ids], dim=-1), dim=1)[0] > threshold, dim=1
     )
+
+
+def object_target(
+    env: ManagerBasedRLEnv,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
+    """Reward the agent for reaching the object using tanh-kernel."""
+    # extract the used quantities (to enable type-hinting)
+    object: RigidObject = env.scene[object_cfg.name]
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    # Target object position: (num_envs, 3)
+    cube_pos_w = object.data.root_pos_w
+    # End-effector position: (num_envs, 3)
+    ee_w = ee_frame.data.target_pos_w[..., 0, :]
+    # Distance of the end-effector to the object: (num_envs,)
+    object_ee_distance = torch.norm(cube_pos_w - ee_w, dim=1)
+    # with open('output_formres5.txt', 'a') as f:
+    #     f.write(f"dis: {torch.mean(object_ee_distance).item()}\n")
+        
+    # print("reaching: ",torch.mean(1 - torch.tanh(object_ee_distance / std)))
+    return torch.any(
+        object.data.root_pos_w[:, 2] > 0.1
+    )  # Returns True if the distance is less than 0.05 meters
+
+
+# def gripper_floor_contact(
+#     env: ManagerBasedRLEnv, 
+#     threshold: float = 1.0, 
+#     sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces")
+# ) -> torch.Tensor:
+#     """Terminate when claw contacts filtered objects (ground/table) above threshold."""
+#     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+#     # Get filtered contact forces (only contacts with ground/table)
+#     # This is None if no filtering is configured
+#     if contact_sensor.data.force_matrix_w is None:
+#         return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+#     # Shape: (num_envs, num_bodies, num_filtered_objects, 3)
+#     filtered_forces = contact_sensor.data.force_matrix_w
+
+#     # Check if any filtered contact exceeds threshold
+#     contact_magnitudes = torch.norm(filtered_forces, dim=-1)  # (N, B, M)
+#     max_contact_force = torch.max(contact_magnitudes.view(env.num_envs, -1), dim=1)[0]
+
+#     return max_contact_force > threshold
+
+
+def gripper_floor_contact(
+    env: ManagerBasedRLEnv, 
+    threshold: float = 1.0, 
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces")
+) -> torch.Tensor:
+    """Terminate when claw contacts ground (using unfiltered contacts)."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+    # Use unfiltered contact forces
+    if contact_sensor.data.net_forces_w is None:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    # Get all contact forces
+    net_forces = torch.norm(contact_sensor.data.net_forces_w, dim=-1)  # Shape: (num_envs, num_bodies)
+    max_contact_force = torch.max(net_forces, dim=1)[0]  # Max across all bodies
+
+    # Simple heuristic: if contact force is high and object is not being lifted,
+    # assume it's ground contact
+    object: RigidObject = env.scene["object"]
+    object_height = object.data.root_pos_w[:, 2]
+    object_not_lifted = object_height < 0.025  # Object still on ground
+
+    # Terminate if high contact force while object is still on ground
+    violations = (max_contact_force > threshold) & object_not_lifted
+
+    print(f"[DEBUG] Max contact: {max_contact_force.max().item():.4f}, Object heights: {object_height.cpu().numpy()}")
+    print(f"[DEBUG] Violations: {violations.sum().item()}/{env.num_envs}")
+
+    return violations
