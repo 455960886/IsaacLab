@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -8,7 +8,6 @@ from collections.abc import Sequence
 from typing import Any
 
 import carb
-import omni.log
 import omni.usd
 from isaacsim.core.cloner import GridCloner
 from isaacsim.core.prims import XFormPrim
@@ -166,10 +165,9 @@ class InteractiveScene:
 
             # since env_ids is only applicable when replicating physics, we have to fallback to the previous method
             # to filter collisions if replicate_physics is not enabled
-            # additionally, env_ids is only supported in GPU simulation
-            if (not self.cfg.replicate_physics and self.cfg.filter_collisions) or self.device == "cpu":
+            if not self.cfg.replicate_physics and self.cfg.filter_collisions:
                 self.filter_collisions(self._global_prim_paths)
-
+        
     def clone_environments(self, copy_from_source: bool = False):
         """Creates clones of the environment ``/World/envs/env_0``.
 
@@ -200,10 +198,9 @@ class InteractiveScene:
 
         # since env_ids is only applicable when replicating physics, we have to fallback to the previous method
         # to filter collisions if replicate_physics is not enabled
-        # additionally, env_ids is only supported in GPU simulation
-        if (not self.cfg.replicate_physics and self.cfg.filter_collisions) or self.device == "cpu":
+        if not self.cfg.replicate_physics and self.cfg.filter_collisions:
             omni.log.warn(
-                "Collision filtering can only be automatically enabled when replicate_physics=True and GPU simulation."
+                "Collision filtering can only be automatically enabled when replicate_physics=True."
                 " Please call scene.filter_collisions(global_prim_paths) to filter collisions across environments."
             )
 
@@ -410,10 +407,13 @@ class InteractiveScene:
         """
         # -- assets
         for articulation in self._articulations.values():
+            # print("articulation: ", articulation)
             articulation.update(dt)
         for deformable_object in self._deformable_objects.values():
+            # print("deformable_object: ", deformable_object)
             deformable_object.update(dt)
         for rigid_object in self._rigid_objects.values():
+            # print("rigid_object: ", rigid_object)
             rigid_object.update(dt)
         for rigid_object_collection in self._rigid_object_collections.values():
             rigid_object_collection.update(dt)
@@ -540,7 +540,7 @@ class InteractiveScene:
         state["articulation"] = dict()
         for asset_name, articulation in self._articulations.items():
             asset_state = dict()
-            asset_state["root_pose"] = articulation.data.root_pose_w.clone()
+            asset_state["root_pose"] = articulation.data.root_state_w[:, :7].clone()
             if is_relative:
                 asset_state["root_pose"][:, :3] -= self.env_origins
             asset_state["root_velocity"] = articulation.data.root_vel_w.clone()
@@ -560,7 +560,7 @@ class InteractiveScene:
         state["rigid_object"] = dict()
         for asset_name, rigid_object in self._rigid_objects.items():
             asset_state = dict()
-            asset_state["root_pose"] = rigid_object.data.root_pose_w.clone()
+            asset_state["root_pose"] = rigid_object.data.root_state_w[:, :7].clone()
             if is_relative:
                 asset_state["root_pose"][:, :3] -= self.env_origins
             asset_state["root_velocity"] = rigid_object.data.root_vel_w.clone()
@@ -624,12 +624,7 @@ class InteractiveScene:
     Internal methods.
     """
 
-    def _is_scene_setup_from_cfg(self) -> bool:
-        """Check if scene entities are setup from the config or not.
-
-        Returns:
-            True if scene entities are setup from the config, False otherwise.
-        """
+    def _is_scene_setup_from_cfg(self):
         return any(
             not (asset_name in InteractiveSceneCfg.__dataclass_fields__ or asset_cfg is None)
             for asset_name, asset_cfg in self.cfg.__dict__.items()

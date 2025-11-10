@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -84,6 +84,11 @@ class _TorchPolicyExporter(torch.nn.Module):
 
     def forward(self, x):
         return self.actor(self.normalizer(x))
+    
+    # def forward(self, image, state):
+    #     image = self.normalizer(image)
+    #     # 假设 actor 接受图像和状态拼接后的特征，或者分支处理
+    #     return self.actor(image, state)
 
     @torch.jit.export
     def reset(self):
@@ -137,10 +142,17 @@ class _OnnxPolicyExporter(torch.nn.Module):
 
     def forward(self, x):
         return self.actor(self.normalizer(x))
+    
+    # def forward(self, x):
+    #     image_features = self.cnn_feature(x["image"])
+    #     state_features = self.state_encoder(x["joint_pos"])
+    #     # print("image_features : ",image_features.shape)
+    #     # print("state_features : ",state_features.shape)
+    #     observations = torch.cat((image_features, state_features), dim=1)
+    #     return self.actor(observations)
 
     def export(self, path, filename):
         self.to("cpu")
-        self.eval()
         if self.is_recurrent:
             obs = torch.zeros(1, self.rnn.input_size)
             h_in = torch.zeros(self.rnn.num_layers, 1, self.rnn.hidden_size)
@@ -158,7 +170,7 @@ class _OnnxPolicyExporter(torch.nn.Module):
                 dynamic_axes={},
             )
         else:
-            obs = torch.zeros(1, self.actor[0].in_features)
+            obs = torch.zeros(1, 2024)
             torch.onnx.export(
                 self,
                 obs,
@@ -170,3 +182,33 @@ class _OnnxPolicyExporter(torch.nn.Module):
                 output_names=["actions"],
                 dynamic_axes={},
             )
+        
+        #改动
+        #     dummy_input = torch.zeros(1, 3, 300, 400)
+        # torch.onnx.export(
+        #     self,
+        #     dummy_input,
+        #     os.path.join(path, filename),
+        #     export_params=True,
+        #     opset_version=11,
+        #     verbose=self.verbose,
+        #     input_names=["obs"],
+        #     output_names=["actions"],
+        #     dynamic_axes={},
+        # )
+
+        #改动
+        #     obs = {"image":torch.zeros(1, 3, 128, 128),"joint_pos":torch.zeros(6,)}
+        # torch.onnx.export(
+        #     self,
+        #     obs,
+        #     os.path.join(path, filename),
+        #     export_params=True,
+        #     opset_version=11,
+        #     verbose=self.verbose,
+        #     input_names=["obs"],
+        #     output_names=["actions"],
+        #     dynamic_axes={},
+        # )
+
+

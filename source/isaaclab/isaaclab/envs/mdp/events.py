@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -22,14 +22,20 @@ import carb
 import omni.physics.tensors.impl.api as physx
 import omni.usd
 from isaacsim.core.utils.extensions import enable_extension
-from pxr import Gf, Sdf, UsdGeom, Vt
+from pxr import Gf, Sdf, UsdGeom, Vt, UsdShade, Usd
 
 import isaaclab.sim as sim_utils
 import isaaclab.utils.math as math_utils
+from isaaclab.utils.math import sample_uniform
 from isaaclab.actuators import ImplicitActuator
+# import omni.isaac.core.utils.stage as stage_utils
 from isaaclab.assets import Articulation, DeformableObject, RigidObject
 from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
 from isaaclab.terrains import TerrainImporter
+from isaaclab.assets import RigidObjectCfg
+from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
+from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -351,47 +357,6 @@ def randomize_rigid_body_mass(
         asset.root_physx_view.set_inertias(inertias, env_ids)
 
 
-def randomize_rigid_body_com(
-    env: ManagerBasedEnv,
-    env_ids: torch.Tensor | None,
-    com_range: dict[str, tuple[float, float]],
-    asset_cfg: SceneEntityCfg,
-):
-    """Randomize the center of mass (CoM) of rigid bodies by adding a random value sampled from the given ranges.
-
-    .. note::
-        This function uses CPU tensors to assign the CoM. It is recommended to use this function
-        only during the initialization of the environment.
-    """
-    # extract the used quantities (to enable type-hinting)
-    asset: Articulation = env.scene[asset_cfg.name]
-    # resolve environment ids
-    if env_ids is None:
-        env_ids = torch.arange(env.scene.num_envs, device="cpu")
-    else:
-        env_ids = env_ids.cpu()
-
-    # resolve body indices
-    if asset_cfg.body_ids == slice(None):
-        body_ids = torch.arange(asset.num_bodies, dtype=torch.int, device="cpu")
-    else:
-        body_ids = torch.tensor(asset_cfg.body_ids, dtype=torch.int, device="cpu")
-
-    # sample random CoM values
-    range_list = [com_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
-    ranges = torch.tensor(range_list, device="cpu")
-    rand_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (len(env_ids), 3), device="cpu").unsqueeze(1)
-
-    # get the current com of the bodies (num_assets, num_bodies)
-    coms = asset.root_physx_view.get_coms().clone()
-
-    # Randomize the com in range
-    coms[:, body_ids, :3] += rand_samples
-
-    # Set the new coms
-    asset.root_physx_view.set_coms(coms, env_ids)
-
-
 def randomize_rigid_body_collider_offsets(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor | None,
@@ -563,6 +528,207 @@ def randomize_actuator_gains(
             actuator.damping[env_ids] = damping
             if isinstance(actuator, ImplicitActuator):
                 asset.write_joint_damping_to_sim(damping, joint_ids=actuator.joint_indices, env_ids=env_ids)
+
+
+
+def randomize_sphere_light_intensity(
+    env: "ManagerBasedEnv",
+    env_ids: torch.Tensor,
+    intensity_range: tuple[float, float] = (800.0, 2500.0),
+) -> None:
+    """Randomize only the intensity of sphere lights for specific environments.
+
+    Args:
+        env: Environment instance
+        env_ids: Environment indices to randomize
+        intensity_range: Range for light intensity values
+    """
+
+    try:
+        import omni.usd
+        from pxr import UsdLux
+
+        stage = omni.usd.get_context().get_stage()
+        num_envs = len(env_ids)
+
+        # Sample random intensities for all environments at once
+        intensities = sample_uniform(intensity_range[0], intensity_range[1], (num_envs,), device=env.device)
+
+        # Apply to each environment's sphere light
+        for i, env_id in enumerate(env_ids):
+            # Path to your sphere light in each environment
+            sphere_light_path = f"/World/envs/env_{env_id}/SphereLight"
+            light_prim = stage.GetPrimAtPath(sphere_light_path)
+
+            if light_prim.IsValid():
+                sphere_light = UsdLux.SphereLight(light_prim)
+                sphere_light.GetIntensityAttr().Set(float(intensities[i].item()))
+            else:
+                # Try alternative path if the first doesn't work
+                alt_path = f"/World/envs/env_{env_id:04d}/SphereLight"
+                alt_prim = stage.GetPrimAtPath(alt_path)
+                if alt_prim.IsValid():
+                    sphere_light = UsdLux.SphereLight(alt_prim)
+                    sphere_light.GetIntensityAttr().Set(float(intensities[i].item()))
+                else:
+                    print(f"Warning: Could not find sphere light at env {env_id}")
+
+    except Exception as e:
+        print(f"Warning: Sphere light intensity randomization failed: {e}")
+
+
+def randomize_light_color_temperature(
+    env: "ManagerBasedEnv",
+    env_ids: torch.Tensor,
+    temperature_range: tuple[float, float] = (3000.0, 6500.0),
+) -> None:
+    """Randomize light color temperature.
+
+    Args:
+        env: The environment instance.
+        env_ids: Environment indices to randomize.
+        temperature_range: Range for color temperature in Kelvin.
+    """
+    num_envs = len(env_ids)
+    # Sample random temperature
+    temperature = sample_uniform(temperature_range[0], temperature_range[1], (num_envs,), device=env.device)
+
+    try:
+        import omni.usd
+        from pxr import UsdLux
+
+        stage = omni.usd.get_context().get_stage()
+        # dome_light_prim = stage.GetPrimAtPath("/World/light")  # Adjust path
+
+        # Apply to each environment's sphere light
+        for i, env_id in enumerate(env_ids):
+            # Path to your sphere light in each environment
+            sphere_light_path = f"/World/envs/env_{env_id}/SphereLight"
+            light_prim = stage.GetPrimAtPath(sphere_light_path)
+
+            sphere_light = UsdLux.SphereLight(light_prim)
+            sphere_light.GetColorTemperatureAttr().Set(float(temperature[i].item()))
+            # print(f"sphere light {i} temperature set to {temperature[i]}")
+
+
+    except Exception as e:
+        print(f"Warning: Sphere light intensity randomization failed: {e}")
+
+
+def randomize_lighting_combined(
+    env: "ManagerBasedEnv",
+    env_ids: torch.Tensor,
+    intensity_range: tuple[float, float] = (500.0, 2000.0),
+    temperature_range: tuple[float, float] = (3000.0, 6500.0),
+) -> None:
+    """Combined lighting randomization function.
+
+    Args:
+        env: The environment instance.
+        env_ids: Environment indices to randomize.
+        intensity_range: Range for light intensity.
+        temperature_range: Range for color temperature.
+    """
+    randomize_dome_light_intensity(env, env_ids, intensity_range)
+    randomize_light_color_temperature(env, env_ids, temperature_range)
+
+
+
+def randomize_object_size(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    size_range: dict[str, tuple[float, float]],
+    asset_cfg: SceneEntityCfg,
+):
+    # Check if sim is running
+    if env.sim.is_playing():
+        raise RuntimeError(
+            "Randomizing scale while simulation is running leads to unpredictable behaviors."
+            " Please ensure that the event term is called before the simulation starts by using the 'usd' mode."
+        )
+
+    # Extract the asset
+    asset: RigidObject = env.scene[asset_cfg.name]
+
+    # Resolve environment ids
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device="cpu")
+    else:
+        env_ids = env_ids.cpu()
+
+    # Acquire stage
+    stage = omni.usd.get_context().get_stage()
+    # Resolve prim paths
+    prim_paths = sim_utils.find_matching_prim_paths(asset.cfg.prim_path)
+
+    # Sample scale values for each dimension
+    range_list = [size_range.get(key, (1.0, 1.0)) for key in ["x", "y", "z"]]
+    ranges = torch.tensor(range_list, device="cpu")
+    rand_samples = math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (len(env_ids), 3), device="cpu")
+    rand_samples = rand_samples.tolist()
+
+    # Use sdf changeblock for faster processing
+    with Sdf.ChangeBlock():
+        for i, env_id in enumerate(env_ids):
+            prim_path = prim_paths[env_id]
+            prim_spec = Sdf.CreatePrimInLayer(stage.GetRootLayer(), prim_path)
+
+            # Get or create the scale attribute
+            scale_spec = prim_spec.GetAttributeAtPath(prim_path + ".xformOp:scale")
+            has_scale_attr = scale_spec is not None
+            if not has_scale_attr:
+                scale_spec = Sdf.AttributeSpec(prim_spec, prim_path + ".xformOp:scale", Sdf.ValueTypeNames.Double3)
+
+            # Set the new scale
+            scale_spec.default = Gf.Vec3f(*rand_samples[i])
+
+            # Ensure correct transform ordering if we created the scale attribute
+            if not has_scale_attr:
+                op_order_spec = prim_spec.GetAttributeAtPath(prim_path + ".xformOpOrder")
+                if op_order_spec is None:
+                    op_order_spec = Sdf.AttributeSpec(
+                        prim_spec, UsdGeom.Tokens.xformOpOrder, Sdf.ValueTypeNames.TokenArray
+                    )
+                op_order_spec.default = Vt.TokenArray(["xformOp:translate", "xformOp:orient", "xformOp:scale"])
+
+
+def set_camera_rt_subframes(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    subframes: int = 4,
+    camera_name: str = "gripper_camera",
+):
+    """Set RT subframes for camera to reduce ghosting."""
+    try:
+        import omni.usd
+        from pxr import Sdf, UsdGeom
+        
+        stage = omni.usd.get_context().get_stage()
+        
+        # Resolve environment ids
+        if env_ids is None:
+            env_ids = torch.arange(env.scene.num_envs, device=env.device)
+            
+        for env_id in env_ids:
+            # Construct camera path based on your camera configuration
+            camera_prim_path = f"/World/envs/env_{env_id}/Robot/M5_wrist_link/gripper_camera"
+            camera_prim = stage.GetPrimAtPath(camera_prim_path)
+            
+            if camera_prim.IsValid():
+                # First, check if the attribute already exists, if not create it
+                attr = camera_prim.GetAttribute("rtx:subframes")
+                if not attr:
+                    # Create the attribute with integer type
+                    attr = camera_prim.CreateAttribute("rtx:subframes", Sdf.ValueTypeNames.Int)
+                
+                # Now set the value
+                attr.Set(subframes)
+                print(f"Set RT subframes to {subframes} for camera in env {env_id}")
+            else:
+                print(f"Warning: Camera prim not found at {camera_prim_path}")
+                
+    except Exception as e:
+        print(f"Error setting RT subframes: {e}")
 
 
 def randomize_joint_parameters(
@@ -866,7 +1032,7 @@ def reset_root_state_uniform(
     env_ids: torch.Tensor,
     pose_range: dict[str, tuple[float, float]],
     velocity_range: dict[str, tuple[float, float]],
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ):
     """Reset the asset root state to a random position and velocity uniformly within the given ranges.
 
@@ -904,6 +1070,70 @@ def reset_root_state_uniform(
     # set into the physics simulation
     asset.write_root_pose_to_sim(torch.cat([positions, orientations], dim=-1), env_ids=env_ids)
     asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
+
+
+
+
+
+def reset_object_pool_state_uniform(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    pose_range: dict[str, tuple[float, float]],
+    velocity_range: dict[str, tuple[float, float]],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+):
+    """Reset active objects in object pool to random position and velocity uniformly within given ranges."""
+    from isaaclab.assets import RigidObjectCollection
+    import isaaclab.utils.math as math_utils
+
+    # Extract object collection
+    object_collection: RigidObjectCollection = env.scene[asset_cfg.name]
+
+    # Get active object indices
+    if not hasattr(env, 'active_object_indices'):
+        raise RuntimeError("active_object_indices not found")
+
+    # Prepare pose ranges (same as original)
+    pose_range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    pose_ranges = torch.tensor(pose_range_list, device=object_collection.device)
+    pose_rand_samples = math_utils.sample_uniform(
+        pose_ranges[:, 0], pose_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
+    )
+
+    # Prepare velocity ranges (same as original)
+    vel_range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    vel_ranges = torch.tensor(vel_range_list, device=object_collection.device)
+    vel_rand_samples = math_utils.sample_uniform(
+        vel_ranges[:, 0], vel_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
+    )
+
+    # Reset each environment's active object
+    for idx, env_idx in enumerate(env_ids):
+        active_obj_idx = env.active_object_indices[env_idx].item()
+
+        # Get default state for active object
+        root_state = object_collection.data.default_object_state[env_idx, active_obj_idx].clone()
+
+        # Apply pose randomization (same logic as original)
+        position = root_state[0:3] + env.scene.env_origins[env_idx] + pose_rand_samples[idx, 0:3]
+        orientation_delta = math_utils.quat_from_euler_xyz(
+            pose_rand_samples[idx, 3], pose_rand_samples[idx, 4], pose_rand_samples[idx, 5]
+        )
+        orientation = math_utils.quat_mul(root_state[3:7], orientation_delta)
+
+        # Apply velocity randomization (same logic as original)
+        velocity = root_state[7:13] + vel_rand_samples[idx]
+
+        # Combine and write (adapted for object collection)
+        new_state = torch.cat([position, orientation, velocity], dim=-1)
+        object_collection.write_object_state_to_sim(
+            new_state.unsqueeze(0),
+            env_ids=torch.tensor([env_idx], device=object_collection.device),
+            object_ids=torch.tensor([active_obj_idx], device=object_collection.device)
+        )
+
+
+
 
 
 def reset_root_state_with_random_orientation(
@@ -1040,27 +1270,22 @@ def reset_joints_by_scale(
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
     # get default joint state
-    joint_pos = asset.data.default_joint_pos[env_ids, asset_cfg.joint_ids].clone()
-    joint_vel = asset.data.default_joint_vel[env_ids, asset_cfg.joint_ids].clone()
+    joint_pos = asset.data.default_joint_pos[env_ids].clone()
+    joint_vel = asset.data.default_joint_vel[env_ids].clone()
 
     # scale these values randomly
     joint_pos *= math_utils.sample_uniform(*position_range, joint_pos.shape, joint_pos.device)
     joint_vel *= math_utils.sample_uniform(*velocity_range, joint_vel.shape, joint_vel.device)
 
     # clamp joint pos to limits
-    joint_pos_limits = asset.data.soft_joint_pos_limits[env_ids, asset_cfg.joint_ids]
+    joint_pos_limits = asset.data.soft_joint_pos_limits[env_ids]
     joint_pos = joint_pos.clamp_(joint_pos_limits[..., 0], joint_pos_limits[..., 1])
     # clamp joint vel to limits
-    joint_vel_limits = asset.data.soft_joint_vel_limits[env_ids, asset_cfg.joint_ids]
+    joint_vel_limits = asset.data.soft_joint_vel_limits[env_ids]
     joint_vel = joint_vel.clamp_(-joint_vel_limits, joint_vel_limits)
 
     # set into the physics simulation
-    asset.write_joint_state_to_sim(
-        joint_pos.view(len(env_ids), -1),
-        joint_vel.view(len(env_ids), -1),
-        env_ids=env_ids,
-        joint_ids=asset_cfg.joint_ids,
-    )
+    asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
 
 
 def reset_joints_by_offset(
@@ -1079,27 +1304,22 @@ def reset_joints_by_offset(
     asset: Articulation = env.scene[asset_cfg.name]
 
     # get default joint state
-    joint_pos = asset.data.default_joint_pos[env_ids, asset_cfg.joint_ids].clone()
-    joint_vel = asset.data.default_joint_vel[env_ids, asset_cfg.joint_ids].clone()
+    joint_pos = asset.data.default_joint_pos[env_ids].clone()
+    joint_vel = asset.data.default_joint_vel[env_ids].clone()
 
     # bias these values randomly
     joint_pos += math_utils.sample_uniform(*position_range, joint_pos.shape, joint_pos.device)
     joint_vel += math_utils.sample_uniform(*velocity_range, joint_vel.shape, joint_vel.device)
 
     # clamp joint pos to limits
-    joint_pos_limits = asset.data.soft_joint_pos_limits[env_ids, asset_cfg.joint_ids]
+    joint_pos_limits = asset.data.soft_joint_pos_limits[env_ids]
     joint_pos = joint_pos.clamp_(joint_pos_limits[..., 0], joint_pos_limits[..., 1])
     # clamp joint vel to limits
-    joint_vel_limits = asset.data.soft_joint_vel_limits[env_ids, asset_cfg.joint_ids]
+    joint_vel_limits = asset.data.soft_joint_vel_limits[env_ids]
     joint_vel = joint_vel.clamp_(-joint_vel_limits, joint_vel_limits)
 
     # set into the physics simulation
-    asset.write_joint_state_to_sim(
-        joint_pos.view(len(env_ids), -1),
-        joint_vel.view(len(env_ids), -1),
-        env_ids=env_ids,
-        joint_ids=asset_cfg.joint_ids,
-    )
+    asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
 
 
 def reset_nodal_state_uniform(
@@ -1166,14 +1386,63 @@ def reset_scene_to_default(env: ManagerBasedEnv, env_ids: torch.Tensor):
         default_joint_pos = articulation_asset.data.default_joint_pos[env_ids].clone()
         default_joint_vel = articulation_asset.data.default_joint_vel[env_ids].clone()
         # set into the physics simulation
-        articulation_asset.set_joint_position_target(default_joint_pos, env_ids=env_ids)
-        articulation_asset.set_joint_velocity_target(default_joint_vel, env_ids=env_ids)
         articulation_asset.write_joint_state_to_sim(default_joint_pos, default_joint_vel, env_ids=env_ids)
     # deformable objects
     for deformable_object in env.scene.deformable_objects.values():
         # obtain default and set into the physics simulation
         nodal_state = deformable_object.data.default_nodal_state_w[env_ids].clone()
         deformable_object.write_nodal_state_to_sim(nodal_state, env_ids=env_ids)
+
+
+def force_clear_object_visuals(
+    env: "ManagerBasedEnv",
+    env_ids: torch.Tensor,
+    pose_range: dict[str, tuple[float, float]],
+    velocity_range: dict[str, tuple[float, float]],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> None:
+    """Force clear object visuals and reset to avoid ghost images.
+
+    This function uses USD visibility controls to force refresh the object visuals.
+    """
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=env.device)
+
+    try:
+        import omni.usd
+        from pxr import UsdGeom
+
+        asset = env.scene[asset_cfg.name]
+        stage = omni.usd.get_context().get_stage()
+
+        # First make objects invisible, then visible again to clear ghost images
+        for env_id in env_ids:
+            object_prim_path = asset.cfg.prim_path.replace("{ENV_REGEX_NS}", f"/World/envs/env_{env_id}")
+            object_prim = stage.GetPrimAtPath(object_prim_path)
+
+            if object_prim.IsValid():
+                # Method 1: Use visibility attribute
+                imageable = UsdGeom.Imageable(object_prim)
+                if imageable:
+                    # Make invisible
+                    imageable.MakeInvisible()
+                    # Immediately make visible again
+                    imageable.MakeVisible()
+
+                # Method 2: Force geometry refresh by toggling purpose
+                geom_prim = UsdGeom.Gprim(object_prim)
+                if geom_prim:
+                    current_purpose = geom_prim.GetPurposeAttr().Get()
+                    # Toggle purpose to force refresh
+                    geom_prim.GetPurposeAttr().Set("proxy")
+                    geom_prim.GetPurposeAttr().Set(current_purpose or "default")
+
+        # Now do normal position reset
+        reset_root_state_uniform(env, env_ids, pose_range, velocity_range, asset_cfg)
+
+    except Exception as e:
+        print(f"Warning: Visual clearing failed, using normal reset: {e}")
+        reset_root_state_uniform(env, env_ids, pose_range, velocity_range, asset_cfg)
 
 
 class randomize_visual_texture_material(ManagerTermBase):
@@ -1241,25 +1510,8 @@ class randomize_visual_texture_material(ManagerTermBase):
             body_names_regex = ".*"
 
         # create the affected prim path
-        # Check if the pattern with '/visuals' yields results when matching `body_names_regex`.
-        # If not, fall back to a broader pattern without '/visuals'.
-        asset_main_prim_path = asset.cfg.prim_path
-        # Try the pattern with '/visuals' first for the generic case
-        pattern_with_visuals = f"{asset_main_prim_path}/{body_names_regex}/visuals"
-        # Use sim_utils to check if any prims currently match this pattern
-        matching_prims = sim_utils.find_matching_prim_paths(pattern_with_visuals)
-        if matching_prims:
-            # If matches are found, use the pattern with /visuals
-            prim_path = pattern_with_visuals
-        else:
-            # If no matches found, fall back to the broader pattern without /visuals
-            # This pattern (e.g., /World/envs/env_.*/Table/.*) should match visual prims
-            # whether they end in /visuals or have other structures.
-            prim_path = f"{asset_main_prim_path}/.*"
-            carb.log_info(
-                f"Pattern '{pattern_with_visuals}' found no prims. Falling back to '{prim_path}' for texture"
-                " randomization."
-            )
+        # TODO: Remove the hard-coded "/visuals" part.
+        prim_path = f"{asset.cfg.prim_path}/{body_names_regex}/visuals"
 
         # Create the omni-graph node for the randomization term
         def rep_texture_randomization():
@@ -1269,6 +1521,7 @@ class randomize_visual_texture_material(ManagerTermBase):
                 rep.randomizer.texture(
                     textures=texture_paths, project_uvw=True, texture_rotate=rep.distribution.uniform(*texture_rotation)
                 )
+
             return prims_group.node
 
         # Register the event to the replicator
@@ -1456,3 +1709,54 @@ def _randomize_prop_by_op(
             f"Unknown operation: '{operation}' for property randomization. Please use 'add', 'scale', or 'abs'."
         )
     return data
+
+
+def randomize_object_pool_selection(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor | None,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+):
+    """Randomize which object from pool is active per environment."""
+    # Handle None env_ids (startup mode - apply to all environments)
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=env.device)
+
+    object_collection = env.scene[asset_cfg.name]
+    num_objects = len(object_collection.object_names)
+
+    # Create buffer to store active object indices if not exists
+    if not hasattr(env, 'active_object_indices'):
+        env.active_object_indices = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+
+    for env_idx in env_ids:
+        active_idx = torch.randint(0, num_objects, (1,), device=env.device).item()
+        env.active_object_indices[env_idx] = active_idx
+
+        for obj_idx in range(num_objects):
+            pos = torch.tensor([0.28, 0.0, 0.0] if obj_idx == active_idx else [100.0, 100.0, -10.0], device=env.device)
+
+            root_state = object_collection.data.default_object_state[env_idx, obj_idx].clone()
+            root_state[:3] = pos + env.scene.env_origins[env_idx]
+            root_state[3:7] = torch.tensor([1.0, 0.0, 0.0, 0.0], device=env.device)
+            root_state[7:] = 0.0
+
+            object_collection.write_object_state_to_sim(
+                root_state.unsqueeze(0),
+                env_ids=torch.tensor([env_idx], device=env.device),
+                object_ids=torch.tensor([obj_idx], device=env.device)
+            )
+
+
+
+def initialize_point_cloud_cache(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+):
+    """
+    Initialize point cloud cache storage.
+    Called once at startup (env_ids will be None).
+    """
+    # Initialize cache attributes
+    env.point_cloud_cache = None
+    env._pcd_cache_step = -1
+    print("[INFO] Point cloud cache initialized")

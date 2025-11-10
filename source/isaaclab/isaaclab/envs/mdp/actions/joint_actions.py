@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -189,6 +189,9 @@ class RelativeJointPositionAction(JointAction):
     def apply_actions(self):
         # add current joint positions to the processed actions
         current_actions = self.processed_actions + self._asset.data.joint_pos[:, self._joint_ids]
+        # print("self.processed_actions : ",self.processed_actions)
+        # print("self._asset.data.joint_pos[:, self._joint_ids] : ",self._asset.data.joint_pos[:, self._joint_ids])
+        # print("current_actions : ",current_actions)
         # set position targets
         self._asset.set_joint_position_target(current_actions, joint_ids=self._joint_ids)
 

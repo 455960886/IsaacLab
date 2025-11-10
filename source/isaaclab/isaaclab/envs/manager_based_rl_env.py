@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -75,18 +75,19 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
         # -- counter for curriculum
         self.common_step_counter = 0
 
-        # initialize the episode length buffer BEFORE loading the managers to use it in mdp functions.
-        self.episode_length_buf = torch.zeros(cfg.scene.num_envs, device=cfg.sim.device, dtype=torch.long)
-
         # initialize the base class to setup the scene.
         super().__init__(cfg=cfg)
         # store the render mode
         self.render_mode = render_mode
 
         # initialize data and constants
+        # -- init buffers
+        self.episode_length_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
         # -- set the framerate of the gym video recorder wrapper so that the playback speed of the produced video matches the simulation
         self.metadata["render_fps"] = 1 / self.step_dt
-
+        self.last_dis = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
+        self.last_grip = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
+        # self.counter = 0
         print("[INFO]: Completed setting up the environment...")
 
     """
@@ -102,6 +103,16 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
     def max_episode_length(self) -> int:
         """Maximum episode length in environment steps."""
         return math.ceil(self.max_episode_length_s / self.step_dt)
+    
+    @property
+    def last_distance(self) -> torch.Tensor:
+        """Last distance of the end-effector to the object."""
+        return self.last_dis
+    
+    @property
+    def last_gripper(self) -> torch.Tensor:
+        """Last gripper state."""
+        return self.last_grip
 
     """
     Operations - Setup.
@@ -172,7 +183,7 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
         """
         # process actions
         self.action_manager.process_action(action.to(self.device))
-
+        # print("actions11 : ",action)
         self.recorder_manager.record_pre_step()
 
         # check if we need to do rendering within the physics loop
@@ -183,9 +194,12 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
         for _ in range(self.cfg.decimation):
             self._sim_step_counter += 1
             # set actions into buffers
+            # print("actions22 : ",action)
+            # print("ee_data00: ",self.scene["ee_frame"].data.target_pos_w[..., 0, :])
             self.action_manager.apply_action()
             # set actions into simulator
             self.scene.write_data_to_sim()
+            # print("ee_data11: ",self.scene["ee_frame"].data.target_pos_w[..., 0, :])
             # simulate
             self.sim.step(render=False)
             # render between steps only if the GUI or an RTX sensor needs it
@@ -194,7 +208,9 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
             if self._sim_step_counter % self.cfg.sim.render_interval == 0 and is_rendering:
                 self.sim.render()
             # update buffers at sim dt
+            # print("ee_data22: ",self.scene["ee_frame"].data.target_pos_w[..., 0, :])
             self.scene.update(dt=self.physics_dt)
+            # print("ee_data33: ",self.scene["ee_frame"].data.target_pos_w[..., 0, :])
 
         # post-step:
         # -- update env counters (used for curriculum generation)
@@ -206,17 +222,24 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
         self.reset_time_outs = self.termination_manager.time_outs
         # -- reward computation
         self.reward_buf = self.reward_manager.compute(dt=self.step_dt)
-
+        # print("[INFO] Rewards: ", self.reward_buf)
         if len(self.recorder_manager.active_terms) > 0:
             # update observations for recording if needed
             self.obs_buf = self.observation_manager.compute()
             self.recorder_manager.record_post_step()
 
         # -- reset envs that terminated/timed-out and log the episode information
+        #改reset
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        # reset_env_ids = torch.arange(self.num_envs, device=self.reset_buf.device) \
+        # if self.reset_buf.any() else torch.tensor([], dtype=torch.long, device=self.reset_buf.device)
         if len(reset_env_ids) > 0:
             # trigger recorder terms for pre-reset calls
             self.recorder_manager.record_pre_reset(reset_env_ids)
+            # self.last_dis = torch.zeros_like(self.last_dis)
+            # self.last_grip = torch.zeros_like(self.last_grip)
+            self.last_dis[reset_env_ids] = 0.0
+            self.last_grip[reset_env_ids] = 0.0
 
             self._reset_idx(reset_env_ids)
             # update articulation kinematics
@@ -232,13 +255,16 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
 
         # -- update command
         self.command_manager.compute(dt=self.step_dt)
+        # print("Command Manager: ", self.command_manager)
         # -- step interval events
         if "interval" in self.event_manager.available_modes:
             self.event_manager.apply(mode="interval", dt=self.step_dt)
         # -- compute observations
         # note: done after reset to get the correct observations for reset envs
-        self.obs_buf = self.observation_manager.compute(update_history=True)
-
+        
+        self.obs_buf = self.observation_manager.compute()
+        # print("obs shape:", self.obs_buf["policy"].shape)
+        # self.counter += 1
         # return observations, rewards, resets and extras
         return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
 
