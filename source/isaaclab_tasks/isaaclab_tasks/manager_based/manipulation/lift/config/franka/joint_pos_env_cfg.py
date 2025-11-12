@@ -5,7 +5,7 @@
 
 import isaaclab.sim as sim_utils
 import numpy as np
-from isaaclab.assets import RigidObjectCfg
+from isaaclab.assets import RigidObjectCfg, RigidObjectCollectionCfg
 from isaaclab.sensors import FrameTransformerCfg
 from isaaclab.sensors import CameraCfg
 from isaaclab.sensors import TiledCameraCfg
@@ -52,7 +52,7 @@ MY_ROBOT_CFG = ArticulationCfg(
             # "M0": 0,   
             "M1": 1.57, 
             # "M2": 1.57,
-            "M3": 3.9,
+            "M3": 3.5,
             "M4": 1.4,
             "M5": 0.0,
             "M6_1": 0.0,
@@ -60,7 +60,6 @@ MY_ROBOT_CFG = ArticulationCfg(
         },
     ),
     actuators={
-        
         "base": ImplicitActuatorCfg(
             joint_names_expr=["M[0]"],
             effort_limit=87.0,
@@ -68,7 +67,6 @@ MY_ROBOT_CFG = ArticulationCfg(
             stiffness=80.0,
             damping=4.0,
         ),
-        
         
         "shoulder": ImplicitActuatorCfg(
             joint_names_expr=["M[1-4]"],
@@ -99,36 +97,6 @@ MY_ROBOT_CFG = ArticulationCfg(
 )
 
 
-
-def generate_random_cube_configs(num_configs=64, base_size=0.022):
-    """Generate random cube configurations with different sizes and colors."""
-    assets_cfg = []
-    
-    for i in range(num_configs):
-
-        scale_x = np.random.uniform(1.0, 1.0)
-        scale_y = np.random.uniform(1.0, 1.0)
-        scale_z = np.random.uniform(1.0, 1.0)
-        
-        size = (base_size * scale_x, base_size * scale_y, base_size * scale_z)
-        
-        color = (np.random.uniform(1.0, 1.0), np.random.uniform(0.0, 0.0), np.random.uniform(0.0, 0.0))
-        
-        assets_cfg.append(
-            sim_utils.CuboidCfg(
-                size=size,
-                visual_material=sim_utils.PreviewSurfaceCfg(
-                    diffuse_color=color, 
-                    metallic=0.2,
-                ),
-            # physics_material=high_friction_material,
-            )
-        )
-    
-    return assets_cfg
-
-
-
 @configclass
 class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
     def __post_init__(self):
@@ -139,83 +107,21 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         self.scene.robot = MY_ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         self.actions.arm_action = mdp.RelativeJointPositionActionCfg(
-            #asset_name="robot", joint_names=["panda_joint.*"], scale=0.5, use_default_offset=True
-            asset_name = "robot", joint_names = ["M[134]"],scale=0.25
+            # asset_name="robot", joint_names=["panda_joint.*"], scale=0.5, use_default_offset=True
+            asset_name="robot", joint_names=["M[34]"], scale=0.25
         )
         
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
-            #joint_names=["panda_finger.*"],
-            #open_command_expr={"panda_finger_.*": 0.04},
-            #close_command_expr={"panda_finger_.*": 0.0},
+            # joint_names=["panda_finger.*"],
+            # open_command_expr={"panda_finger_.*": 0.04},
+            # close_command_expr={"panda_finger_.*": 0.0},
             joint_names=["M6_.*"],
-            open_command_expr={"M6_1": 0.55, "M6_2": -0.55},
-            close_command_expr={"M6_1": 0.095, "M6_2": -0.095},
+            open_command_expr={"M6_1": 0.65, "M6_2": -0.65},
+            close_command_expr={"M6_1": 0.1, "M6_2": -0.1},
         )
 
         self.commands.object_pose.body_name = "M6_1_leftfinger_link"
-        # self.commands.object_pose.body_name = "M6_1_rightfinger_link"
-
-        # assets_cfg = generate_random_cube_configs(num_configs=64)
-
-        # self.scene.object = RigidObjectCfg(
-        #     prim_path="/World/envs/env_.*/Object",
-        #     spawn=sim_utils.MultiAssetSpawnerCfg(
-        #         assets_cfg=assets_cfg,
-        #         random_choice=True,
-        #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-        #             solver_position_iteration_count=32,
-        #             solver_velocity_iteration_count=16,
-        #             max_angular_velocity=1000.0,
-        #             max_linear_velocity=1000.0,
-        #             max_depenetration_velocity=5.0,
-        #             disable_gravity=False,
-        #         ),
-        #         mass_props=sim_utils.MassPropertiesCfg(mass=0.01),
-        #         collision_props=sim_utils.CollisionPropertiesCfg(),   
-        #     ),
-        #     debug_vis=False,
-        #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.00, 0], rot=[1, 0, 0, 0]),
-        # )
-
-
-        # Generate USD object configurations
-        # assets_cfg = generate_random_cube_configs()
-
-        # Configure the object with MultiAssetSpawnerCfg
-        # self.scene.object = RigidObjectCfg(
-        #     prim_path="/World/envs/env_.*/Object",
-        #     spawn=sim_utils.MultiAssetSpawnerCfg(
-        #         assets_cfg=assets_cfg,
-        #         random_choice=True,  # Randomly select one object per environment
-        #         # Note: rigid_props, mass_props, collision_props are now defined 
-        #         # per-object in the UsdFileCfg above, not here at the spawner level
-        #     ),
-        #     debug_vis=False,
-        #     init_state=RigidObjectCfg.InitialStateCfg(
-        #         pos=[0.28, 0.00, 0.02],  # Slightly raised to avoid penetration
-        #         rot=[1, 0, 0, 0]
-        #     ),
-        # )
-
-        # self.scene.object = RigidObjectCfg(
-        #     prim_path="/World/envs/env_.*/Object",
-        #     spawn=sim_utils.UsdFileCfg(
-        #         usd_path="/home/roborock/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/toy_bear.usd",
-        #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-        #             solver_position_iteration_count=32,
-        #             solver_velocity_iteration_count=16,
-        #             max_angular_velocity=1000.0,
-        #             max_linear_velocity=1000.0,
-        #             max_depenetration_velocity=5.0,
-        #             disable_gravity=False,
-        #         ),
-        #     ),
-        #     debug_vis=False,
-        #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.34, 0.0, 0.0], rot=[1, 0, 0, 0]),
-        # )
-
-
         # Create dummy object to satisfy parent class validation
         self.scene.object = RigidObjectCfg(
             prim_path="/World/envs/env_.*/Object_Dummy",
@@ -225,13 +131,10 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 rigid_props=sim_utils.RigidBodyPropertiesCfg(disable_gravity=True),
                 mass_props=sim_utils.MassPropertiesCfg(mass=0.001),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[200.0, 200.0, -100.0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=(200.0, 200.0, -100.0)),
         )
 
-
         # Object pool - all objects spawned, but only one active per env
-        from isaaclab.assets import RigidObjectCollectionCfg
-
         self.scene.object_pool = RigidObjectCollectionCfg(
             rigid_objects={
                 # "object_1": RigidObjectCfg(
@@ -266,22 +169,28 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.0, 0.0], rot=[0.7071, 0, 0, 0.7071]),
                 # ),
 
-                "Object_3": RigidObjectCfg(
-                    prim_path="/World/envs/env_.*/Object_3",
+                "Plush_toy_1": RigidObjectCfg(
+                    prim_path="/World/envs/env_.*/Plush_toy_1",
                     spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/nut.usd",
+                        usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/03_irregular_items/Plush toy/3.usdc",
+                        scale=(0.6, 0.6, 0.6),
                         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=128,
+                            solver_position_iteration_count=64,
                             solver_velocity_iteration_count=32,
                             disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
                         ),
                         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                             articulation_enabled=False,  # CRITICAL: Disable articulation
                         ),
                     ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.0, -0.02]),
-                ),
-
+                    init_state=RigidObjectCfg.InitialStateCfg(
+                        pos=(0.28, -0.012, 0.04),
+                        rot=(0.7071, 0.0, 0.0, -0.7071)
+                    )
+                )
 
                 # "Object_4": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/Object_4",
@@ -350,7 +259,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/M5_wrist_link",
                     name="end_effector",
                     offset=OffsetCfg(
-                        pos=[0.10, 0, -0.0015],
+                        pos=(0.10, 0, -0.0015),
                     ),
                 ),
             ],
@@ -365,7 +274,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/M6_1_leftfinger_link",
                     name="end_effector_1",
                     offset=OffsetCfg(
-                        pos=[0.035, -0.005, 0.0],
+                        pos=(0.035, -0.005, 0.0),
                     ),
                 ),
             ],
@@ -380,29 +289,26 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/M6_2_rightfinger_link",
                     name="end_effector_2",
                     offset=OffsetCfg(
-                        pos=[0.035, 0.009, 0.0],
+                        pos=(0.035, 0.009, 0.0),
                     ),
                 ),
             ],
         )
 
-
-        # self.scene.bear_frame = FrameTransformerCfg(
-        #     prim_path="{ENV_REGEX_NS}/Object/geometry/bear",
-        #     debug_vis=False,
-        #     visualizer_cfg=marker_cfg,
-        #     target_frames=[
-        #         FrameTransformerCfg.FrameCfg(
-        #             prim_path="{ENV_REGEX_NS}/Object/geometry/bear",
-        #             name="bear_grasp_point",
-        #             offset=OffsetCfg(
-        #                 pos=[-0.0341, -0.0188, 0.0172]
-        #             ),
-        #         ),
-        #     ],
-            
-        # )
-
+        self.scene.object_frame = FrameTransformerCfg(
+            prim_path="{ENV_REGEX_NS}/Plush_toy_1/Sketchfab_model/Box001_01___Default_0",
+            debug_vis=False,
+            visualizer_cfg=marker_cfg,
+            target_frames=[
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Plush_toy_1/Sketchfab_model/Box001_01___Default_0",
+                    name="object_frame",
+                    offset=OffsetCfg(
+                        pos=(0.0, 0.0, 0.0),
+                    ),
+                ),
+            ],
+        )
 
 
 @configclass
