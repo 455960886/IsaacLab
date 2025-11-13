@@ -1072,6 +1072,9 @@ def reset_root_state_uniform(
     asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
 
 
+
+
+
 def reset_object_pool_state_uniform(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
@@ -1128,6 +1131,9 @@ def reset_object_pool_state_uniform(
             env_ids=torch.tensor([env_idx], device=object_collection.device),
             object_ids=torch.tensor([active_obj_idx], device=object_collection.device)
         )
+
+
+
 
 
 def reset_root_state_with_random_orientation(
@@ -1739,6 +1745,7 @@ def randomize_object_pool_selection(
                 env_ids=torch.tensor([env_idx], device=env.device),
                 object_ids=torch.tensor([obj_idx], device=env.device)
             )
+
 
 
 def initialize_point_cloud_cache(

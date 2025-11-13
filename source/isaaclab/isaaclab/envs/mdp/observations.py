@@ -640,7 +640,7 @@ class image_features(ManagerTermBase):
         # Apply distance filtering
         mask1 = rotated_points[:, :, 2] < 0.37
         mask2 = rotated_points[:, :, 1] > -0.05
-        mask3 = rotated_points[:, :, 1] < -0.02
+        mask3 = rotated_points[:, :, 1] < 0.00
         mask = mask1 & mask2 & mask3
 
         # Save Stage 2: After filtering
@@ -729,6 +729,7 @@ class image_features(ManagerTermBase):
 
     # obtain the input image
         images = sensor.data.output[data_type]
+        
         # store the device of the image
         image_device = images.device
         # forward the images through the model
@@ -743,8 +744,8 @@ class image_features(ManagerTermBase):
         # Generate point clouds on GPU in one batch
         batch_points_tensor = self.depth_to_pointcloud_batch_gpu(
             depth_tensor, 
-            self.fx, 
-            self.fy, 
+            self.fx,
+            self.fy,
             self.cx,
             self.cy,
             num_points=2048,

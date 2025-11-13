@@ -54,6 +54,9 @@ def get_active_object_states(env: ManagerBasedRLEnv, object_cfg: SceneEntityCfg 
     return active_pos_w, active_quat_w
 
 
+def is_terminated(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Penalize terminated episodes that don't correspond to episodic timeouts."""
+    return env.termination_manager.terminated.float()
 
 
 def object_is_lifted(
@@ -86,6 +89,84 @@ def object_is_lifted_linear(
     reward = torch.square(normalized)
     
     return reward
+
+
+
+def object_is_lifted_with_contact(
+    env: ManagerBasedRLEnv,
+    minimal_height: float,
+    max_height: float,
+    contact_force_threshold: float = 0.7,
+    require_both_contacts: bool = True,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
+    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
+) -> torch.Tensor:
+    """
+    Reward for lifting object ONLY when gripper fingers are in proper contact.
+
+    Uses Y-axis forces (grasp axis) for robust contact detection.
+    Prevents reward exploitation by hitting/throwing objects.
+
+    Args:
+        env: Environment
+        minimal_height: Minimum height for reward (e.g., -0.01)
+        max_height: Height where reward saturates (e.g., 0.045)
+        contact_force_threshold: Minimum Y-axis force to consider contact (Newtons)
+        require_both_contacts: If True, both fingers must contact. If False, at least one.
+        object_cfg: Object pool configuration
+        left_sensor_cfg: Left gripper contact sensor
+        right_sensor_cfg: Right gripper contact sensor
+
+    Returns:
+        Reward tensor (num_envs,) - squared normalized height when contact detected, 0 otherwise
+    """
+    # 1. Get object height
+    active_pos_w, _ = get_active_object_states(env, object_cfg)
+    current_height = active_pos_w[:, 2]  # Z coordinate
+
+    # 2. Calculate height-based reward component
+    clipped_height = torch.clamp(current_height, minimal_height, max_height)
+    normalized = (clipped_height - minimal_height) / (max_height - minimal_height)
+    height_reward = torch.square(normalized)  # Squared for exponential growth
+
+    # 3. Get contact forces from both sensors
+    left_sensor = env.scene.sensors[left_sensor_cfg.name]
+    right_sensor = env.scene.sensors[right_sensor_cfg.name]
+
+    if left_sensor.data.net_forces_w is None or right_sensor.data.net_forces_w is None:
+        # No contact data available - return zero reward
+        return torch.zeros(env.num_envs, device=env.device)
+
+    left_forces = left_sensor.data.net_forces_w  # (num_envs, 1, 3)
+    right_forces = right_sensor.data.net_forces_w  # (num_envs, 1, 3)
+
+    # 4. Extract Y-axis forces (grasp axis - most reliable based on your data)
+    left_y_force = torch.abs(left_forces[:, 0, 1])  # Y component, absolute value
+    right_y_force = torch.abs(right_forces[:, 0, 1])  # Y component, absolute value
+
+    # 5. Check if contact threshold exceeded
+    left_contact = left_y_force > contact_force_threshold
+    right_contact = right_y_force > contact_force_threshold
+
+    # 6. Determine if proper contact condition is met
+    if require_both_contacts:
+        # Both fingers must be in contact (bilateral grasp - more robust)
+        proper_contact = left_contact & right_contact
+    else:
+        # At least one finger in contact (more lenient)
+        proper_contact = left_contact | right_contact
+
+    # 7. Only reward lifting when proper contact is detected
+    reward = torch.where(
+        proper_contact,
+        height_reward,  # Give height reward when contact verified
+        torch.zeros_like(height_reward)  # Zero reward without contact
+    )
+
+    return reward
+
+
 
 
 
@@ -400,6 +481,51 @@ def pcd_clamp_object(
     return reward
 
 
+
+def contact_clamp_object(
+    env: ManagerBasedRLEnv,
+    contact_force_threshold: float = 1.5,
+    reward_value: float = 1.0,
+    gripper_closed_threshold: float = 0.2,
+    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
+    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
+) -> torch.Tensor:
+    """
+    Binary reward for clamping - either 1.0 or 0.0.
+    Simpler version that just checks if grasp is good enough.
+    """
+    # Check gripper closed
+    joint_positions = env.scene['robot'].data.joint_pos_target
+    gripper_closed = (torch.abs(joint_positions[:, 5]) < gripper_closed_threshold) & \
+                     (torch.abs(joint_positions[:, 6]) < gripper_closed_threshold)
+
+    # Get contact forces
+    left_sensor = env.scene.sensors[left_sensor_cfg.name]
+    right_sensor = env.scene.sensors[right_sensor_cfg.name]
+
+    if left_sensor.data.net_forces_w is None or right_sensor.data.net_forces_w is None:
+        return torch.zeros(env.num_envs, device=env.device)
+
+    # Y-axis forces
+    left_y = torch.abs(left_sensor.data.net_forces_w[:, 0, 1])
+    right_y = torch.abs(right_sensor.data.net_forces_w[:, 0, 1])
+
+    # Average force check
+    avg_force = (left_y + right_y) / 2.0
+    good_grasp = avg_force > contact_force_threshold
+
+    # Binary reward
+    reward = torch.where(
+        gripper_closed & good_grasp,
+        torch.ones(env.num_envs, device=env.device) * reward_value,
+        torch.zeros(env.num_envs, device=env.device)
+    )
+
+    return reward
+
+
+
+
 def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Debug version - prints density info."""
     from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
@@ -544,5 +670,28 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
             print(f"  # OR list all files:")
             print(f"  ls -lh {save_dir}/")
             print(f"{'='*80}\n")
+
+    return torch.zeros(env.num_envs, device=env.device)
+
+
+
+def debug_contact_forces(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Minimal contact force debug - just XYZ components."""
+
+    if env.common_step_counter % 1 == 0:
+        left_sensor = env.scene.sensors["contact_forces_left"]
+        right_sensor = env.scene.sensors["contact_forces_right"]
+
+        if left_sensor.data.net_forces_w is not None:
+            left_force = left_sensor.data.net_forces_w[0].cpu().numpy().flatten()
+        else:
+            left_force = [0, 0, 0]
+
+        if right_sensor.data.net_forces_w is not None:
+            right_force = right_sensor.data.net_forces_w[0].cpu().numpy().flatten()
+        else:
+            right_force = [0, 0, 0]
+
+        print(f"[Step {env.common_step_counter}] Left: [{left_force[0]:.3f}, {left_force[1]:.3f}, {left_force[2]:.3f}] | Right: [{right_force[0]:.3f}, {right_force[1]:.3f}, {right_force[2]:.3f}]")
 
     return torch.zeros(env.num_envs, device=env.device)
