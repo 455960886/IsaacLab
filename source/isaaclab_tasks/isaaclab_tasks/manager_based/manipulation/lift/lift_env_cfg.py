@@ -41,19 +41,9 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     ee_frame: FrameTransformerCfg = MISSING
     finger_frame_1: FrameTransformerCfg = MISSING
     finger_frame_2: FrameTransformerCfg = MISSING
-    # target object: will be populated by agent env cfg
     object: RigidObjectCfg | DeformableObjectCfg = MISSING
     object_pool: RigidObjectCollectionCfg = MISSING
     # object_id :int=0
-
-    # bear_frame: FrameTransformerCfg = MISSING
-
-    # # Table
-    # table = AssetBaseCfg(
-    #     prim_path="{ENV_REGEX_NS}/Table",
-    #     init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0, 0], rot=[0.707, 0, 0, 0.707]),
-    #     spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/SeattleLabTable/table_instanceable.usd"),
-    # )
 
     # plane
     plane = AssetBaseCfg(
@@ -66,8 +56,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     FloorWithPanels = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/FloorwithPanels",
         init_state=AssetBaseCfg.InitialStateCfg(
-            pos=[-0.04, 1.2, 0.775],
-            rot=[0, 0, 0, 1],
+            pos=(-0.04, 1.2, 0.775),
+            rot=(0, 0, 0, 1),
         ),
         spawn=UsdFileCfg(usd_path="/home/robo/code/IsaacLab/assets/FloorWithPanels.usd"),
     )
@@ -78,12 +68,11 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=1000.0),
     )
 
-
     sphere_light = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/SphereLight",
         init_state=AssetBaseCfg.InitialStateCfg(
-            pos=[-0.2, 0.0, 1.0],
-            rot=[0, 0, 0, 1],
+            pos=(-0.2, 0.0, 1.0),
+            rot=(0, 0, 0, 1),
         ),
         spawn=sim_utils.SphereLightCfg(
             color=(1.0, 1.0, 1.0),
@@ -102,7 +91,10 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.7071, 0.7071, 0.0, 0.0)), convention="opengl"),
         data_types=["distance_to_image_plane"],  # Key change to depth
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=10.6, focus_distance=400.0, horizontal_aperture=36, vertical_aperture=25.45,
+            focal_length=10.6,
+            focus_distance=400.0,
+            horizontal_aperture=36,
+            vertical_aperture=25.45,
         ),
         width=400,
         height=300,
@@ -119,11 +111,10 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         ),
         data_types=["rgb"],
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=8.0, 
-            focus_distance=200.0, 
-            horizontal_aperture=36, 
-            vertical_aperture=25.45,
-            
+            focal_length=8.0,
+            focus_distance=200.0,
+            horizontal_aperture=36,
+            vertical_aperture=25.45,    
         ),
         width=400,
         height=300,
@@ -131,8 +122,6 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         update_period=0.15,
     )
 
-
-    # NEW: Contact sensors on gripper fingers
     contact_forces_left = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/M6_1_leftfinger_link",  # Left gripper finger link
         update_period=0.0,  # Update every step
@@ -150,48 +139,6 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     )
 
 
-    # prim_path="{ENV_REGEX_NS}/Robot/base_link/M0_chassis_link/tof_link",
-
-    # ray_caster: RayCasterCfg = RayCasterCfg(
-    #     prim_path="{ENV_REGEX_NS}/Robot/base_link/M0_chassis_link/tof_link",
-    #     update_period=1 / 60,
-    #     offset=RayCasterCfg.OffsetCfg(pos=(0, 0, 1.0)),
-    #     # mesh_prim_paths=["/World/GroundPlane"],
-    #     mesh_prim_paths=[
-    #         "/World/GroundPlane",
-    #     ],
-    #     attach_yaw_only=True,
-    #     pattern_cfg=patterns.LidarPatternCfg(
-    #         channels=50, vertical_fov_range=[-90, 90], horizontal_fov_range=[-60, 60], horizontal_res=1.0
-    #     ),
-    #     debug_vis=True,
-    # )
-
-
-    # tiled_camera2: TiledCameraCfg = TiledCameraCfg(
-    #     prim_path="{ENV_REGEX_NS}/Camera_2",
-    #     offset=TiledCameraCfg.OffsetCfg(pos=(1.3, 0.0, 0.9), rot=((0.63281, 0.31551, 0.31551, 0.63281)), convention="opengl"),
-    #     data_types=["rgb"],
-    #     spawn=sim_utils.PinholeCameraCfg(
-    #         focal_length=38.3, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 20.0)
-    #     ),
-    #     width=1000,
-    #     height=800,
-    # )
-
-    # contact_forces: ContactSensorCfg = ContactSensorCfg(
-    #     prim_path="{ENV_REGEX_NS}/Robot/M6_2_.*finger_link",  # Adjust to your gripper parts
-    #     update_period=0.0,
-    #     history_length=1,
-    #     # filter_prim_paths_expr=[
-    #     #     "{ENV_REGEX_NS}/FloorwithPanels",  # Match your actual ground name
-    #     # ],
-    #     force_threshold=0.1,
-    # )    
-
-
-
-
 ##
 # MDP settings
 ##
@@ -207,14 +154,6 @@ class CommandsCfg:
         resampling_time_range=(5.0, 5.0),
         debug_vis=False,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            # pos_x=(0.4, 0.6), pos_y=(-0.25, 0.25), pos_z=(0.25, 0.5), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
-            # pos_x=(0.25, 0.35),
-            # pos_y=(-0.05, 0.05),
-            # pos_z=(0.25, 0.5),
-            # roll=(0.0, 0.0),
-            # pitch=(0.0, 0.0),
-            # yaw=(0.0, 0.0),
-            
             pos_x=(0.3, 0.3),
             pos_y=(0.0, 0.0),
             pos_z=(0.1, 0.3),
@@ -235,7 +174,6 @@ class ActionsCfg:
     gripper_action: mdp.BinaryJointPositionActionCfg = MISSING
 
 
-
 @configclass
 class ObservationsCfg:
     """Observation specifications for the MDP."""
@@ -253,26 +191,8 @@ class ObservationsCfg:
         def __post_init__(self):
             self.enable_corruption = True
             self.concatenate_terms = True
-    '''
-    @configclass
-    class RGBCameraPolicyCfg(ObsGroup):
-        """Observations for policy group with RGB images."""
 
-        table_cam = ObsTerm(
-            func=mdp.image, params={"sensor_cfg": SceneEntityCfg("table_cam"), "data_type": "rgb", "normalize": False}
-        )
-
-        def __post_init__(self):
-            self.enable_corruption = False
-            self.concatenate_terms = True
-    '''
-
-
-
-    # observation groups
     policy: PolicyCfg = PolicyCfg()
-    #rgb_camera: RGBCameraPolicyCfg = RGBCameraPolicyCfg()
-
 
 
 def point_cloud_from_depth_camera(env, sensor_cfg: SceneEntityCfg, data_type: str = "distance_to_image_plane") -> torch.Tensor:
@@ -337,7 +257,6 @@ def point_cloud_from_depth_camera(env, sensor_cfg: SceneEntityCfg, data_type: st
     return point_clouds
 
 
-
 @configclass
 class RgbPcdObservationCfg:
     
@@ -367,7 +286,6 @@ class RgbPcdObservationCfg:
             self.enable_corruption = False
             self.concatenate_terms = False  # This will flatten all observations        
 
-
     policy: ObsGroup = RgbPcdPolicyCfg()
 
 
@@ -388,7 +306,6 @@ class RGBObservationsCfg:
     policy: ObsGroup = RGBCameraPolicyCfg()
 
 
-
 @configclass
 class ResNet18ObservationCfg:
     """Observation specifications for the MDP."""
@@ -396,15 +313,12 @@ class ResNet18ObservationCfg:
     @configclass
     class ResNet18FeaturesCameraPolicyCfg(ObsGroup):
         """Observations for policy group with features extracted from RGB images with a frozen ResNet18."""
-
-
         image = ObsTerm(
             func=mdp.image_features,
             params={"sensor_cfg": SceneEntityCfg("gripper_camera"), "data_type": "rgb","model_name": "resnet18","depth_cfg":SceneEntityCfg("depth_camera")},
         )
 
     policy: ObsGroup = ResNet18FeaturesCameraPolicyCfg()
-
 
 
 @configclass
@@ -430,7 +344,6 @@ class GripperCameraObservationCfg:
     policy: ObsGroup = GripperCameraPolicyCfg()
 
 
-
 @configclass
 class PcdObservationCfg:
 
@@ -451,7 +364,6 @@ class PcdObservationCfg:
     policy: ObsGroup = PcdPolicyCfg()
 
 
-
 @configclass
 class EventCfg:
     """Configuration for events."""
@@ -460,7 +372,6 @@ class EventCfg:
         func=mdp.initialize_point_cloud_cache,
         mode="startup"
     )
-
 
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
 
@@ -477,7 +388,6 @@ class EventCfg:
         mode="reset",
         params={"asset_cfg": SceneEntityCfg("object_pool")},
     )
-
 
     reset_object_position = EventTerm(
         func=mdp.reset_object_pool_state_uniform,
@@ -499,9 +409,6 @@ class EventCfg:
             "asset_cfg": SceneEntityCfg("object_pool"),
         },
     )
-
-
-    
 
     # randomize_lighting_reset = EventTerm(
     #     func=mdp.randomize_sphere_light_intensity,
@@ -534,14 +441,13 @@ class RewardsCfg:
         weight=15,
     )
 
-
     lifting_object_linear = RewTerm(
         func=mdp.object_is_lifted_linear,
         params={"minimal_height": 0.01, "max_height": 0.045},
         weight=100.0,   # 1500  150
     )
 
-        # NEW: Lifting with contact verification
+    # NEW: Lifting with contact verification
     lifting_object_linear_contact = RewTerm(
         func=mdp.object_is_lifted_with_contact,
         params={
@@ -553,7 +459,6 @@ class RewardsCfg:
         weight=300.0,
     )
 
-
     # NEW: Point cloud density reward
     contain_object = RewTerm(
         func=mdp.pcd_contain_object,
@@ -563,7 +468,6 @@ class RewardsCfg:
         },
         weight=10.0,  # Tune this: 5.0-20.0 depending on importance
     )
-
 
     # Stage 2: Close gripper when object is inside
     clamp_object = RewTerm(
@@ -576,7 +480,6 @@ class RewardsCfg:
         weight=20.0,  # Higher weight since this is the actual grasp
     )
 
-
     clamp_object_contact = RewTerm(
         func=mdp.contact_clamp_object,
         params={
@@ -587,59 +490,13 @@ class RewardsCfg:
         weight=40.0,
     )
 
-
-    # action penalty
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-3)
-
-
-    # object_goal_tracking = RewTerm(
-    #     func=mdp.object_goal_distance,
-    #     params={"std": 0.3, "minimal_height": 0.028, "command_name": "object_pose"},
-    #     weight=10.0,  # 16.0
-    # )
-
-    # object_goal_tracking_fine_grained = RewTerm(
-    #     func=mdp.object_goal_distance,
-    #     # params={"std": 0.05, "minimal_height": 0.04, "command_name": "object_pose"},
-    #     params={"std": 0.05, "minimal_height": 0.028, "command_name": "object_pose"},
-    #     weight=0.5,  # 5.0
-    # )
 
     joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
         weight=-1e-3,
         params={"asset_cfg": SceneEntityCfg("robot")},
     )
-
-    # contain_object = RewTerm(
-    #     func=mdp.contain_object,
-    #     params={"std": 1},
-    #     weight=0.0,  # 2.0
-    # )
-
-    # clamp_object = RewTerm(
-    #     func=mdp.clamp_object,
-    #     params={"std": 1},
-    #     weight=0.0,  # 2.0
-    # )
-
-    # penalize_m0_after_lift = RewTerm(
-    #     func=mdp.penalize_m0_after_lift,
-    #     weight= 0.0,  # Adjust this weight as needed
-    #     params={
-    #         "minimal_height": 0.03,  
-    #         "m0_movement_penalty_scale": 10.0,  # Higher = stronger penalty
-    #     }
-    # )
-
-    # debug_density = RewTerm(func=mdp.debug_pcd_density, weight=0.1)
-    # visualize_sphere = RewTerm(func=mdp.visualize_pcd_sphere, weight=0.01)
-
-    # ee_to_cluster_centroid = RewTerm(
-    #     func=mdp.ee_to_object_cluster_centroid_distance,
-    #     params={"std": 0.1},
-    #     weight=5.0,  # Adjust this weight based on your needs
-    # )
 
 
 @configclass
@@ -666,15 +523,6 @@ class TerminationsCfg:
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
-    #action_rate = CurrTerm(
-    #    func=mdp.modify_reward_weight, params={"term_name": "action_rate", "weight": -1e-1, "num_steps": 10000}
-    #)
-
-    #joint_vel = CurrTerm(
-    #    func=mdp.modify_reward_weight, params={"term_name": "joint_vel", "weight": -1e-1, "num_steps": 10000}
-    #)
-
-
 ##
 # Environment configuration
 ##
@@ -688,7 +536,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=7)
     # Basic settings
     # observations: ObservationsCfg = ObservationsCfg()
-    #observations: TheiaTinyObservationCfg = TheiaTinyObservationCfg()
+    # observations: TheiaTinyObservationCfg = TheiaTinyObservationCfg()
     # observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
 
     # observations: GripperCameraObservationCfg = GripperCameraObservationCfg()
