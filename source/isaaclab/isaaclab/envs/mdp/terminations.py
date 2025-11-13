@@ -60,6 +60,40 @@ def bad_orientation(
     return torch.acos(-asset.data.projected_gravity_b[:, 2]).abs() > limit_angle
 
 
+
+def bad_object_orientation(
+    env: ManagerBasedRLEnv, 
+    limit_angle: float,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")
+) -> torch.Tensor:
+    """
+    Terminate when the active object's orientation is too tilted.
+    Works with RigidObjectCollection (object pools).
+    """
+    from isaaclab.assets import RigidObjectCollection
+
+    object_collection: RigidObjectCollection = env.scene[object_cfg.name]
+
+    # Get active object indices
+    if not hasattr(env, 'active_object_indices'):
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    active_indices = env.active_object_indices
+
+    # Get projected gravity for all objects: (num_envs, num_objects, 3)
+    all_projected_gravity = object_collection.data.projected_gravity_b
+
+    # Index to get only active objects: (num_envs, 3)
+    env_indices = torch.arange(env.num_envs, device=env.device)
+    active_projected_gravity = all_projected_gravity[env_indices, active_indices]
+
+    # Calculate tilt angle
+    tilt_angle = torch.acos(-active_projected_gravity[:, 2].clamp(-1.0, 1.0)).abs()
+
+    # Terminate if angle exceeds limit
+    return tilt_angle > limit_angle
+
+
 def root_height_below_minimum(
     env: ManagerBasedRLEnv, minimum_height: float, asset_cfg:SceneEntityCfg = SceneEntityCfg("robot"),
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
@@ -73,7 +107,7 @@ def root_height_below_minimum(
     asset: RigidObject = env.scene[asset_cfg.name]
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
 
-    return (asset.data.root_pos_w[:, 2] < minimum_height) | (ee_frame.data.target_pos_w[..., 0, 2] <0.006)
+    return (asset.data.root_pos_w[:, 2] < minimum_height) | (ee_frame.data.target_pos_w[..., 0, 2] <0.000)
 
 
 """

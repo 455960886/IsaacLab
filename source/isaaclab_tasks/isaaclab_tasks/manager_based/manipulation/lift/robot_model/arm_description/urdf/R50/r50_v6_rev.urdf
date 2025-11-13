@@ -450,7 +450,7 @@
       effort="100"
       velocity="5" />
   </joint>
-  <link
+  <!-- <link
     name="M6_1_1_LINK">
     <inertial>
       <origin
@@ -502,7 +502,7 @@
       link="M6_1_1_LINK" />
     <axis
       xyz="0 0 0" />
-  </joint>
+  </joint> -->
   <link
     name="M6_2_rightfinger_link">
     <inertial>
@@ -561,7 +561,7 @@
       effort="100"
       velocity="5" />
   </joint>
-  <link
+  <!-- <link
     name="M6_2_2_LINK">
     <inertial>
       <origin
@@ -613,7 +613,7 @@
       link="M6_2_2_LINK" />
     <axis
       xyz="0 0 0" />
-  </joint>
+  </joint> -->
   <link
     name="gripper_link">
     <inertial>
