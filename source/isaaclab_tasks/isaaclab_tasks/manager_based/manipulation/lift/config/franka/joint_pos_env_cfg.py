@@ -181,24 +181,6 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         )
 
 
-        # self.scene.bear_frame = FrameTransformerCfg(
-        #     prim_path="{ENV_REGEX_NS}/Object/geometry/bear",
-        #     debug_vis=False,
-        #     visualizer_cfg=marker_cfg,
-        #     target_frames=[
-        #         FrameTransformerCfg.FrameCfg(
-        #             prim_path="{ENV_REGEX_NS}/Object/geometry/bear",
-        #             name="bear_grasp_point",
-        #             offset=OffsetCfg(
-        #                 pos=[-0.0341, -0.0188, 0.0172]
-        #             ),
-        #         ),
-        #     ],
-            
-        # )
-
-
-
 @configclass
 class CoarseArmCubeLiftEnvCfg_PLAY(CoarseArmCubeLiftEnvCfg):
     def __post_init__(self):
