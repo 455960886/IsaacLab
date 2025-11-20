@@ -346,7 +346,7 @@ def image(
         elif "distance_to" in data_type or "depth" in data_type:
             images[images == float("inf")] = 0
     # print("image shape11:",images.shape)
-    #深度图与RGB图拼接
+    # 深度图与RGB图拼接
     images = torch.cat((images,depth),dim=-1)
     # print("image shape22:",images.shape)
     return images.clone()
@@ -638,10 +638,10 @@ class image_features(ManagerTermBase):
             save_ply(points_rotated, "1_rotated")
 
         # Apply distance filtering
-        mask1 = rotated_points[:, :, 2] < 0.37
+        mask1 = rotated_points[:, :, 2] < 0.38
         mask2 = rotated_points[:, :, 1] > -0.05
-        mask3 = rotated_points[:, :, 1] < 0.00
-        mask = mask1 & mask2 & mask3
+        mask3 = rotated_points[:, :, 1] < 0.16
+        mask = mask1 & mask3 & mask2
 
         # Save Stage 2: After filtering
         if save_ply_debug:
@@ -748,7 +748,7 @@ class image_features(ManagerTermBase):
             self.fy,
             self.cx,
             self.cy,
-            num_points=2048,
+            num_points=1024,
             save_ply_debug=False,
             env_id=0,
             frame_counter=self._frame_counter,

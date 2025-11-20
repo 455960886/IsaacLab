@@ -20,9 +20,7 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-
-
-## Help Function to get the states of active object from the object pool
+# Help Function to get the states of active object from the object pool
 def get_active_object_states(env: ManagerBasedRLEnv, object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")):
     """
     Helper function to get states of active objects from object pool.
@@ -33,7 +31,7 @@ def get_active_object_states(env: ManagerBasedRLEnv, object_cfg: SceneEntityCfg 
     """
     from isaaclab.assets import RigidObjectCollection
     
-    object_collection: RigidObjectCollection = env.scene[object_cfg.name]
+    object_pool: RigidObjectCollection = env.scene[object_cfg.name]
     
     # Get active object indices for each environment
     if not hasattr(env, 'active_object_indices'):
@@ -42,8 +40,8 @@ def get_active_object_states(env: ManagerBasedRLEnv, object_cfg: SceneEntityCfg 
     active_indices = env.active_object_indices  # (num_envs,)
     
     # Get all object states: (num_envs, num_objects, state_dim)
-    all_pos_w = object_collection.data.object_pos_w  # (num_envs, num_objects, 3)
-    all_quat_w = object_collection.data.object_quat_w  # (num_envs, num_objects, 4)
+    all_pos_w = object_pool.data.object_pos_w  # (num_envs, num_objects, 3)
+    all_quat_w = object_pool.data.object_quat_w  # (num_envs, num_objects, 4)
     
     # Index to get only active objects
     # Use advanced indexing: env_indices = [0, 1, 2, ...], object_indices = active_indices
@@ -89,7 +87,6 @@ def object_is_lifted_linear(
     reward = torch.square(normalized)
     
     return reward
-
 
 
 def object_is_lifted_with_contact(
@@ -184,7 +181,7 @@ def object_ee_distance(
     # Calculate distance between EE and active object
     dist = torch.norm(active_pos_w - ee_w, dim=1)
     raw_rew = torch.exp(-dist / std)
-    mask = (dist < 0.035).float()
+    mask = (dist < 0.05).float()
     rew = raw_rew * mask
 
     return rew
@@ -764,7 +761,6 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
             print("=" * 50)
 
     return torch.zeros(env.num_envs, device=env.device)
-
 
 
 def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:

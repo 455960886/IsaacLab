@@ -73,7 +73,7 @@ def bad_object_orientation(
     """
     from isaaclab.assets import RigidObjectCollection
 
-    object_collection: RigidObjectCollection = env.scene[object_cfg.name]
+    object_pool: RigidObjectCollection = env.scene[object_cfg.name]
 
     # Get active object indices
     if not hasattr(env, 'active_object_indices'):
@@ -82,7 +82,7 @@ def bad_object_orientation(
     active_indices = env.active_object_indices
 
     # Get projected gravity for all objects: (num_envs, num_objects, 3)
-    all_projected_gravity = object_collection.data.projected_gravity_b
+    all_projected_gravity = object_pool.data.projected_gravity_b
 
     # Index to get only active objects: (num_envs, 3)
     env_indices = torch.arange(env.num_envs, device=env.device)
@@ -125,7 +125,7 @@ def object_pushed_away(
     Object base position relative to robot: (0.28, 0.0, 0.0)
     Randomization: x(-0.01, 0.09), y(0.0, 0.0), z(0.0, 0.0)
     """
-    object_collection: RigidObjectCollection = env.scene[object_cfg.name]
+    object_pool: RigidObjectCollection = env.scene[object_cfg.name]
     robot: Articulation = env.scene[robot_cfg.name]
 
     # Get active object indices
@@ -135,7 +135,7 @@ def object_pushed_away(
     active_indices = env.active_object_indices
 
     # Get positions: (num_envs, 3)
-    all_positions = object_collection.data.object_link_pos_w
+    all_positions = object_pool.data.object_link_pos_w
     env_indices = torch.arange(env.num_envs, device=env.device)
     active_positions_w = all_positions[env_indices, active_indices]
 
@@ -160,7 +160,7 @@ def bad_object_orientation(
     Terminate when the active object's orientation is too tilted.
     Works with RigidObjectCollection (object pools).
     """
-    object_collection: RigidObjectCollection = env.scene[object_cfg.name]
+    object_pool: RigidObjectCollection = env.scene[object_cfg.name]
 
     # Get active object indices
     if not hasattr(env, 'active_object_indices'):
@@ -169,7 +169,7 @@ def bad_object_orientation(
     active_indices = env.active_object_indices
 
     # Get projected gravity for all objects: (num_envs, num_objects, 3)
-    all_projected_gravity = object_collection.data.projected_gravity_b
+    all_projected_gravity = object_pool.data.projected_gravity_b
 
     # Index to get only active objects: (num_envs, 3)
     env_indices = torch.arange(env.num_envs, device=env.device)

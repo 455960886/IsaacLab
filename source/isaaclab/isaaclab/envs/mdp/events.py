@@ -16,29 +16,349 @@ from __future__ import annotations
 
 import math
 import torch
+import numpy as np
 from typing import TYPE_CHECKING, Literal
 
 import carb
 import omni.physics.tensors.impl.api as physx
 import omni.usd
 from isaacsim.core.utils.extensions import enable_extension
-from pxr import Gf, Sdf, UsdGeom, Vt, UsdShade, Usd
+from pxr import Gf, Sdf, UsdGeom, Vt, UsdShade
 
 import isaaclab.sim as sim_utils
 import isaaclab.utils.math as math_utils
 from isaaclab.utils.math import sample_uniform
 from isaaclab.actuators import ImplicitActuator
-# import omni.isaac.core.utils.stage as stage_utils
 from isaaclab.assets import Articulation, DeformableObject, RigidObject
 from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
 from isaaclab.terrains import TerrainImporter
-from isaaclab.assets import RigidObjectCfg
-from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
-from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+import os
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
+
+
+def initialize_point_cloud_cache(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+):
+    """
+    Initialize point cloud cache storage.
+    Called once at startup (env_ids will be None).
+    """
+    # Initialize cache attributes
+    env.point_cloud_cache = None
+    env._pcd_cache_step = -1
+    print("[INFO] Point cloud cache initialized")
+
+
+def reset_scene_to_default(env: ManagerBasedEnv, env_ids: torch.Tensor):
+    """Reset the scene to the default state specified in the scene configuration."""
+    # rigid bodies
+    for rigid_object in env.scene.rigid_objects.values():
+        # obtain default and deal with the offset for env origins
+        default_root_state = rigid_object.data.default_root_state[env_ids].clone()
+        default_root_state[:, 0:3] += env.scene.env_origins[env_ids]
+        # set into the physics simulation
+        rigid_object.write_root_pose_to_sim(default_root_state[:, :7], env_ids=env_ids)
+        rigid_object.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids=env_ids)
+    # articulations
+    for articulation_asset in env.scene.articulations.values():
+        # obtain default and deal with the offset for env origins
+        default_root_state = articulation_asset.data.default_root_state[env_ids].clone()
+        default_root_state[:, 0:3] += env.scene.env_origins[env_ids]
+        # set into the physics simulation
+        articulation_asset.write_root_pose_to_sim(default_root_state[:, :7], env_ids=env_ids)
+        articulation_asset.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids=env_ids)
+        # obtain default joint positions
+        default_joint_pos = articulation_asset.data.default_joint_pos[env_ids].clone()
+        default_joint_vel = articulation_asset.data.default_joint_vel[env_ids].clone()
+        # set into the physics simulation
+        articulation_asset.write_joint_state_to_sim(default_joint_pos, default_joint_vel, env_ids=env_ids)
+    # deformable objects
+    for deformable_object in env.scene.deformable_objects.values():
+        # obtain default and set into the physics simulation
+        nodal_state = deformable_object.data.default_nodal_state_w[env_ids].clone()
+        deformable_object.write_nodal_state_to_sim(nodal_state, env_ids=env_ids)
+
+
+def randomize_object_pool_selection(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+):
+    """Randomize which object from pool is active per environment."""
+    # Handle None env_ids (startup mode - apply to all environments)
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=env.device)
+
+    object_pool = env.scene[asset_cfg.name]
+    num_objects = len(object_pool.object_names)
+
+    # Create buffer to store active object indices if not exists
+    if not hasattr(env, 'active_object_indices'):
+        env.active_object_indices = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+
+    for env_idx in env_ids:
+        active_idx = torch.randint(0, num_objects, (1,), device=env.device).item()
+        env.active_object_indices[env_idx] = active_idx
+
+        for obj_idx in range(num_objects):
+            pos = torch.tensor([0.28, 0.0, 0.0] if obj_idx == active_idx else [100.0, 100.0, -10.0], device=env.device)
+
+            root_state = object_pool.data.default_object_state[env_idx, obj_idx].clone()
+            root_state[:3] = pos + env.scene.env_origins[env_idx]
+            root_state[3:7] = torch.tensor([1.0, 0.0, 0.0, 0.0], device=env.device)
+            root_state[7:] = 0.0
+
+            object_pool.write_object_state_to_sim(
+                root_state.unsqueeze(0),
+                env_ids=torch.tensor([env_idx], device=env.device),
+                object_ids=torch.tensor([obj_idx], device=env.device)
+            )
+
+
+def reset_object_pool_state_uniform(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    pose_range: dict[str, tuple[float, float]],
+    velocity_range: dict[str, tuple[float, float]],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+):
+    """Reset active objects in object pool to random position and velocity uniformly within given ranges."""
+    from isaaclab.assets import RigidObjectCollection
+    import isaaclab.utils.math as math_utils
+
+    # Extract object collection
+    object_pool: RigidObjectCollection = env.scene[asset_cfg.name]
+
+    # Get active object indices
+    if not hasattr(env, 'active_object_indices'):
+        raise RuntimeError("active_object_indices not found")
+
+    # Prepare pose ranges (same as original)
+    pose_range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    pose_ranges = torch.tensor(pose_range_list, device=object_pool.device)
+    pose_rand_samples = math_utils.sample_uniform(
+        pose_ranges[:, 0], pose_ranges[:, 1], (len(env_ids), 6), device=object_pool.device
+    )
+
+    # Prepare velocity ranges (same as original)
+    vel_range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    vel_ranges = torch.tensor(vel_range_list, device=object_pool.device)
+    vel_rand_samples = math_utils.sample_uniform(
+        vel_ranges[:, 0], vel_ranges[:, 1], (len(env_ids), 6), device=object_pool.device
+    )
+
+    # Reset each environment's active object
+    for idx, env_idx in enumerate(env_ids):
+        active_obj_idx = env.active_object_indices[env_idx].item()
+
+        # Get default state for active object
+        root_state = object_pool.data.default_object_state[env_idx, active_obj_idx].clone()
+
+        # Apply pose randomization (same logic as original)
+        position = root_state[0:3] + env.scene.env_origins[env_idx] + pose_rand_samples[idx, 0:3]
+        orientation_delta = math_utils.quat_from_euler_xyz(
+            pose_rand_samples[idx, 3], pose_rand_samples[idx, 4], pose_rand_samples[idx, 5]
+        )
+        orientation = math_utils.quat_mul(root_state[3:7], orientation_delta)
+
+        # Apply velocity randomization (same logic as original)
+        velocity = root_state[7:13] + vel_rand_samples[idx]
+
+        # Combine and write (adapted for object collection)
+        new_state = torch.cat([position, orientation, velocity], dim=-1)
+        object_pool.write_object_state_to_sim(
+            new_state.unsqueeze(0),
+            env_ids=torch.tensor([env_idx], device=object_pool.device),
+            object_ids=torch.tensor([active_obj_idx], device=object_pool.device)
+        )
+
+
+def randomize_object_and_position(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    pose_range: dict[str, tuple[float, float]],
+    rigid_asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+):
+    """
+    自动处理 object_pool 只有 1 个 or 多个物体的情况。
+
+    单物体：直接随机位置，不选择 active index
+    多物体：保留你原来的逻辑（随机选择 + 其它物体丢到 10000m）
+    """
+    device = env.device
+    if not hasattr(env, "active_object_indices"):
+        env.active_object_indices = torch.zeros(env.scene.num_envs, dtype=torch.long, device=env.device)
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=device)
+    try:
+        obj_col = env.scene[rigid_asset_cfg.name]
+    except Exception:
+        return
+
+    num_envs = len(env_ids)
+    env_origins = env.scene.env_origins[env_ids]
+
+    # [N, num_objs, 13]
+    default_states = obj_col.data.default_object_state[env_ids].clone()
+    state_w = obj_col.data.object_state_w[env_ids].clone()
+
+    num_objs = len(obj_col.cfg.rigid_objects)
+    env_idx = torch.arange(num_envs, device=device)
+
+    # =============================================================================
+    # Case 1: 单物体 → 不需要随机选物体，不需要 active_object_indices
+    # =============================================================================
+    if num_objs == 1:
+        base_pos = default_states[:, 0, 0:3]
+        base_quat = default_states[:, 0, 3:7]
+
+        # pose range
+        range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x","y","z","roll","pitch","yaw"]]
+        ranges = torch.tensor(range_list, device=device)
+
+        rand_pose = torch.empty((num_envs, 6), device=device)
+        for k in range(6):
+            rand_pose[:, k] = torch.empty(num_envs, device=device).uniform_(ranges[k, 0], ranges[k, 1])
+
+        delta_pos = rand_pose[:, 0:3]
+        world_pos = env_origins + base_pos + delta_pos
+
+        # random rotation
+        delta_quat = math_utils.quat_from_euler_xyz(rand_pose[:, 3], rand_pose[:, 4], rand_pose[:, 5])
+        world_quat = math_utils.quat_mul(base_quat, delta_quat)
+
+        state_w[:, 0, 0:3] = world_pos
+        state_w[:, 0, 3:7] = world_quat
+        state_w[:, 0, 7:13] = 0.0  # clear velocities
+
+        obj_col.write_object_link_pose_to_sim(state_w[..., :7], env_ids=env_ids)
+        obj_col.write_object_com_velocity_to_sim(state_w[..., 7:], env_ids=env_ids)
+
+        return  # 单物体逻辑结束
+
+    # =============================================================================
+    # Case 2: 多物体 → 保留原本逻辑
+    # =============================================================================
+
+    # 随机选择 active object
+    active_obj_ids = torch.randint(0, num_objs, (num_envs,), device=device)
+    env.active_object_indices = active_obj_ids.clone()
+
+    # hide 未选中的物体
+    dummy_z = 10000.0
+    for i in range(num_envs):
+        for j in range(num_objs):
+            if j != int(active_obj_ids[i]):
+                state_w[i, j, 0:3] = torch.tensor([0.0, 0.0, dummy_z], device=device)
+                state_w[i, j, 7:13] = 0.0
+
+    # pose range
+    range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x","y","z","roll","pitch","yaw"]]
+    ranges = torch.tensor(range_list, device=device)
+
+    rand_pose = torch.empty((num_envs, 6), device=device)
+    for k in range(6):
+        rand_pose[:, k] = torch.empty(num_envs, device=device).uniform_(ranges[k, 0], ranges[k, 1])
+
+    # 对每个 env 的 active object 单独设置随机 pose
+    base_pos = default_states[env_idx, active_obj_ids, 0:3]
+    base_quat = default_states[env_idx, active_obj_ids, 3:7]
+    delta_pos = rand_pose[:, 0:3]
+
+    world_pos = env_origins + base_pos + delta_pos
+    delta_quat = math_utils.quat_from_euler_xyz(rand_pose[:, 3], rand_pose[:, 4], rand_pose[:, 5])
+    world_quat = math_utils.quat_mul(base_quat, delta_quat)
+
+    # 写回 active object
+    state_w[env_idx, active_obj_ids, 0:3] = world_pos
+    state_w[env_idx, active_obj_ids, 3:7] = world_quat
+    state_w[env_idx, active_obj_ids, 7:13] = 0.0
+
+    obj_col.write_object_link_pose_to_sim(state_w[..., :7], env_ids=env_ids)
+    obj_col.write_object_com_velocity_to_sim(state_w[..., 7:], env_ids=env_ids)
+
+
+def randomize_object_and_position1(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    pose_range: dict[str, tuple[float, float]],
+    velocity_range: dict[str, tuple[float, float]],
+    rigid_asset_cfg: "SceneEntityCfg" = SceneEntityCfg("object_pool"),
+):
+    """随机选择 object_pool 中的一个刚体并放置随机位置。"""
+
+    device = env.device
+
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=device)
+
+    try:
+        obj_col = env.scene[rigid_asset_cfg.name]
+    except Exception:
+        return
+
+    num_envs = len(env_ids)
+
+    env_origins = env.scene.env_origins[env_ids]
+    default_states = obj_col.data.default_object_state[env_ids].clone()  # [N, num_objs, 13]
+    state_w = obj_col.data.object_state_w[env_ids].clone()  # [N, num_objs, 13]
+
+    num_objs = len(obj_col.cfg.rigid_objects)
+    if num_objs == 0:
+        print("No rigid objects in collection!")
+        return
+
+    active_obj_ids = torch.randint(0, num_objs, (num_envs,), device=device)
+    env.active_object_indices = active_obj_ids.clone()
+
+    dummy_z = 10000.0
+    for i in range(num_envs):
+        for j in range(num_objs):
+            if j != int(active_obj_ids[i]):
+                state_w[i, j, 0:3] = torch.tensor([0.0, 0.0, dummy_z], device=device)
+                state_w[i, j, 7:13] = 0.0
+
+    range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    ranges = torch.tensor(range_list, device=device)
+
+    rand_pose = torch.empty((num_envs, 6), device=device)
+    for k in range(6):
+        rand_pose[:, k] = torch.empty(num_envs, device=device).uniform_(ranges[k, 0], ranges[k, 1])
+
+    # 平移
+    delta_pos = rand_pose[:, 0:3]
+    base_local = default_states[torch.arange(num_envs), active_obj_ids, 0:3]
+    world_pos = env_origins + base_local + delta_pos
+
+    # 旋转
+    base_quat = default_states[torch.arange(num_envs), active_obj_ids, 3:7]
+    delta_quat = math_utils.quat_from_euler_xyz(rand_pose[:, 3], rand_pose[:, 4], rand_pose[:, 5])
+    world_quat = math_utils.quat_mul(base_quat, delta_quat)
+
+    # 写入选中物体的新位姿
+    state_w[torch.arange(num_envs), active_obj_ids, 0:3] = world_pos
+    state_w[torch.arange(num_envs), active_obj_ids, 3:7] = world_quat
+    state_w[torch.arange(num_envs), active_obj_ids, 7:13] = 0.0  # 清零速度
+
+    obj_col.write_object_link_pose_to_sim(state_w[..., :7], env_ids=env_ids)
+    obj_col.write_object_com_velocity_to_sim(state_w[..., 7:], env_ids=env_ids)
+
+    # -----------------------------------------
+    # Debug 输出（可选）
+    # -----------------------------------------
+    quats = state_w[torch.arange(num_envs), active_obj_ids, 3:7].reshape(-1, 4)
+    rpy = math_utils.euler_xyz_from_quat(quats)
+    if isinstance(rpy, tuple):  # 兼容旧版本
+        rpy = torch.stack(rpy, dim=-1)
+
+    print("====== Object Rotations (radians) ======")
+    for i in range(min(5, num_envs)):
+        roll, pitch, yaw = rpy[i].tolist()
+        print(f"Env {i}: roll={roll:.3f}, pitch={pitch:.3f}, yaw={yaw:.3f}")
+    print("========================================")
 
 
 def randomize_rigid_body_scale(
@@ -1075,63 +1395,6 @@ def reset_root_state_uniform(
 
 
 
-def reset_object_pool_state_uniform(
-    env: ManagerBasedEnv,
-    env_ids: torch.Tensor,
-    pose_range: dict[str, tuple[float, float]],
-    velocity_range: dict[str, tuple[float, float]],
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-):
-    """Reset active objects in object pool to random position and velocity uniformly within given ranges."""
-    from isaaclab.assets import RigidObjectCollection
-    import isaaclab.utils.math as math_utils
-
-    # Extract object collection
-    object_collection: RigidObjectCollection = env.scene[asset_cfg.name]
-
-    # Get active object indices
-    if not hasattr(env, 'active_object_indices'):
-        raise RuntimeError("active_object_indices not found")
-
-    # Prepare pose ranges (same as original)
-    pose_range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
-    pose_ranges = torch.tensor(pose_range_list, device=object_collection.device)
-    pose_rand_samples = math_utils.sample_uniform(
-        pose_ranges[:, 0], pose_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
-    )
-
-    # Prepare velocity ranges (same as original)
-    vel_range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
-    vel_ranges = torch.tensor(vel_range_list, device=object_collection.device)
-    vel_rand_samples = math_utils.sample_uniform(
-        vel_ranges[:, 0], vel_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
-    )
-
-    # Reset each environment's active object
-    for idx, env_idx in enumerate(env_ids):
-        active_obj_idx = env.active_object_indices[env_idx].item()
-
-        # Get default state for active object
-        root_state = object_collection.data.default_object_state[env_idx, active_obj_idx].clone()
-
-        # Apply pose randomization (same logic as original)
-        position = root_state[0:3] + env.scene.env_origins[env_idx] + pose_rand_samples[idx, 0:3]
-        orientation_delta = math_utils.quat_from_euler_xyz(
-            pose_rand_samples[idx, 3], pose_rand_samples[idx, 4], pose_rand_samples[idx, 5]
-        )
-        orientation = math_utils.quat_mul(root_state[3:7], orientation_delta)
-
-        # Apply velocity randomization (same logic as original)
-        velocity = root_state[7:13] + vel_rand_samples[idx]
-
-        # Combine and write (adapted for object collection)
-        new_state = torch.cat([position, orientation, velocity], dim=-1)
-        object_collection.write_object_state_to_sim(
-            new_state.unsqueeze(0),
-            env_ids=torch.tensor([env_idx], device=object_collection.device),
-            object_ids=torch.tensor([active_obj_idx], device=object_collection.device)
-        )
-
 
 
 
@@ -1362,36 +1625,6 @@ def reset_nodal_state_uniform(
 
     # set into the physics simulation
     asset.write_nodal_state_to_sim(nodal_state, env_ids=env_ids)
-
-
-def reset_scene_to_default(env: ManagerBasedEnv, env_ids: torch.Tensor):
-    """Reset the scene to the default state specified in the scene configuration."""
-    # rigid bodies
-    for rigid_object in env.scene.rigid_objects.values():
-        # obtain default and deal with the offset for env origins
-        default_root_state = rigid_object.data.default_root_state[env_ids].clone()
-        default_root_state[:, 0:3] += env.scene.env_origins[env_ids]
-        # set into the physics simulation
-        rigid_object.write_root_pose_to_sim(default_root_state[:, :7], env_ids=env_ids)
-        rigid_object.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids=env_ids)
-    # articulations
-    for articulation_asset in env.scene.articulations.values():
-        # obtain default and deal with the offset for env origins
-        default_root_state = articulation_asset.data.default_root_state[env_ids].clone()
-        default_root_state[:, 0:3] += env.scene.env_origins[env_ids]
-        # set into the physics simulation
-        articulation_asset.write_root_pose_to_sim(default_root_state[:, :7], env_ids=env_ids)
-        articulation_asset.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids=env_ids)
-        # obtain default joint positions
-        default_joint_pos = articulation_asset.data.default_joint_pos[env_ids].clone()
-        default_joint_vel = articulation_asset.data.default_joint_vel[env_ids].clone()
-        # set into the physics simulation
-        articulation_asset.write_joint_state_to_sim(default_joint_pos, default_joint_vel, env_ids=env_ids)
-    # deformable objects
-    for deformable_object in env.scene.deformable_objects.values():
-        # obtain default and set into the physics simulation
-        nodal_state = deformable_object.data.default_nodal_state_w[env_ids].clone()
-        deformable_object.write_nodal_state_to_sim(nodal_state, env_ids=env_ids)
 
 
 def force_clear_object_visuals(
@@ -1711,52 +1944,131 @@ def _randomize_prop_by_op(
     return data
 
 
-def randomize_object_pool_selection(
-    env: ManagerBasedRLEnv,
-    env_ids: torch.Tensor | None,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-):
-    """Randomize which object from pool is active per environment."""
-    # Handle None env_ids (startup mode - apply to all environments)
+def randomize_multiple_sphere_lights(
+    env: "ManagerBasedEnv",
+    env_ids: torch.Tensor,
+    num_lights: int,
+) -> None:
+    """Randomize multiple SphereLight properties (pos, scale, temp, intensity, color)."""
     if env_ids is None:
-        env_ids = torch.arange(env.num_envs, device=env.device)
+        env_ids = torch.arange(env.scene.num_envs, device=env.device)
 
-    object_collection = env.scene[asset_cfg.name]
-    num_objects = len(object_collection.object_names)
+    stage = omni.usd.get_context().get_stage()
 
-    # Create buffer to store active object indices if not exists
-    if not hasattr(env, 'active_object_indices'):
-        env.active_object_indices = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+    for env_id in env_ids.tolist():
+        for i in range(num_lights):
+            light_path = f"/World/envs/env_{env_id}/SphereLight_{i}"
+            light_prim = stage.GetPrimAtPath(light_path)
 
-    for env_idx in env_ids:
-        active_idx = torch.randint(0, num_objects, (1,), device=env.device).item()
-        env.active_object_indices[env_idx] = active_idx
+            if not light_prim.IsValid():
+                alt_path = f"/World/envs/env_{env_id:04d}/SphereLight_{i}"
+                light_prim = stage.GetPrimAtPath(alt_path)
 
-        for obj_idx in range(num_objects):
-            pos = torch.tensor([0.28, 0.0, 0.0] if obj_idx == active_idx else [100.0, 100.0, -10.0], device=env.device)
+            if light_prim.IsValid():
+                # 随机位置
+                pos = (
+                    np.random.uniform(-1, 3),
+                    np.random.uniform(-2, 2),
+                    np.random.uniform(2, 3),
+                )
+                light_prim.GetAttribute("xformOp:translate").Set(pos)
 
-            root_state = object_collection.data.default_object_state[env_idx, obj_idx].clone()
-            root_state[:3] = pos + env.scene.env_origins[env_idx]
-            root_state[3:7] = torch.tensor([1.0, 0.0, 0.0, 0.0], device=env.device)
-            root_state[7:] = 0.0
+                # 随机缩放
+                scale = np.random.uniform(0.8, 1.6)
+                light_prim.GetAttribute("xformOp:scale").Set((scale, scale, scale))
 
-            object_collection.write_object_state_to_sim(
-                root_state.unsqueeze(0),
-                env_ids=torch.tensor([env_idx], device=env.device),
-                object_ids=torch.tensor([obj_idx], device=env.device)
-            )
+                # 随机色温
+                temp_choice = np.random.choice([
+                    np.random.uniform(2700, 3500),  # 暖光
+                    np.random.uniform(4000, 5000),  # 中性光
+                    np.random.uniform(5500, 6500),  # 冷光
+                ])
+                light_prim.GetAttribute("inputs:colorTemperature").Set(float(temp_choice))
+                # 随机强度
+                intensity = float(np.random.normal(8000, 15000))
+                light_prim.GetAttribute("inputs:intensity").Set(intensity)
+
+                # 随机颜色
+                warm_bias = np.random.uniform(-0.05, 0.05)
+                color = (
+                    np.clip(1.0 + warm_bias * np.random.uniform(0.5, 1.0), 0.8, 1.0),
+                    np.clip(0.9 + warm_bias * np.random.uniform(0.3, 1.0), 0.8, 1.0),
+                    np.clip(0.85 - warm_bias * np.random.uniform(0.3, 1.0), 0.7, 1.0),
+                )
+                light_prim.GetAttribute("inputs:color").Set(color)
+            else:
+                print(f"[Warning] SphereLight_{i} not found for env {env_id}")
 
 
-
-def initialize_point_cloud_cache(
-    env: ManagerBasedEnv,
-    env_ids: torch.Tensor | None,
-):
+def randomize_floor_texture(
+    env: "ManagerBasedEnv",
+    env_ids: torch.Tensor = None,
+) -> None:
     """
-    Initialize point cloud cache storage.
-    Called once at startup (env_ids will be None).
+    随机化地板材质（Color + Normal + Roughness + Displacement）。
+    自动扫描 texture_root 下的所有文件夹（每个文件夹为一套贴图）。
     """
-    # Initialize cache attributes
-    env.point_cloud_cache = None
-    env._pcd_cache_step = -1
-    print("[INFO] Point cloud cache initialized")
+    texture_root = "/home/robo/code/IsaacLab/assets/textures/floor"
+
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=env.device)
+
+    stage = omni.usd.get_context().get_stage()
+
+    # --- 自动扫描所有材质包 ---
+    base_folders = [
+        os.path.join(texture_root, d)
+        for d in os.listdir(texture_root)
+        if os.path.isdir(os.path.join(texture_root, d))
+    ]
+    if not base_folders:
+        print(f"[Error] No texture folders found in {texture_root}")
+        return
+
+    for env_id in env_ids.tolist():
+        floor_path = f"/World/envs/env_{env_id}/IndoorScene/_/_/all_scene2/FloorWithPanels/simple_room/Towel_Room01_floor_bottom_218/Towel_Room01_floor_bottom"
+        floor_prim = stage.GetPrimAtPath(floor_path)
+        if not floor_prim.IsValid():
+            print(f"[Warning] floor prim not found at {floor_path}")
+            continue
+
+        # 获取绑定材质
+        material, _ = UsdShade.MaterialBindingAPI(floor_prim).ComputeBoundMaterial()
+        if not material:
+            print(f"[Warning] No material bound to floor at {floor_path}")
+            continue
+
+        shader_prim = omni.usd.get_shader_from_material(material, get_prim=True)
+        if shader_prim is None:
+            print(f"[Warning] No shader found for {material.GetPath()}")
+            continue
+        shader = UsdShade.Shader(shader_prim)
+
+        # --- 随机选一个文件夹（即一种地板材质） ---
+        folder = np.random.choice(base_folders)
+        base_name = os.path.basename(folder)
+        print(f"[Floor] Applying texture: {base_name}")
+
+        # 构造文件路径
+        tex_color = os.path.join(folder, f"{base_name}_Color.jpg")
+        tex_normal = os.path.join(folder, f"{base_name}_NormalGL.jpg")
+        tex_rough = os.path.join(folder, f"{base_name}_Roughness.jpg")
+        tex_disp = os.path.join(folder, f"{base_name}_Displacement.jpg")
+
+        # --- 设置到 Shader ---
+        def safe_set(shader, name_list, value):
+            for name in name_list:
+                inp = shader.GetInput(name)
+                if inp:
+                    inp.Set(value)
+                    return True
+            return False
+
+        safe_set(shader, ["diffuse_texture", "inputs:diffuse_texture", "inputs:diffuse_color_texture"], tex_color)
+        safe_set(shader, ["normalmap_texture", "inputs:normalmap_texture"], tex_normal)
+        safe_set(shader, ["roughness_texture", "inputs:roughness_texture"], tex_rough)
+        safe_set(shader, ["displacement_texture", "inputs:displacement_texture"], tex_disp)
+
+        # 可选：增加轻微反光随机性
+        if shader.GetInput("inputs:roughness_constant"):
+            shader.GetInput("inputs:roughness_constant").Set(np.random.uniform(0.3, 0.6))
