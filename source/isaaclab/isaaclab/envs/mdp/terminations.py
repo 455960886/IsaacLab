@@ -15,6 +15,7 @@ import torch
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import Articulation, RigidObject
+from isaaclab.assets import RigidObjectCollection
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensor
 from isaaclab.sensors import FrameTransformer
@@ -95,7 +96,7 @@ def bad_object_orientation(
 
 
 def root_height_below_minimum(
-    env: ManagerBasedRLEnv, minimum_height: float, asset_cfg:SceneEntityCfg = SceneEntityCfg("robot"),
+    env: ManagerBasedRLEnv, minimum_height: float, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:
     """Terminate when the asset's root height is below the minimum height.
@@ -109,6 +110,76 @@ def root_height_below_minimum(
 
     return (asset.data.root_pos_w[:, 2] < minimum_height) | (ee_frame.data.target_pos_w[..., 0, 2] <0.000)
 
+
+def object_pushed_away(
+    env: ManagerBasedRLEnv, 
+    x_limits: tuple[float, float] = (0.22, 0.42),
+    y_tolerance: float = 0.05,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """
+    Terminate when the active object is pushed too far from its spawn area.
+    Works with RigidObjectCollection (object pools).
+
+    Object base position relative to robot: (0.28, 0.0, 0.0)
+    Randomization: x(-0.01, 0.09), y(0.0, 0.0), z(0.0, 0.0)
+    """
+    object_collection: RigidObjectCollection = env.scene[object_cfg.name]
+    robot: Articulation = env.scene[robot_cfg.name]
+
+    # Get active object indices
+    if not hasattr(env, 'active_object_indices'):
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    active_indices = env.active_object_indices
+
+    # Get positions: (num_envs, 3)
+    all_positions = object_collection.data.object_link_pos_w
+    env_indices = torch.arange(env.num_envs, device=env.device)
+    active_positions_w = all_positions[env_indices, active_indices]
+
+    robot_base_pos_w = robot.data.root_pos_w
+
+    # Convert to robot frame
+    active_positions_robot = active_positions_w - robot_base_pos_w
+
+    # Check if outside legal range
+    outside_x = (active_positions_robot[:, 0] < x_limits[0]) | (active_positions_robot[:, 0] > x_limits[1])
+    outside_y = torch.abs(active_positions_robot[:, 1] - 0.0) > y_tolerance
+
+    return outside_x | outside_y
+
+
+def bad_object_orientation(
+    env: ManagerBasedRLEnv, 
+    limit_angle: float,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")
+) -> torch.Tensor:
+    """
+    Terminate when the active object's orientation is too tilted.
+    Works with RigidObjectCollection (object pools).
+    """
+    object_collection: RigidObjectCollection = env.scene[object_cfg.name]
+
+    # Get active object indices
+    if not hasattr(env, 'active_object_indices'):
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    active_indices = env.active_object_indices
+
+    # Get projected gravity for all objects: (num_envs, num_objects, 3)
+    all_projected_gravity = object_collection.data.projected_gravity_b
+
+    # Index to get only active objects: (num_envs, 3)
+    env_indices = torch.arange(env.num_envs, device=env.device)
+    active_projected_gravity = all_projected_gravity[env_indices, active_indices]
+
+    # Calculate tilt angle
+    tilt_angle = torch.acos(-active_projected_gravity[:, 2].clamp(-1.0, 1.0)).abs()
+
+    # Terminate if angle exceeds limit
+    return tilt_angle > limit_angle
 
 """
 Joint terminations.

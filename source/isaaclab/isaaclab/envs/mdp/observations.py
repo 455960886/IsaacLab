@@ -825,11 +825,9 @@ class image_features(ManagerTermBase):
 
     def _prepare_resnet_model(self, model_name: str, model_device: str) -> dict:
         """Prepare the ResNet model for inference.
-
         Args:
             model_name: The name of the ResNet model to prepare.
             model_device: The device to store and infer the model on.
-
         Returns:
             A dictionary containing the model and inference functions.
         """
@@ -844,18 +842,16 @@ class image_features(ManagerTermBase):
                 "resnet50": "ResNet50_Weights.IMAGENET1K_V1",
                 "resnet101": "ResNet101_Weights.IMAGENET1K_V1",
             }
-
             # load the model
             model = getattr(models, model_name)(weights=resnet_weights[model_name]).eval()
+            model = torch.nn.Sequential(*list(model.children())[:-1])
             return model.to(model_device)
-
+        
         def _inference(model, images: torch.Tensor) -> torch.Tensor:
             """Inference the ResNet model.
-
             Args:
                 model: The ResNet model.
                 images: The preprocessed image tensor. Shape is (num_envs, channel, height, width).
-
             Returns:
                 The extracted features tensor. Shape is (num_envs, feature_dim).
             """
@@ -867,9 +863,12 @@ class image_features(ManagerTermBase):
             mean = torch.tensor([0.485, 0.456, 0.406], device=model_device).view(1, 3, 1, 1)
             std = torch.tensor([0.229, 0.224, 0.225], device=model_device).view(1, 3, 1, 1)
             image_proc = (image_proc - mean) / std
+            with torch.no_grad():
+                feats = model(image_proc)          # [N, 512, 1, 1]
+                feats = feats.view(feats.size(0), -1)  # [N, 512]
+            return feats
             # forward the image through the model
-            return model(image_proc)
-
+            # return model(image_proc)
         # return the model, preprocess and inference functions
         return {"model": _load_model, "inference": _inference}
     

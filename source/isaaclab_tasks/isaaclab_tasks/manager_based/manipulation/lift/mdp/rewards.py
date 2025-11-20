@@ -167,9 +167,6 @@ def object_is_lifted_with_contact(
     return reward
 
 
-
-
-
 def object_ee_distance(
     env: ManagerBasedRLEnv,
     std: float,
@@ -185,10 +182,12 @@ def object_ee_distance(
     ee_w = ee_frame.data.target_pos_w[..., 0, :]
 
     # Calculate distance between EE and active object
-    object_ee_distance = torch.norm(active_pos_w - ee_w, dim=1)
-    
-    return 1 - torch.tanh(object_ee_distance/std)
+    dist = torch.norm(active_pos_w - ee_w, dim=1)
+    raw_rew = torch.exp(-dist / std)
+    mask = (dist < 0.035).float()
+    rew = raw_rew * mask
 
+    return rew
 
 
 def contain_object(
@@ -366,63 +365,157 @@ def pcd_contain_object(
     sensor_cfg_name: str = "depth_camera",
     density_scale: float = 1.0,
     use_tanh: bool = False,
+    min_ee_robot_distance: float = 0.15,
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
+    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
+    contact_z_threshold: float = 0.7,
+    contact_force_threshold: float = 1.5,
+    require_both_contacts: bool = True,
 ) -> torch.Tensor:
     """
     Reward based on point cloud density in the gripper sphere.
-    Encourages the robot to position grippers around the object.
+    If Y-axis contact forces exceed threshold, always returns maximum reward.
+    Otherwise, gives reward based on density when other conditions are met.
 
     Args:
         env: Environment
         sensor_cfg_name: Name of the depth camera sensor
-        density_scale: Scaling factor for reward sensitivity
+        density_scale: Scaling factor for reward sensitivity (also max reward when contact satisfied)
         use_tanh: If True, apply tanh for smoother gradients
+        min_ee_robot_distance: Minimum distance (meters) between EE and robot base to give reward
+        ee_frame_cfg: Configuration for end-effector frame
+        robot_cfg: Configuration for robot entity
+        left_sensor_cfg: Left contact sensor configuration
+        right_sensor_cfg: Right contact sensor configuration
+        contact_z_threshold: Maximum Z-component value for contact sensors (default: 0.7)
+        contact_force_threshold: Minimum Y-axis force to consider contact (Newtons)
+        require_both_contacts: If True, both fingers must contact. If False, at least one.
 
     Returns:
         Reward tensor (num_envs,)
     """
     from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
 
-    # 1. Get cached point cloud
+    # 1. Check contact sensors first - if Y threshold satisfied, return max reward immediately
+    left_sensor = env.scene.sensors[left_sensor_cfg.name]
+    right_sensor = env.scene.sensors[right_sensor_cfg.name]
+
+    contact_force_satisfied = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    if left_sensor.data.net_forces_w is not None and right_sensor.data.net_forces_w is not None:
+        left_y_force = torch.abs(left_sensor.data.net_forces_w[:, 0, 1])
+        right_y_force = torch.abs(right_sensor.data.net_forces_w[:, 0, 1])
+
+        left_contact = left_y_force > contact_force_threshold
+        right_contact = right_y_force > contact_force_threshold
+
+        if require_both_contacts:
+            contact_force_satisfied = left_contact & right_contact
+        else:
+            contact_force_satisfied = left_contact | right_contact
+
+    # If contact force satisfied, return maximum reward immediately
+    max_reward = density_scale if not use_tanh else torch.ones(env.num_envs, device=env.device)
+
+    if contact_force_satisfied.any():
+        reward = torch.where(
+            contact_force_satisfied,
+            max_reward if isinstance(max_reward, torch.Tensor) else torch.full((env.num_envs,), max_reward, device=env.device),
+            torch.zeros(env.num_envs, device=env.device)
+        )
+
+        # For envs where contact not satisfied, compute density-based reward
+        if not contact_force_satisfied.all():
+            # Continue with normal logic for non-contact-satisfied envs
+            pointcloud, valid = get_cached_pointcloud(env)
+            if valid and pointcloud is not None:
+                left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
+                right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
+
+                left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, sensor_cfg_name)
+                right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
+
+                sphere_center = (left_finger_cam + right_finger_cam) / 2.0
+                finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
+                sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)
+
+                density, num_points = calculate_pointcloud_density_in_sphere(
+                    pointcloud, sphere_center, sphere_radius
+                )
+
+                if use_tanh:
+                    density_reward = torch.tanh(density * density_scale * 3.0)
+                else:
+                    density_reward = density * density_scale
+
+                ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+                ee_w = ee_frame.data.target_pos_w[..., 0, :]
+                robot = env.scene[robot_cfg.name]
+                robot_base_pos = robot.data.root_pos_w
+                ee_robot_distance = torch.norm(ee_w - robot_base_pos, dim=1)
+                distance_mask = ee_robot_distance >= min_ee_robot_distance
+
+                left_z = left_sensor.data.net_forces_w[:, 0, 2]
+                right_z = right_sensor.data.net_forces_w[:, 0, 2]
+                contact_z_valid = (left_z < contact_z_threshold) & (right_z < contact_z_threshold)
+
+                all_conditions_met = distance_mask & contact_z_valid
+
+                # Update reward for non-contact-satisfied envs
+                reward = torch.where(
+                    contact_force_satisfied,
+                    reward,  # Keep max reward
+                    torch.where(all_conditions_met, density_reward, torch.zeros_like(density_reward))
+                )
+
+        return reward
+
+    # 2. If no contact force satisfied, continue with normal density-based logic
     pointcloud, valid = get_cached_pointcloud(env)
     if not valid or pointcloud is None:
         return torch.zeros(env.num_envs, device=env.device)
 
-    # 2. Get gripper positions in world frame
     left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
     right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
 
-    # 3. Get camera pose and transform grippers to camera frame
-    camera = env.scene.sensors[sensor_cfg_name]
-    camera_pos_w = camera.data.pos_w
-    camera_quat_w = camera.data.quat_w_ros
+    left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, sensor_cfg_name)
+    right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
 
-    # Convert ROS quaternion (x,y,z,w) to IsaacLab convention (w,x,y,z)
-    camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
+    sphere_center = (left_finger_cam + right_finger_cam) / 2.0
+    finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
+    sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)
 
-    # Transform gripper positions to camera frame
-    left_finger_cam = transform_world_to_camera(left_finger_pos_w, camera_pos_w, camera_quat_w_isaac)
-    right_finger_cam = transform_world_to_camera(right_finger_pos_w, camera_pos_w, camera_quat_w_isaac)
-
-    # 4. Calculate sphere parameters (matches create_gripper_pointclouds logic)
-    sphere_center = (left_finger_cam + right_finger_cam) / 2.0  # (B, 3)
-    finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)  # (B,)
-    sphere_radius = torch.clamp(finger_distance * 0.3, min=0.005)  # (B,)
-
-    # 5. Calculate point cloud density in sphere
     density, num_points = calculate_pointcloud_density_in_sphere(
         pointcloud, sphere_center, sphere_radius
     )
 
-    # 6. Convert density to reward
     if use_tanh:
-        # Smooth saturation - good for stable gradients
-        reward = torch.tanh(density * density_scale * 3.0)
+        density_reward = torch.tanh(density * density_scale * 3.0)
     else:
-        # Linear scaling - direct proportional to density
-        reward = density * density_scale
+        density_reward = density * density_scale
+
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    ee_w = ee_frame.data.target_pos_w[..., 0, :]
+    robot = env.scene[robot_cfg.name]
+    robot_base_pos = robot.data.root_pos_w
+    ee_robot_distance = torch.norm(ee_w - robot_base_pos, dim=1)
+    distance_mask = ee_robot_distance >= min_ee_robot_distance
+
+    left_z = left_sensor.data.net_forces_w[:, 0, 2]
+    right_z = right_sensor.data.net_forces_w[:, 0, 2]
+    contact_z_valid = (left_z < contact_z_threshold) & (right_z < contact_z_threshold)
+
+    all_conditions_met = distance_mask & contact_z_valid
+
+    reward = torch.where(
+        all_conditions_met,
+        density_reward,
+        torch.zeros_like(density_reward)
+    )
 
     return reward
-
 
 
 def pcd_clamp_object(
@@ -430,22 +523,122 @@ def pcd_clamp_object(
     sensor_cfg_name: str = "depth_camera",
     density_threshold: float = 0.09,
     density_scale: float = 1.0,
+    min_ee_robot_distance: float = 0.15,
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     gripper_closed_threshold: float = 0.02,
+    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
+    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
+    contact_z_threshold: float = 0.7,
+    contact_force_threshold: float = 1.5,
+    require_both_contacts: bool = True,
 ) -> torch.Tensor:
+    """
+    Combined reward for clamping with gripper closed and object detected.
+    If Y-axis contact forces exceed threshold, always returns maximum reward.
+    Otherwise, gives reward when all other conditions are met.
+
+    Args:
+        env: Environment
+        sensor_cfg_name: Name of depth camera sensor
+        density_threshold: Minimum density to consider object detected
+        density_scale: Reward value when all conditions met (also max reward when contact satisfied)
+        min_ee_robot_distance: Minimum EE-robot distance
+        ee_frame_cfg: End-effector frame configuration
+        robot_cfg: Robot configuration
+        gripper_closed_threshold: Maximum joint position to consider gripper closed
+        left_sensor_cfg: Left contact sensor configuration
+        right_sensor_cfg: Right contact sensor configuration
+        contact_z_threshold: Maximum Z-component value for contact sensors (default: 0.7)
+        contact_force_threshold: Minimum Y-axis force to consider contact (Newtons)
+        require_both_contacts: If True, both fingers must contact. If False, at least one.
+
+    Returns:
+        Reward tensor (num_envs,)
+    """
 
     from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
 
-    # 1. Get cached point cloud
+    # 1. Check contact sensors first - if Y threshold satisfied, return max reward immediately
+    left_sensor = env.scene.sensors[left_sensor_cfg.name]
+    right_sensor = env.scene.sensors[right_sensor_cfg.name]
+
+    contact_force_satisfied = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    if left_sensor.data.net_forces_w is not None and right_sensor.data.net_forces_w is not None:
+        left_y_force = torch.abs(left_sensor.data.net_forces_w[:, 0, 1])
+        right_y_force = torch.abs(right_sensor.data.net_forces_w[:, 0, 1])
+
+        left_contact = left_y_force > contact_force_threshold
+        right_contact = right_y_force > contact_force_threshold
+
+        if require_both_contacts:
+            contact_force_satisfied = left_contact & right_contact
+        else:
+            contact_force_satisfied = left_contact | right_contact
+
+    # If contact force satisfied, return maximum reward
+    if contact_force_satisfied.any():
+        reward = torch.where(
+            contact_force_satisfied,
+            torch.full((env.num_envs,), density_scale, device=env.device),
+            torch.zeros(env.num_envs, device=env.device)
+        )
+
+        # For envs where contact not satisfied, compute normal logic
+        if not contact_force_satisfied.all():
+            pointcloud, valid = get_cached_pointcloud(env)
+            if valid and pointcloud is not None:
+                joint_positions = env.scene['robot'].data.joint_pos_target
+                finger_joint_1 = joint_positions[:, 5]
+                finger_joint_2 = joint_positions[:, 6]
+                gripper_closed = (torch.abs(finger_joint_1) < gripper_closed_threshold) & \
+                                 (torch.abs(finger_joint_2) < gripper_closed_threshold)
+
+                left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
+                right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
+
+                left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, sensor_cfg_name)
+                right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
+                sphere_center = (left_finger_cam + right_finger_cam) / 2.0
+                finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
+                sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)
+
+                density, num_points = calculate_pointcloud_density_in_sphere(
+                    pointcloud, sphere_center, sphere_radius
+                )
+                object_detected = density > density_threshold
+
+                ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+                ee_w = ee_frame.data.target_pos_w[..., 0, :]
+                robot = env.scene[robot_cfg.name]
+                robot_base_pos = robot.data.root_pos_w
+                ee_robot_distance = torch.norm(ee_w - robot_base_pos, dim=1)
+                distance_mask = ee_robot_distance >= min_ee_robot_distance
+
+                left_z = left_sensor.data.net_forces_w[:, 0, 2]
+                right_z = right_sensor.data.net_forces_w[:, 0, 2]
+                contact_z_valid = (left_z < contact_z_threshold) & (right_z < contact_z_threshold)
+
+                all_conditions_met = gripper_closed & object_detected & distance_mask & contact_z_valid
+
+                # Update reward for non-contact-satisfied envs
+                reward = torch.where(
+                    contact_force_satisfied,
+                    reward,  # Keep max reward
+                    torch.where(all_conditions_met, torch.full((env.num_envs,), density_scale, device=env.device), torch.zeros(env.num_envs, device=env.device))
+                )
+
+        return reward
+
+    # 2. If no contact force satisfied, continue with normal logic
     pointcloud, valid = get_cached_pointcloud(env)
     if not valid or pointcloud is None:
         return torch.zeros(env.num_envs, device=env.device)
 
-    # 2. Check if gripper is closed
     joint_positions = env.scene['robot'].data.joint_pos_target
-    finger_joint_1 = joint_positions[:, 5]  # M6_1
-    finger_joint_2 = joint_positions[:, 6]  # M6_2
-
-    # Both fingers must be closed (near 0.0)
+    finger_joint_1 = joint_positions[:, 5]
+    finger_joint_2 = joint_positions[:, 6]
     gripper_closed = (torch.abs(finger_joint_1) < gripper_closed_threshold) & \
                      (torch.abs(finger_joint_2) < gripper_closed_threshold)
 
@@ -457,29 +650,37 @@ def pcd_clamp_object(
     camera_quat_w = camera.data.quat_w_ros
     camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
 
-    left_finger_cam = transform_world_to_camera(left_finger_pos_w, camera_pos_w, camera_quat_w_isaac)
-    right_finger_cam = transform_world_to_camera(right_finger_pos_w, camera_pos_w, camera_quat_w_isaac)
-
+    left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, sensor_cfg_name)
+    right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
     sphere_center = (left_finger_cam + right_finger_cam) / 2.0
     finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-    sphere_radius = torch.clamp(finger_distance * 0.3, min=0.005)
+    sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)
 
     density, num_points = calculate_pointcloud_density_in_sphere(
         pointcloud, sphere_center, sphere_radius
     )
-
     object_detected = density > density_threshold
 
-    both_conditions_met = gripper_closed & object_detected
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    ee_w = ee_frame.data.target_pos_w[..., 0, :]
+    robot = env.scene[robot_cfg.name]
+    robot_base_pos = robot.data.root_pos_w
+    ee_robot_distance = torch.norm(ee_w - robot_base_pos, dim=1)
+    distance_mask = ee_robot_distance >= min_ee_robot_distance
+
+    left_z = left_sensor.data.net_forces_w[:, 0, 2]
+    right_z = right_sensor.data.net_forces_w[:, 0, 2]
+    contact_z_valid = (left_z < contact_z_threshold) & (right_z < contact_z_threshold)
+
+    all_conditions_met = gripper_closed & object_detected & distance_mask & contact_z_valid
 
     reward = torch.where(
-        both_conditions_met,
-        density_scale,  # Higher density = higher reward
-        torch.zeros_like(density) 
+        all_conditions_met,
+        torch.full((env.num_envs,), density_scale, device=env.device),
+        torch.zeros(env.num_envs, device=env.device)
     )
 
     return reward
-
 
 
 def contact_clamp_object(
@@ -543,13 +744,13 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
             camera_quat_w = camera.data.quat_w_ros
             camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
 
-            left_finger_cam = transform_world_to_camera(left_finger_pos_w, camera_pos_w, camera_quat_w_isaac)
-            right_finger_cam = transform_world_to_camera(right_finger_pos_w, camera_pos_w, camera_quat_w_isaac)
+            left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, "depth_camera")
+            right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, "depth_camera")
 
             # Calculate sphere
             sphere_center = (left_finger_cam + right_finger_cam) / 2.0
             finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-            sphere_radius = torch.clamp(finger_distance * 0.3, min=0.005)
+            sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)
 
             # Calculate density
             density, num_points = calculate_pointcloud_density_in_sphere(
@@ -585,14 +786,15 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
             camera_quat_w = camera.data.quat_w_ros
             camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
 
-            left_finger_cam = transform_world_to_camera(left_finger_pos_w, camera_pos_w, camera_quat_w_isaac)
-            right_finger_cam = transform_world_to_camera(right_finger_pos_w, camera_pos_w, camera_quat_w_isaac)
-            object_cam = transform_world_to_camera(active_pos_w, camera_pos_w, camera_quat_w_isaac)
+            left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, "depth_camera")
+            right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, "depth_camera")
 
+            object_cam = transform_world_to_camera(active_pos_w, env, "depth_camera")
+            
             # Calculate sphere
             sphere_center = (left_finger_cam + right_finger_cam) / 2.0
             finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-            sphere_radius = torch.clamp(finger_distance * 0.3, min=0.005)
+            sphere_radius = torch.clamp(finger_distance *0.3, min=0.003)
 
             # Get points inside sphere
             env_id = 0
