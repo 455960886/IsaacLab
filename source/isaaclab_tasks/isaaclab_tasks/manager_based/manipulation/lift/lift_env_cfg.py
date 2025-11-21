@@ -233,7 +233,7 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": (0.0, 0.07),
+                "x": (-0.03, 0.03),
                 "y": (0.0, 0.0),
                 "z": (0.0, 0.0),
                 "roll": (0.0, 0.0),
@@ -244,23 +244,14 @@ class EventCfg:
         },
     )
 
-    # randomize_lighting_reset = EventTerm(
-    #     func=mdp.randomize_multiple_sphere_lights,
-    #     mode="reset",
-    #     params={"num_lights": 2},
-    # )
+    randomize_lighting_reset = EventTerm(
+        func=mdp.randomize_multiple_sphere_lights,
+        mode="reset",
+        params={"num_lights": 1},
+    )
     # randomize_floor = EventTerm(
     #     func=mdp.randomize_floor_texture,
     #     mode="reset",
-    #     # params={
-    #     #     # "texture_files": [
-    #     #     #     "/home/robo/code/IsaacLab/assets/textures/Floor01.jpg",
-    #     #     #     "/home/robo/code/IsaacLab/assets/textures/Floor02.jpg",
-    #     #     #     "/home/robo/code/IsaacLab/assets/textures/Floor03.jpg",
-    #     #     #     "/home/robo/code/IsaacLab/assets/textures/Floor04.jpg",
-    #     #         # "/home/robo/code/IsaacLab/assets/Floor05.jpg",]
-    #     #     # ]
-    #     # },
     # )
 
 
@@ -316,7 +307,7 @@ class RewardsCfg:
 
     # action penalty
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
-    visualize_sphere = RewTerm(func=mdp.visualize_pcd_sphere, weight=0.01)
+    # visualize_sphere = RewTerm(func=mdp.visualize_pcd_sphere, weight=0.01)
 
     joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
@@ -374,8 +365,8 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         
         """Post initialization."""
-        self.decimation = 1  # 2 20 48
-        self.episode_length_s = 10
+        self.decimation = 5  # 2 20 48
+        self.episode_length_s = 3
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation
         # self.sim.render_interval = 1

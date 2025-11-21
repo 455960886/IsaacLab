@@ -181,7 +181,7 @@ def object_ee_distance(
     # Calculate distance between EE and active object
     dist = torch.norm(active_pos_w - ee_w, dim=1)
     raw_rew = torch.exp(-dist / std)
-    mask = (dist < 0.05).float()
+    mask = (dist < 0.085).float()
     rew = raw_rew * mask
 
     return rew
@@ -402,20 +402,26 @@ def pcd_contain_object(
     contact_force_satisfied = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
 
     if left_sensor.data.net_forces_w is not None and right_sensor.data.net_forces_w is not None:
+        # 从 sensor 读取 Y 方向力（抓取方向）
         left_y_force = torch.abs(left_sensor.data.net_forces_w[:, 0, 1])
         right_y_force = torch.abs(right_sensor.data.net_forces_w[:, 0, 1])
 
+        # 判断是否超过 contact_force_threshold
         left_contact = left_y_force > contact_force_threshold
         right_contact = right_y_force > contact_force_threshold
 
+        # require_both_contacts：要求单指 or 双指接触
         if require_both_contacts:
             contact_force_satisfied = left_contact & right_contact
         else:
             contact_force_satisfied = left_contact | right_contact
 
-    # If contact force satisfied, return maximum reward immediately
+    # 如果接触达成 → 给最大 reward
     max_reward = density_scale if not use_tanh else torch.ones(env.num_envs, device=env.device)
 
+    ################# 关键逻辑 ############################
+    ############## 1. 抓住物体的 env → 立即得到 max_reward ############################
+    ############## 2. 没抓住的 env → 继续后面点云逻辑       ############################
     if contact_force_satisfied.any():
         reward = torch.where(
             contact_force_satisfied,
@@ -423,25 +429,30 @@ def pcd_contain_object(
             torch.zeros(env.num_envs, device=env.device)
         )
 
-        # For envs where contact not satisfied, compute density-based reward
+        # 部分 env 接触成功，部分没有
         if not contact_force_satisfied.all():
             # Continue with normal logic for non-contact-satisfied envs
             pointcloud, valid = get_cached_pointcloud(env)
             if valid and pointcloud is not None:
+                # 获取两根手指的 world 坐标
                 left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
                 right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
 
+                # 把手指位置转换到相机坐标系
                 left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, sensor_cfg_name)
                 right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
 
+                # 得到球心和球半径
                 sphere_center = (left_finger_cam + right_finger_cam) / 2.0
                 finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-                sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)
+                sphere_radius = torch.clamp(finger_distance * 0.23, min=0.003)
 
+                # 计算点云密度（球内点云数量 / 球体积）
                 density, num_points = calculate_pointcloud_density_in_sphere(
                     pointcloud, sphere_center, sphere_radius
                 )
 
+                # 对密度做 tanh 或线性缩放
                 if use_tanh:
                     density_reward = torch.tanh(density * density_scale * 3.0)
                 else:
@@ -460,7 +471,7 @@ def pcd_contain_object(
 
                 all_conditions_met = distance_mask & contact_z_valid
 
-                # Update reward for non-contact-satisfied envs
+                # 为达成接触的 env 赋值 reward
                 reward = torch.where(
                     contact_force_satisfied,
                     reward,  # Keep max reward
@@ -482,7 +493,7 @@ def pcd_contain_object(
 
     sphere_center = (left_finger_cam + right_finger_cam) / 2.0
     finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-    sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)
+    sphere_radius = torch.clamp(finger_distance * 0.23, min=0.003)
 
     density, num_points = calculate_pointcloud_density_in_sphere(
         pointcloud, sphere_center, sphere_radius
@@ -599,7 +610,7 @@ def pcd_clamp_object(
                 right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
                 sphere_center = (left_finger_cam + right_finger_cam) / 2.0
                 finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-                sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)
+                sphere_radius = torch.clamp(finger_distance * 0.23, min=0.003)
 
                 density, num_points = calculate_pointcloud_density_in_sphere(
                     pointcloud, sphere_center, sphere_radius
@@ -651,7 +662,7 @@ def pcd_clamp_object(
     right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
     sphere_center = (left_finger_cam + right_finger_cam) / 2.0
     finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-    sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)
+    sphere_radius = torch.clamp(finger_distance * 0.23, min=0.003)
 
     density, num_points = calculate_pointcloud_density_in_sphere(
         pointcloud, sphere_center, sphere_radius
@@ -747,7 +758,7 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
             # Calculate sphere
             sphere_center = (left_finger_cam + right_finger_cam) / 2.0
             finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-            sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)
+            sphere_radius = torch.clamp(finger_distance * 0.23, min=0.003)
 
             # Calculate density
             density, num_points = calculate_pointcloud_density_in_sphere(
@@ -790,7 +801,7 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
             # Calculate sphere
             sphere_center = (left_finger_cam + right_finger_cam) / 2.0
             finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-            sphere_radius = torch.clamp(finger_distance *0.3, min=0.003)
+            sphere_radius = torch.clamp(finger_distance *0.23, min=0.003)
 
             # Get points inside sphere
             env_id = 0
