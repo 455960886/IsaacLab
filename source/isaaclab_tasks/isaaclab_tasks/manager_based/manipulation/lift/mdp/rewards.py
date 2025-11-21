@@ -9,12 +9,9 @@ import numpy as np
 import torch
 from typing import TYPE_CHECKING
 
-import math
-
 from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import FrameTransformer
-from isaaclab.utils.math import combine_frame_transforms, matrix_from_quat
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -261,7 +258,6 @@ def clamp_object(
     return reward
 
 
-
 # OPTIONAL: Add this helper function to track gripper state for debugging
 def debug_gripper_state(env: ManagerBasedRLEnv) -> torch.Tensor:
     """
@@ -285,7 +281,6 @@ def debug_gripper_state(env: ManagerBasedRLEnv) -> torch.Tensor:
         print(f"Object height: {object.data.root_pos_w[:, 2].mean():.3f}")
 
     return torch.zeros(env.num_envs, device=env.device)
-
 
 
 def penalize_m0_after_lift(
@@ -654,9 +649,7 @@ def pcd_clamp_object(
     right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
 
     camera = env.scene.sensors[sensor_cfg_name]
-    camera_pos_w = camera.data.pos_w
     camera_quat_w = camera.data.quat_w_ros
-    camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
 
     left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, sensor_cfg_name)
     right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
@@ -881,7 +874,6 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
             print(f"{'='*80}\n")
 
     return torch.zeros(env.num_envs, device=env.device)
-
 
 
 def debug_contact_forces(env: ManagerBasedRLEnv) -> torch.Tensor:
