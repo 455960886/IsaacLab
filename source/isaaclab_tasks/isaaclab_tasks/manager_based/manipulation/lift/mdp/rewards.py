@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import numpy as np
 import torch
+import os
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import FrameTransformer
+from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -55,7 +57,10 @@ def is_terminated(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 
 def object_is_lifted(
-    env: ManagerBasedRLEnv, minimal_height: float, object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")):
+    env: ManagerBasedRLEnv, 
+    minimal_height: float, 
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")
+):
     """Reward the agent for lifting the active object above the minimal height."""
     # Get active object positions
     active_pos_w, _ = get_active_object_states(env, object_cfg)
@@ -65,11 +70,11 @@ def object_is_lifted(
 
 
 def object_is_lifted_linear(
-    env: ManagerBasedRLEnv, 
-    minimal_height: float, 
+    env: ManagerBasedRLEnv,
+    minimal_height: float,
     max_height: float,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")
-    ):
+):
     """Linearly reward the agent for lifting the active object above the minimal height."""
     # Get active object positions
     active_pos_w, _ = get_active_object_states(env, object_cfg)
@@ -170,7 +175,7 @@ def object_ee_distance(
     """Reward the agent for reaching the active object using tanh-kernel."""
     # Get active object positions
     active_pos_w, _ = get_active_object_states(env, object_cfg)
-    
+
     # Extract the end-effector frame
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
     ee_w = ee_frame.data.target_pos_w[..., 0, :]
@@ -388,7 +393,6 @@ def pcd_contain_object(
     Returns:
         Reward tensor (num_envs,)
     """
-    from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
 
     # 1. Check contact sensors first - if Y threshold satisfied, return max reward immediately
     left_sensor = env.scene.sensors[left_sensor_cfg.name]
@@ -559,9 +563,6 @@ def pcd_clamp_object(
     Returns:
         Reward tensor (num_envs,)
     """
-
-    from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
-
     # 1. Check contact sensors first - if Y threshold satisfied, return max reward immediately
     left_sensor = env.scene.sensors[left_sensor_cfg.name]
     right_sensor = env.scene.sensors[right_sensor_cfg.name]
@@ -648,9 +649,6 @@ def pcd_clamp_object(
     left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
     right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
 
-    camera = env.scene.sensors[sensor_cfg_name]
-    camera_quat_w = camera.data.quat_w_ros
-
     left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, sensor_cfg_name)
     right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
     sphere_center = (left_finger_cam + right_finger_cam) / 2.0
@@ -726,11 +724,8 @@ def contact_clamp_object(
     return reward
 
 
-
-
 def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Debug version - prints density info."""
-    from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
 
     if env.common_step_counter % 3 == 0:
         pointcloud, valid = get_cached_pointcloud(env)
@@ -741,9 +736,6 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
 
             # Transform to camera frame
             camera = env.scene.sensors["depth_camera"]
-            camera_pos_w = camera.data.pos_w
-            camera_quat_w = camera.data.quat_w_ros
-            camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
 
             left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, "depth_camera")
             right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, "depth_camera")
@@ -769,9 +761,6 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Save point cloud visualization with sphere region highlighted."""
-    from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
-    import os
-
     if env.common_step_counter % 1 == 0:
         pointcloud, valid = get_cached_pointcloud(env)
         if valid and pointcloud is not None:
@@ -782,9 +771,6 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
 
             # Transform to camera frame
             camera = env.scene.sensors["depth_camera"]
-            camera_pos_w = camera.data.pos_w
-            camera_quat_w = camera.data.quat_w_ros
-            camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
 
             left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, "depth_camera")
             right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, "depth_camera")
