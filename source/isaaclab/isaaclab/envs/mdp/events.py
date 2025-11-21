@@ -1957,18 +1957,18 @@ def randomize_multiple_sphere_lights(
 
     for env_id in env_ids.tolist():
         for i in range(num_lights):
-            light_path = f"/World/envs/env_{env_id}/SphereLight_{i}"
+            light_path = f"/World/envs/env_{env_id}/SphereLight"
             light_prim = stage.GetPrimAtPath(light_path)
 
             if not light_prim.IsValid():
-                alt_path = f"/World/envs/env_{env_id:04d}/SphereLight_{i}"
+                alt_path = f"/World/envs/env_{env_id:04d}/SphereLight"
                 light_prim = stage.GetPrimAtPath(alt_path)
 
             if light_prim.IsValid():
                 # 随机位置
                 pos = (
-                    np.random.uniform(-1, 3),
-                    np.random.uniform(-2, 2),
+                    np.random.uniform(-1, 1),
+                    np.random.uniform(-1, 1),
                     np.random.uniform(2, 3),
                 )
                 light_prim.GetAttribute("xformOp:translate").Set(pos)
@@ -1997,7 +1997,7 @@ def randomize_multiple_sphere_lights(
                 )
                 light_prim.GetAttribute("inputs:color").Set(color)
             else:
-                print(f"[Warning] SphereLight_{i} not found for env {env_id}")
+                print(f"[Warning] SphereLight not found for env {env_id}")
 
 
 def randomize_floor_texture(
@@ -2008,7 +2008,7 @@ def randomize_floor_texture(
     随机化地板材质（Color + Normal + Roughness + Displacement）。
     自动扫描 texture_root 下的所有文件夹（每个文件夹为一套贴图）。
     """
-    texture_root = "/home/robo/code/IsaacLab/assets/textures/floor"
+    texture_root = "/home/robo/code/IsaacLab/assets1/textures/floor"
 
     if env_ids is None:
         env_ids = torch.arange(env.scene.num_envs, device=env.device)
@@ -2026,7 +2026,7 @@ def randomize_floor_texture(
         return
 
     for env_id in env_ids.tolist():
-        floor_path = f"/World/envs/env_{env_id}/IndoorScene/_/_/all_scene2/FloorWithPanels/simple_room/Towel_Room01_floor_bottom_218/Towel_Room01_floor_bottom"
+        floor_path = f"/World/envs/env_{env_id}/FloorwithPanels/simple_room/Towel_Room01_floor_bottom_218/Towel_Room01_floor_bottom"
         floor_prim = stage.GetPrimAtPath(floor_path)
         if not floor_prim.IsValid():
             print(f"[Warning] floor prim not found at {floor_path}")

@@ -91,7 +91,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         self.scene.robot = MY_ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         self.actions.arm_action = mdp.RelativeJointPositionActionCfg(
-            asset_name="robot", joint_names=["M[1345]"], scale=0.25
+            asset_name="robot", joint_names=["M[34]"], scale=0.25
         )
         
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
@@ -193,14 +193,14 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
 
         self.scene.finger_frame_1 = FrameTransformerCfg(
             prim_path="{ENV_REGEX_NS}/Robot/base_link",
-            debug_vis=True,
+            debug_vis=False,
             visualizer_cfg=marker_cfg,
             target_frames=[
                 FrameTransformerCfg.FrameCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/M6_1_leftfinger_link",
                     name="end_effector_1",
                     offset=OffsetCfg(
-                        pos=[0.035, -0.001, 0.0],
+                        pos=[0.028, -0.001, 0.0],
                     ),
                 ),
             ],
@@ -208,14 +208,14 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
 
         self.scene.finger_frame_2 = FrameTransformerCfg(
             prim_path="{ENV_REGEX_NS}/Robot/base_link",
-            debug_vis=True,
+            debug_vis=False,
             visualizer_cfg=marker_cfg,
             target_frames=[
                 FrameTransformerCfg.FrameCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/M6_2_rightfinger_link",
                     name="end_effector_2",
                     offset=OffsetCfg(
-                        pos=[0.035, 0.003, 0.0],
+                        pos=[0.028, 0.003, 0.0],
                     ),
                 ),
             ],

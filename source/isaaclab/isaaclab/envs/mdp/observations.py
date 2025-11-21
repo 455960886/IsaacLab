@@ -569,7 +569,6 @@ class image_features(ManagerTermBase):
         # save_ply(points, colors=None, output_path=output_path.replace(".ply","_downsampled8.ply"))
         return points
     
-
     # GPU-accelerated version for batch processing
     def depth_to_pointcloud_batch_gpu(self, depth_batch, fx, fy, cx, cy, num_points=1024, 
                                       save_ply_debug=False, env_id=0, frame_counter=None, save_dir="debug_pointclouds", env=None):
@@ -640,7 +639,7 @@ class image_features(ManagerTermBase):
         # Apply distance filtering
         mask1 = rotated_points[:, :, 2] < 0.38
         mask2 = rotated_points[:, :, 1] > -0.05
-        mask3 = rotated_points[:, :, 1] < 0.16
+        mask3 = rotated_points[:, :, 1] < 0.1
         mask = mask1 & mask3 & mask2
 
         # Save Stage 2: After filtering
