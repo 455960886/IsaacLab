@@ -144,6 +144,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
 
+    # --- 调试：打印 semantic_segmentation 的 ID 和 label 映射（只在启动时调用一次） ---
+    # try:
+    #     # 为了确保相机 buffer 已经更新，先 reset 一次
+    #     _obs, _info = env.reset()
+
+    #     from isaaclab_tasks.manager_based.manipulation.lift import mdp
+    #     # 传 env.unwrapped，里面才有 scene / sensors
+    #     mdp.debug_print_semantic_ids(env.unwrapped, max_envs=1)
+    # except Exception as e:
+    #     print("[WARN] debug_print_semantic_ids failed:", e)
+
     # save resume path before creating a new log_dir
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
