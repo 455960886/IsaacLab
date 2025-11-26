@@ -80,14 +80,22 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 
     depth_camera: TiledCameraCfg = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/M0_chassis_link/tof_link/depth_camera",
-        offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.7071, 0.7071, 0.0, 0.0)), convention="opengl"),
-        data_types=["distance_to_image_plane"],  # Key change to depth
+        offset=TiledCameraCfg.OffsetCfg(
+            pos=(0.0, 0.0, 0.0), 
+            rot=((0.7071, 0.7071, 0.0, 0.0)), 
+            convention="opengl"),
+        data_types=["distance_to_image_plane", "semantic_segmentation"],
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=10.6, focus_distance=400.0, horizontal_aperture=36, vertical_aperture=25.45,
+            focal_length=11.8,
+            focus_distance=400.0,
+            horizontal_aperture=36,
+            vertical_aperture=25.45,
         ),
         width=400,
         height=300,
         debug_vis=False,
+        update_period=0.05,
+        colorize_semantic_segmentation=False,
     )
 
     gripper_camera: TiledCameraCfg = TiledCameraCfg(
@@ -198,34 +206,11 @@ class EventCfg:
     """Configuration for events."""
 
     initialize_cache = EventTerm(
-        func=mdp.initialize_point_cloud_cache,
+        func=mdp.initialize_point_cloud_cache1,
         mode="startup"
     )
 
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
-
-    # tyh版本
-    # object_pool_spawn = EventTerm(
-    #     func=mdp.randomize_object_pool_selection,
-    #     mode="reset",
-    #     params={"asset_cfg": SceneEntityCfg("object_pool")},
-    # )
-    # reset_object_position = EventTerm(
-    #     func=mdp.reset_object_pool_state_uniform,
-    #     mode="reset",
-    #     params={
-    #         "pose_range": {
-    #             "x": (0.0, 0.07),
-    #             "y": (0.0, 0.0),
-    #             "z": (0.0, 0.0),
-    #             "roll": (0.0, 0.0),
-    #             "pitch": (0.0, 0.0),
-    #             "yaw": (0.0, 0.0),
-    #         },
-    #         "velocity_range": {},
-    #         "asset_cfg": SceneEntityCfg("object_pool"),
-    #     },
-    # )
 
     # lsm版本
     reset_object_or_paper_and_position = EventTerm(
@@ -243,6 +228,11 @@ class EventCfg:
             "rigid_asset_cfg": SceneEntityCfg("object_pool"),
         },
     )
+
+    # debug_semantic_on_reset = EventTerm(
+    #     func=mdp.debug_print_semantic_ids_on_reset,
+    #     mode="reset",
+    # )
 
     randomize_lighting_reset = EventTerm(
         func=mdp.randomize_multiple_sphere_lights,
@@ -294,6 +284,34 @@ class RewardsCfg:
         },
         weight=30.0,  # Tune this: 5.0-20.0 depending on importance
     )
+    # contain_object = RewTerm(
+    #     func=mdp.pcd_contain_object1,
+    #     params={
+    #         "density_scale": 1.0,
+    #         "use_tanh": True,  # Set True for smoother gradients
+    #         "min_ee_robot_distance": 0.26,
+    #         "valid_object_name": "eye_drops",
+    #         "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
+    #     },
+    #     weight=30.0,  # Tune this: 5.0-20.0 depending on importance
+    # )
+    # debug_semantic_pcd = RewTerm(
+    #     func=mdp.debug_semantic_pcd_density,
+    #     params={
+    #         "sensor_cfg_name": "depth_camera",
+    #         "valid_object_name": "eye_drops",
+    #         "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
+    #         "log_interval": 1,           # 想每步打就改成 1
+    #         "env_id_to_print": 0,
+    #         "density_scale": 1.0,
+    #         "use_tanh": True,
+    #         "min_ee_robot_distance": 0.26,
+    #         "contact_z_threshold": 0.7,
+    #         "contact_force_threshold": 1.5,
+    #         "require_both_contacts": True,
+    #     },
+    #     weight=0.001,
+    # )
 
     clamp_object_contact = RewTerm(
         func=mdp.contact_clamp_object,
@@ -307,7 +325,7 @@ class RewardsCfg:
 
     # action penalty
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
-    # visualize_sphere = RewTerm(func=mdp.visualize_pcd_sphere, weight=0.01)
+    visualize_sphere = RewTerm(func=mdp.visualize_pcd_sphere, weight=0.01)
 
     joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
@@ -365,8 +383,8 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         
         """Post initialization."""
-        self.decimation = 5  # 2 20 48
-        self.episode_length_s = 3
+        self.decimation = 1  # 2 20 48
+        self.episode_length_s = 10
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation
         # self.sim.render_interval = 1
@@ -377,3 +395,12 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.gpu_total_aggregate_pairs_capacity = 16 * 1024
         self.sim.physx.friction_correlation_distance = 0.00625
 
+        self.sim.physx.gpu_heap_capacity = 256 * 1024 * 1024          # 256 MB
+        self.sim.physx.gpu_temp_buffer_capacity = 128 * 1024 * 1024   # 128 MB
+
+        # 接触相关容量
+        self.sim.physx.gpu_max_rigid_contact_count = 2_000_000        # 接触对上限
+        self.sim.physx.gpu_max_rigid_patch_count = 1_000_000          # 接触 patch 上限
+
+        # 关键：碰撞栈大小，要比报错里的 71239504 大
+        self.sim.physx.gpu_collision_stack_size = 96 * 1024 * 1024    # ≈ 100 MB

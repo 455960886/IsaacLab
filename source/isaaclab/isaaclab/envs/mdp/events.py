@@ -52,6 +52,21 @@ def initialize_point_cloud_cache(
     print("[INFO] Point cloud cache initialized")
 
 
+def initialize_point_cloud_cache1(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+):
+    """
+    Initialize point cloud cache storage.
+    Called once at startup (env_ids will be None).
+    """
+    # Initialize cache attributes
+    env.point_cloud_cache = None  # (B, N, 3)
+    env.point_cloud_semantic_cache = None       # (B, N) 每个点的语义 ID
+    env._pcd_cache_step = -1
+    print("[INFO] Point cloud cache initialized")
+
+
 def reset_scene_to_default(env: ManagerBasedEnv, env_ids: torch.Tensor):
     """Reset the scene to the default state specified in the scene configuration."""
     # rigid bodies

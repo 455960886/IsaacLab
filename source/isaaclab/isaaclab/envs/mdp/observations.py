@@ -27,15 +27,17 @@ import time
 from isaaclab.pointnet.models.pointnet_utils import PointNetEncoder, feature_transform_reguliarzer
 import importlib
 from isaaclab.pointnet.log.classification.pointnet2_ssg_wo_normals.pointnet2_cls_ssg import get_model as PointNet2ClsMsg
-# from .gripper_transform import add_gripper_labels_to_observation, debug_gripper_transformation, transform_world_to_camera
 import open3d as o3d
+import torch.nn.functional as F
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnv
 
+
 """
 Root state.
 """
+
 
 def base_pos_z(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Root height in the simulation world frame."""
@@ -251,11 +253,11 @@ def imu_lin_acc(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg
 def image(
     env: ManagerBasedEnv,
     # cnt: int = 0,
-    sensor_cfg: SceneEntityCfg = SceneEntityCfg("tiled_camera"),
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("gripper_camera"),
     data_type: str = "rgb",
     convert_perspective_to_orthogonal: bool = False,
     normalize: bool = True,
-    depth_cfg : SceneEntityCfg = SceneEntityCfg("tiled_camera2"),
+    depth_cfg:SceneEntityCfg = SceneEntityCfg("depth_camera")
 ) -> torch.Tensor:
     """Images of a specific datatype from the camera sensor.
 
@@ -282,30 +284,31 @@ def image(
 
     # obtain the input image
     images = sensor.data.output[data_type]
+   
+    # image_path = "/home/roborock/下载/2.jpg"
+    # img_bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    # img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+  
+    # img_tensor = torch.from_numpy(img_rgb).float()  # shape: (H, W, 3), float32
+ 
+    # img_tensor = img_tensor / 255.0
+    depth = env.scene.sensors[depth_cfg.name].data.output["distance_to_image_plane"]
+    # img_tensor = img_tensor.permute(2, 0, 1)
+
+    # # 6. Add batch dimension -> (1, C, H, W)
+    # images = img_tensor.unsqueeze(0)
+    
     # depth image conversion
     # images = images[:, :, images.shape[2] // 2:, :]
-
-    # obs_image = torch.tensor(images).float().squeeze(0).cpu().numpy()  # Convert to tensor and float type
-    # obs_bgr = cv2.cvtColor(obs_image, cv2.COLOR_RGB2BGR)
-    # os.makedirs("IMAGES2", exist_ok=True)
-    # # os.makedirs("IMAGES17", exist_ok=True)
-    # time1 = time.time()
-    # # cv2.imwrite(f"./IMAGES16/observation_{time1}.png", obs_image)
-    # cv2.imwrite(f"./IMAGES2/observation_{time1}.png", obs_bgr)
-    # with open('output_formres9.txt', 'a') as f:
+    
+#     obs_image = images.clone().detach().float().squeeze(0).cpu().numpy()
+#   # Convert to tensor and float type
+#     obs_bgr = cv2.cvtColor(obs_image, cv2.COLOR_RGB2BGR)
+#     cv2.imwrite(f"/home/roborock/下载/obs.png", obs_bgr)
+#     # with open('output_formres8.txt', 'a') as f:
     #     f.write(f"observation_{time1}.png\n")
-    # print(f"./IMAGES2/observation_{time1}.png")
-    depth = env.scene.sensors[depth_cfg.name].data.output["distance_to_image_plane"]
-    # print("depth shape:",depth.shape)
-    # depth_np = depth.squeeze(0).squeeze(-1).cpu().numpy()  # shape [H, W]
+    # print(f"./IMAGES9/observation_{time1}.png")
 
-    # # 归一化到 0~255
-    # depth_norm = (depth_np - depth_np.min()) / (depth_np.max() - depth_np.min())
-    # depth_uint8 = (depth_norm * 255).astype(np.uint8)
-
-    # os.makedirs("depth_images", exist_ok=True)
-    # timestamp = time.time()
-    # cv2.imwrite(f"depth_images/depth_{timestamp}.png", depth_uint8)
     if (data_type == "distance_to_camera") and convert_perspective_to_orthogonal:
         images = math_utils.orthogonalize_perspective_depth(images, sensor.data.intrinsic_matrices)
     # obs_np = rgb_image_tensor.squeeze(0).cpu().numpy() 
@@ -324,10 +327,26 @@ def image(
     if normalize:
         # print(f"Normalizing images of type: {data_type}")
         if data_type == "rgb":
-            images = images.float() / 255.0
+            # obs_image = images.clone().detach().float().squeeze(0).cpu().numpy()
+            # obs_bgr = cv2.cvtColor(obs_image, cv2.COLOR_RGB2BGR)
+            # cv2.imwrite(f"/home/roborock/下载/obs.png", obs_bgr)
+            images = images.float()
+            # print(images.shape)
+            images = images  / 255.0
+            images = images.permute(0, 3, 1, 2)
+            target_size = (300, 400)  # (height, width)
+            images = F.interpolate(images, size=target_size, mode="bilinear", align_corners=False)
+        # # resize 到目标分辨率 (150, 200)
+        #     
+
+        #     # 如果想保持原来的 (B, H, W, C) 形状
+        #     
             mean_tensor = torch.mean(images, dim=(1, 2), keepdim=True)
-            images -= mean_tensor
+            images = images -0.5
+            images = images.permute(0, 2, 3, 1)
+            # print(f"1 {images.shape}")
             
+            # print('minus mean')
             # images = images.float()
 
             # obs_np2 = images.squeeze(0).cpu().numpy() 
@@ -339,16 +358,14 @@ def image(
 
             # # RGB 转 BGR 再保存
             # obs_bgr2 = cv2.cvtColor(obs_np2, cv2.COLOR_RGB2BGR)
-            # os.makedirs("IMAGES13", exist_ok=True)
-            # cv2.imwrite(f"./IMAGES13/observation_{time.time()}.png", obs_np2)
+            # os.makedirs("IMAGES6", exist_ok=True)
+            # cv2.imwrite(f"./IMAGES6/observation_{time.time()}.png", obs_bgr2)
             
             pass
         elif "distance_to" in data_type or "depth" in data_type:
             images[images == float("inf")] = 0
-    # print("image shape11:",images.shape)
-    # 深度图与RGB图拼接
     images = torch.cat((images,depth),dim=-1)
-    # print("image shape22:",images.shape)
+    # print(f"输入图像 {images}")
     return images.clone()
 
 
@@ -569,9 +586,10 @@ class image_features(ManagerTermBase):
         # save_ply(points, colors=None, output_path=output_path.replace(".ply","_downsampled8.ply"))
         return points
     
+
     # GPU-accelerated version for batch processing
     def depth_to_pointcloud_batch_gpu(self, depth_batch, fx, fy, cx, cy, num_points=1024, 
-                                      save_ply_debug=False, env_id=0, frame_counter=None, save_dir="debug_pointclouds", env=None):
+                                      save_ply_debug=False, env_id=0, frame_counter=None, save_dir="debug_pointclouds"):
         """GPU-accelerated batch point cloud generation with systematic PLY saving."""
         import os
         B, H, W = depth_batch.shape
@@ -615,71 +633,86 @@ class image_features(ManagerTermBase):
         points = torch.stack([X, -Y, Z], dim=-1)
 
         # Save Stage 0: Initial projection
-        # if save_ply_debug:
-        #     points_initial = points[env_id].reshape(-1, 3).cpu().numpy()
-        #     save_ply(points_initial, "0_initial")
+        if save_ply_debug:
+            points_initial = points[env_id].reshape(-1, 3).cpu().numpy()
+            # points_initial[:, 1] += 0.0632
+            save_ply(points_initial, "0_initial")
 
         # Apply rotation (0.5 degrees)
-        theta = torch.deg2rad(torch.tensor(0.5, device=device))
-        cos_theta = torch.cos(theta)
-        sin_theta = torch.sin(theta)
-        R_x = torch.tensor([
+        def deg2rad(v, device):
+            return torch.tensor(v, device=device) * torch.pi / 180.0
+
+        roll  = deg2rad(90.0, device)
+        pitch = deg2rad(0.0,  device)
+        yaw   = deg2rad(90.0, device)
+        c1, s1 = torch.cos(roll), torch.sin(roll)
+        c2, s2 = torch.cos(pitch), torch.sin(pitch)
+        c3, s3 = torch.cos(yaw), torch.sin(yaw)
+
+        Rx = torch.tensor([
             [1, 0, 0],
-            [0, cos_theta, -sin_theta],
-            [0, sin_theta, cos_theta]
+            [0,  c1, -s1],
+            [0,  s1,  c1]
         ], device=device, dtype=torch.float32)
 
-        points_flat = points.reshape(B, H * W, 3)
-        rotated_points = torch.matmul(points_flat, R_x.T)
+        Ry = torch.tensor([
+            [ c2, 0, s2],
+            [  0, 1, 0],
+            [-s2, 0, c2]
+        ], device=device, dtype=torch.float32)
 
+        Rz = torch.tensor([
+            [c3, -s3, 0],
+            [s3,  c3, 0],
+            [ 0,   0, 1]
+        ], device=device, dtype=torch.float32)
+        # -----------------------------
+        # 构造 4x4 transformation 矩阵 T
+        # -----------------------------
+        x1 = deg2rad(0.011, device)
+
+        c = torch.cos(x1)
+        s = torch.sin(x1)
+
+        Rx1 = torch.tensor([
+            [1., 0., 0.],
+            [0.,     c,    -s],
+            [0.,     s,     c],
+        ], device=device)
+
+
+        R = Rx1@ Rz @ Ry @ Rx 
+        # import pdb
+        # pdb.set_trace()
+        points_flat = points.reshape(B, H * W, 3)
+        rotated_points = torch.matmul(points_flat, R.T)
+        translation = torch.tensor([0.183, 0.0, 0.0659], device=device)
+        trans_points = rotated_points +translation
+        # Save Stage 1: After rotation
         if save_ply_debug:
-            points_rotated = rotated_points[env_id].cpu().numpy()
-            save_ply(points_rotated, "1_rotated")
+            points_trans = trans_points[env_id].cpu().numpy()
+            save_ply(points_trans, "1_rotated")
 
         # Apply distance filtering
-        mask1 = rotated_points[:, :, 2] < 0.38
-        mask2 = rotated_points[:, :, 1] > -0.05
-        mask3 = rotated_points[:, :, 1] < 0.1
-        mask = mask1 & mask3 & mask2
-
+        # mask1 = rotated_points[:, :, 2] < 0.21
+        # mask2 = rotated_points[:, :, 1] > -0.0628
+        # mask3 = rotated_points[:, :, 1] < 0.0428
+        
+        mask1 = trans_points[:,:, 0] >=0.35
+        mask2 = trans_points[:,:, 0] <=0.44
+        mask3 = trans_points[:,:, 2] >= 0.00
+        mask4 = trans_points[:,:, 1] <=0.20
+        mask5 = trans_points[:,:, 1] >=-0.20
+        mask = mask1 & mask2 & mask3 & mask4 & mask5
         # Save Stage 2: After filtering
         if save_ply_debug:
-            points_filtered = rotated_points[env_id][mask[env_id]].cpu().numpy()
+            points_filtered = trans_points[env_id][mask[env_id]].cpu().numpy()
             save_ply(points_filtered, "2_filtered")
-
-        # # Apply object cluster filtering on the first filtered result (Y between -0.05 and 0.12)
-        # object_mask_upper = rotated_points[:, :, 1] < -0.028
-        # object_cluster_mask = mask & object_mask_upper
-
-        # # Save PLY for debugging (only one environment)
-        # if save_ply_debug:
-        #     object_cluster_points_debug = rotated_points[env_id][object_cluster_mask[env_id]].cpu().numpy()
-        #     save_ply(object_cluster_points_debug, "object_cluster")
-
-        # # Extract object cluster for ALL environments (keep as torch tensors)
-        # object_cluster_points_list = []
-        # for b in range(B):
-        #     cluster = rotated_points[b][object_cluster_mask[b]]  # Keep as torch tensor!
-        #     object_cluster_points_list.append(cluster)
-
-        # # Save to file (all environments, as torch tensors)
-        # import os
-        # import torch
-
-        # save_dir = "/tmp/isaaclab_object_cluster"
-        # os.makedirs(save_dir, exist_ok=True)
-
-        # cluster_data = {
-        #     'clusters': object_cluster_points_list,  # List of torch tensors (one per environment)
-        #     'num_envs': B
-        # }
-
-        # torch.save(cluster_data, os.path.join(save_dir, "object_cluster.pt"))
 
         # Sample fixed number of points
         sampled_points = []
         for b in range(B):
-            valid_points = rotated_points[b][mask[b]]
+            valid_points = trans_points[b][mask[b]]
 
             if len(valid_points) == 0:
                 sampled_points.append(torch.zeros(num_points, 3, device=device))
@@ -695,11 +728,10 @@ class image_features(ManagerTermBase):
 
         result = torch.stack(sampled_points, dim=0)
 
-        #Save Stage 3: Final downsampled
+        # Save Stage 3: Final downsampled
         if save_ply_debug:
-            # Save scene point cloud
-            points_xyz = result[env_id, :, :3].cpu().numpy()
-            save_ply(points_xyz, "3_downsampled")
+            points_final = result[env_id].cpu().numpy()
+            save_ply(points_final, "3_downsampled")
 
         return result
 
@@ -707,8 +739,8 @@ class image_features(ManagerTermBase):
     def __call__(
         self,
         env: ManagerBasedEnv,
-        sensor_cfg: SceneEntityCfg = SceneEntityCfg("tiled_camera"),
-        depth_cfg: SceneEntityCfg = SceneEntityCfg("tiled_camera2"),
+        sensor_cfg: SceneEntityCfg = SceneEntityCfg("gripper_camera"),
+        depth_cfg: SceneEntityCfg = SceneEntityCfg("depth_camera"),
         data_type: str = "rgb",
         convert_perspective_to_orthogonal: bool = False,
         model_zoo_cfg: dict | None = None,
@@ -728,44 +760,51 @@ class image_features(ManagerTermBase):
 
     # obtain the input image
         images = sensor.data.output[data_type]
-        
         # store the device of the image
         image_device = images.device
+       
         # forward the images through the model
         features = self._inference_fn(self._model, images, **(inference_kwargs or {}))
 
         depth = env.scene.sensors[depth_cfg.name].data.output["distance_to_image_plane"]
-
-        depth_tensor = depth.squeeze(-1)
+        depth_tensor = depth.squeeze(0).squeeze(-1)  # Keep on GPU, no .cpu().numpy()
 
         self._frame_counter += 1
 
         # Generate point clouds on GPU in one batch
         batch_points_tensor = self.depth_to_pointcloud_batch_gpu(
             depth_tensor, 
-            self.fx,
-            self.fy,
+            self.fx, 
+            self.fy, 
             self.cx,
             self.cy,
             num_points=1024,
-            save_ply_debug=False,
+            save_ply_debug=True,
             env_id=0,
             frame_counter=self._frame_counter,
-            save_dir="debug_pointclouds",
-            env=env
+            save_dir="debug_pointclouds"
         )
+        # pcd= o3d.io.read_point_cloud("/home/roborock/IsaacLab/output1.ply")
+        # points = np.asarray(pcd.points).astype(np.float32)  
+        # # pcd = o3d.io.read_point_cloud("/home/roborock/IsaacLab/batch0.pcd")
 
-        # env.point_cloud_cache = batch_points_tensor
-        env.point_cloud_cache = batch_points_tensor.detach()
-        env._pcd_cache_step = env.common_step_counter
+        # points = np.asarray(pcd.points)  # shape: [N, 3]
 
+        # # 转成 tensor
+        # points_tensor = torch.from_numpy(points).float().cuda()  # [N, 3]
+
+        # # 扩展 batch 维度
+        # points_tensor = points_tensor.unsqueeze(0)  # [1, N, 3]
+
+        # # 如果模型要求 [B, 3, N] 形状
+        # points_tensor = points_tensor.permute(0, 2, 1)
         pts_input = batch_points_tensor.permute(0, 2, 1).contiguous()
-
+        # import pdb
+        # pdb.set_trace()
         with torch.no_grad():
             depth_features_batch = self._point_encoder(pts_input)
         
-        # import pdb
-        # pdb.set_trace()
+        
         
         img_feat_norm = torch.nn.functional.normalize(features, p=2, dim=1)
         
@@ -824,9 +863,11 @@ class image_features(ManagerTermBase):
 
     def _prepare_resnet_model(self, model_name: str, model_device: str) -> dict:
         """Prepare the ResNet model for inference.
+
         Args:
             model_name: The name of the ResNet model to prepare.
             model_device: The device to store and infer the model on.
+
         Returns:
             A dictionary containing the model and inference functions.
         """
@@ -841,19 +882,44 @@ class image_features(ManagerTermBase):
                 "resnet50": "ResNet50_Weights.IMAGENET1K_V1",
                 "resnet101": "ResNet101_Weights.IMAGENET1K_V1",
             }
+
             # load the model
             model = getattr(models, model_name)(weights=resnet_weights[model_name]).eval()
             model = torch.nn.Sequential(*list(model.children())[:-1])
             return model.to(model_device)
-        
+
         def _inference(model, images: torch.Tensor) -> torch.Tensor:
             """Inference the ResNet model.
+
             Args:
                 model: The ResNet model.
                 images: The preprocessed image tensor. Shape is (num_envs, channel, height, width).
+
             Returns:
                 The extracted features tensor. Shape is (num_envs, feature_dim).
             """
+    #         def load_image(img_path, input_size=(224, 224)):
+    # # 读取图片
+    #             img = cv2.imread(img_path)
+    #             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    #             # resize 到模型的输入尺寸
+    #             img = cv2.resize(img, input_size)
+
+    #             # HWC -> CHW
+    #             img = img.transpose(2, 0, 1).astype(np.float32) / 255.0  # 归一化到 [0,1]
+
+    #             # ResNet ImageNet 预处理
+    #             mean = np.array([0.485, 0.456, 0.406]).reshape(3,1,1)
+    #             std  = np.array([0.229, 0.224, 0.225]).reshape(3,1,1)
+    #             img = (img - mean) / std
+
+    #             # 增加 batch 维度 (1,3,H,W)
+    #             img = np.expand_dims(img, axis=0).astype(np.float32)
+
+    #             return img
+            # img = load_image("/home/roborock/docker_images_v1.8.x/docker_bushu/1.png", input_size=(224, 224))
+            # images = torch.from_numpy(img)
             # move the image to the model device
             image_proc = images.to(model_device)
             # permute the image to (num_envs, channel, height, width)
@@ -862,12 +928,12 @@ class image_features(ManagerTermBase):
             mean = torch.tensor([0.485, 0.456, 0.406], device=model_device).view(1, 3, 1, 1)
             std = torch.tensor([0.229, 0.224, 0.225], device=model_device).view(1, 3, 1, 1)
             image_proc = (image_proc - mean) / std
+            # forward the image through the model
             with torch.no_grad():
                 feats = model(image_proc)          # [N, 512, 1, 1]
                 feats = feats.view(feats.size(0), -1)  # [N, 512]
             return feats
-            # forward the image through the model
-            # return model(image_proc)
+
         # return the model, preprocess and inference functions
         return {"model": _load_model, "inference": _inference}
     
@@ -883,7 +949,7 @@ class image_features(ManagerTermBase):
         # self._point_encoder.eval()
         # self._point_encoder.cuda()
 
-        experiment_dir = '/home/robo/code/IsaacLab'
+        experiment_dir = '/home/roborock/IsaacLab'
         ckpt_path = f"{experiment_dir}/best_model.pth"
 
         # ✅ 模型输入通道：原模型是 normal_channel=True（6 通道）
@@ -936,7 +1002,6 @@ class image_features(ManagerTermBase):
 
         self._point_encoder = PointNet2Encoder(classifier).cuda().eval()
         
-
 
 """
 Actions.
