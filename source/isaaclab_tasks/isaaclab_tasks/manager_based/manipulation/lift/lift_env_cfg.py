@@ -383,8 +383,8 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         
         """Post initialization."""
-        self.decimation = 5  # 2 20 48
-        self.episode_length_s = 0.25
+        self.decimation = 1  # 2 20 48
+        self.episode_length_s = 10
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation
         # self.sim.render_interval = 1
