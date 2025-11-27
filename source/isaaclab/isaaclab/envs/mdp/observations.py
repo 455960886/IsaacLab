@@ -643,7 +643,7 @@ class image_features(ManagerTermBase):
         z = rotated_points[:, :, 2]
         y = rotated_points[:, :, 1]
         mask1 = z < 0.21
-        mask2 = y > -0.0628
+        mask2 = y > -0.06
         mask3 = y < 0.0428
         mask = mask1 & mask2 & mask3           # (B,H*W)
 
