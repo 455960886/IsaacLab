@@ -92,11 +92,11 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         self.scene.robot = MY_ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         self.actions.arm_action = mdp.RelativeJointPositionActionCfg(
-            asset_name="robot", joint_names=["M[34]"]
+            asset_name="robot", joint_names=["M[1345]"]
         )
         # self.actions.arm_action = mdp.JointPositionActionCfg(
         #     asset_name="robot",
-        #     joint_names=["M[1345]"],
+        #     joint_names=["M[34]"],
         #     use_default_offset=True,
         # )
         
