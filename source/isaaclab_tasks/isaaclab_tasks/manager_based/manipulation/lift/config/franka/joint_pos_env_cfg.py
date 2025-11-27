@@ -30,6 +30,7 @@ MY_ROBOT_CFG = ArticulationCfg(
         # collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.005, rest_offset=0.0),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
+        pos= (0,0,0.005),
         joint_pos={
             # "M0": 0,   
             "M1": 1.571, 
@@ -153,7 +154,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                             articulation_enabled=False,  # CRITICAL: Disable articulation
                         ),
                     ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.01, 0.00)),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.01, 0.00)),
                 ),
                 # "cube": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/Object",
