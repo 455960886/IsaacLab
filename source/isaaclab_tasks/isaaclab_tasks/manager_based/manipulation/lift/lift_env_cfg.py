@@ -275,43 +275,43 @@ class RewardsCfg:
     )
 
     # NEW: Point cloud density reward
-    # contain_object = RewTerm(
-    #     func=mdp.pcd_contain_object,
-    #     params={
-    #         "density_scale": 1.0,
-    #         "use_tanh": True,  # Set True for smoother gradients
-    #         "min_ee_robot_distance": 0.26,
-    #     },
-    #     weight=30.0,  # Tune this: 5.0-20.0 depending on importance
-    # )
     contain_object = RewTerm(
-        func=mdp.pcd_contain_object1,
+        func=mdp.pcd_contain_object,
         params={
             "density_scale": 1.0,
             "use_tanh": True,  # Set True for smoother gradients
             "min_ee_robot_distance": 0.26,
-            "valid_object_name": "eye_drops",
-            "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
         },
         weight=30.0,  # Tune this: 5.0-20.0 depending on importance
     )
-    debug_semantic_pcd = RewTerm(
-        func=mdp.debug_semantic_pcd_density,
-        params={
-            "sensor_cfg_name": "depth_camera",
-            "valid_object_name": "eye_drops",
-            "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
-            "log_interval": 1,           # 想每步打就改成 1
-            "env_id_to_print": 0,
-            "density_scale": 1.0,
-            "use_tanh": True,
-            "min_ee_robot_distance": 0.26,
-            "contact_z_threshold": 0.7,
-            "contact_force_threshold": 1.5,
-            "require_both_contacts": True,
-        },
-        weight=0.001,
-    )
+    # contain_object = RewTerm(
+    #     func=mdp.pcd_contain_object1,
+    #     params={
+    #         "density_scale": 1.0,
+    #         "use_tanh": True,  # Set True for smoother gradients
+    #         "min_ee_robot_distance": 0.26,
+    #         "valid_object_name": "eye_drops",
+    #         "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
+    #     },
+    #     weight=30.0,  # Tune this: 5.0-20.0 depending on importance
+    # )
+    # debug_semantic_pcd = RewTerm(
+    #     func=mdp.debug_semantic_pcd_density,
+    #     params={
+    #         "sensor_cfg_name": "depth_camera",
+    #         "valid_object_name": "eye_drops",
+    #         "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
+    #         "log_interval": 1,           # 想每步打就改成 1
+    #         "env_id_to_print": 0,
+    #         "density_scale": 1.0,
+    #         "use_tanh": True,
+    #         "min_ee_robot_distance": 0.26,
+    #         "contact_z_threshold": 0.7,
+    #         "contact_force_threshold": 1.5,
+    #         "require_both_contacts": True,
+    #     },
+    #     weight=0.001,
+    # )
 
     clamp_object_contact = RewTerm(
         func=mdp.contact_clamp_object,
