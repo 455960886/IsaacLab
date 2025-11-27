@@ -30,7 +30,7 @@ MY_ROBOT_CFG = ArticulationCfg(
         # collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.005, rest_offset=0.0),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos= (0,0,0.005),
+        pos=(0, 0, 0.005),
         joint_pos={
             # "M0": 0,   
             "M1": 1.571, 
@@ -91,14 +91,14 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         # Set CoarseArm as robot
         self.scene.robot = MY_ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-        self.actions.arm_action = mdp.RelativeJointPositionActionCfg(
-            asset_name="robot", joint_names=["M[1345]"]
-        )
-        # self.actions.arm_action = mdp.JointPositionActionCfg(
-        #     asset_name="robot",
-        #     joint_names=["M[34]"],
-        #     use_default_offset=True,
+        # self.actions.arm_action = mdp.RelativeJointPositionActionCfg(
+        #     asset_name="robot", joint_names=["M[1345]"]
         # )
+        self.actions.arm_action = mdp.JointPositionActionCfg(
+            asset_name="robot",
+            joint_names=["M[34]"],
+            use_default_offset=True,
+        )
         
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
@@ -154,7 +154,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                             articulation_enabled=False,  # CRITICAL: Disable articulation
                         ),
                     ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.01, 0.00)),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.0, 0.00)),
                 ),
                 # "cube": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/Object",
