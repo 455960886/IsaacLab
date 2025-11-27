@@ -586,12 +586,22 @@ class image_features(ManagerTermBase):
         # save_ply(points, colors=None, output_path=output_path.replace(".ply","_downsampled8.ply"))
         return points
     
-
     # GPU-accelerated version for batch processing
     def depth_to_pointcloud_batch_gpu(self, depth_batch, fx, fy, cx, cy, num_points=1024, 
                                       save_ply_debug=False, env_id=0, frame_counter=None, save_dir="debug_pointclouds"):
         """GPU-accelerated batch point cloud generation with systematic PLY saving."""
         import os
+        # 统一整理维度，防止又传进来 2 维或 4 维
+        if depth_batch.ndim == 4 and depth_batch.shape[-1] == 1:
+            depth_batch = depth_batch.squeeze(-1)  # (B,H,W,1) -> (B,H,W)
+        elif depth_batch.ndim == 2:
+            depth_batch = depth_batch.unsqueeze(0)  # (H,W) -> (1,H,W)
+
+        if depth_batch.ndim != 3:
+            raise RuntimeError(
+                f"[depth_to_pointcloud_batch_gpu] depth_batch must be (B,H,W), got {depth_batch.shape}"
+            )
+
         B, H, W = depth_batch.shape
         device = depth_batch.device
 
@@ -686,7 +696,7 @@ class image_features(ManagerTermBase):
         # pdb.set_trace()
         points_flat = points.reshape(B, H * W, 3)
         rotated_points = torch.matmul(points_flat, R.T)
-        translation = torch.tensor([0.183, 0.0, 0.0659], device=device)
+        translation = torch.tensor([0.183, 0.0, 0.0602], device=device)
         trans_points = rotated_points +translation
         # Save Stage 1: After rotation
         if save_ply_debug:
@@ -767,7 +777,22 @@ class image_features(ManagerTermBase):
         features = self._inference_fn(self._model, images, **(inference_kwargs or {}))
 
         depth = env.scene.sensors[depth_cfg.name].data.output["distance_to_image_plane"]
-        depth_tensor = depth.squeeze(0).squeeze(-1)  # Keep on GPU, no .cpu().numpy()
+
+        # 统一整理成 (B,H,W)
+        if depth.ndim == 4 and depth.shape[-1] == 1:
+            # 标准情况：(B,H,W,1) -> (B,H,W)
+            depth_tensor = depth.squeeze(-1)
+        elif depth.ndim == 3:
+            # 已经是 (B,H,W)
+            depth_tensor = depth
+        elif depth.ndim == 2:
+            # 单张图 (H,W) -> (1,H,W)
+            depth_tensor = depth.unsqueeze(0)
+        else:
+            raise RuntimeError(
+                f"[image_features] Unexpected depth shape: {depth.shape}, "
+                "expect (B,H,W,1) or (B,H,W) or (H,W)."
+            )
 
         self._frame_counter += 1
 
@@ -779,7 +804,7 @@ class image_features(ManagerTermBase):
             self.cx,
             self.cy,
             num_points=1024,
-            save_ply_debug=True,
+            save_ply_debug=False,
             env_id=0,
             frame_counter=self._frame_counter,
             save_dir="debug_pointclouds"
@@ -949,7 +974,7 @@ class image_features(ManagerTermBase):
         # self._point_encoder.eval()
         # self._point_encoder.cuda()
 
-        experiment_dir = '/home/roborock/IsaacLab'
+        experiment_dir = '/home/robo/code/IsaacLab'
         ckpt_path = f"{experiment_dir}/best_model.pth"
 
         # ✅ 模型输入通道：原模型是 normal_channel=True（6 通道）
