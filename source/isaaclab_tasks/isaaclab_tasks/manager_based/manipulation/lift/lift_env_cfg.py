@@ -383,8 +383,8 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         
         """Post initialization."""
-        self.decimation = 1  # 2 20 48
-        self.episode_length_s = 10
+        self.decimation = 5  # 2 20 48
+        self.episode_length_s = 0.25
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation
         # self.sim.render_interval = 1
@@ -398,9 +398,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.gpu_heap_capacity = 256 * 1024 * 1024          # 256 MB
         self.sim.physx.gpu_temp_buffer_capacity = 128 * 1024 * 1024   # 128 MB
 
-        # 接触相关容量
         self.sim.physx.gpu_max_rigid_contact_count = 2_000_000        # 接触对上限
         self.sim.physx.gpu_max_rigid_patch_count = 1_000_000          # 接触 patch 上限
 
-        # 关键：碰撞栈大小，要比报错里的 71239504 大
         self.sim.physx.gpu_collision_stack_size = 96 * 1024 * 1024    # ≈ 100 MB
