@@ -510,21 +510,21 @@ class image_features(ManagerTermBase):
             # 保存为 PLY 文件
             o3d.io.write_point_cloud(output_path, pcd)
             print(f"✅ 点云已保存到: {output_path}")
-
+       
         # save_ply(points, colors=None, output_path=output_path.replace(".ply","_0.ply"))
-        theta = np.deg2rad(0.5)
-        R_x = np.array([
-            [1, 0, 0],
-            [0, np.cos(theta), -np.sin(theta)],
-            [0, np.sin(theta),  np.cos(theta)]
-        ])
+        # theta = np.deg2rad(0.5)
+        # R_x = np.array([
+        #     [1, 0, 0],
+        #     [0, np.cos(theta), -np.sin(theta)],
+        #     [0, np.sin(theta),  np.cos(theta)]
+        # ])
 
-        rotated_points = points @ R_x.T
+        # rotated_points = points @ R_x.T
         # save_ply(rotated_points, colors=None, output_path=output_path.replace(".ply","_1.ply"))
         # save_ply(points, colors=None, output_path=output_path)
         # ===== 距离筛选部分 =====
-        points = rotated_points[rotated_points[:,2]<0.16]
-        points = points[points[:,1]>-0.05]
+        # points = rotated_points[rotated_points[:,2]<0.16]
+        # points = points[points[:,1]>-0.05]
 
         def voxel_down_sample_fixed(points, voxel_size=2.0, num_points=1024, seed=None):
             """
@@ -564,9 +564,12 @@ class image_features(ManagerTermBase):
 
             return down_points
 
-        points = voxel_down_sample_fixed(points, voxel_size=2.0)
+        downsampled_points = voxel_down_sample_fixed(trans_points, voxel_size=2.0)
         # save_ply(points, colors=None, output_path=output_path.replace(".ply","_downsampled8.ply"))
-        return points
+        if save_ply_debug:
+            points_downsampled = downsampled_points[env_id][mask[env_id]].cpu().numpy()
+            save_ply(points_filtered, "3_downsampled")
+        return downsampled_points
 
     # GPU-accelerated version for batch processing
     def depth_to_pointcloud_batch_gpu(
@@ -575,7 +578,7 @@ class image_features(ManagerTermBase):
         fx, fy, cx, cy,
         seg_batch=None,                   # <--- 新增：语义分割 (B,H,W) 或 (B,H,W,1)
         num_points=1024,
-        save_ply_debug=False,
+        save_ply_debug=True,
         env_id=0,
         frame_counter=None,
         save_dir="debug_pointclouds",
@@ -622,34 +625,88 @@ class image_features(ManagerTermBase):
         Y = (v - cy) * Z / fy
         points = torch.stack([X, -Y, Z], dim=-1)        # (B,H,W,3)
 
-        points_flat = points.reshape(B, H * W, 3)       # (B,H*W,3)
+        # points_flat = points.reshape(B, H * W, 3)       # (B,H*W,3)
 
-        theta = torch.deg2rad(torch.tensor(0.5, device=device))
-        cos_theta = torch.cos(theta)
-        sin_theta = torch.sin(theta)
-        R_x = torch.tensor(
-            [[1, 0, 0],
-            [0, cos_theta, -sin_theta],
-            [0, sin_theta,  cos_theta]],
-            device=device, dtype=torch.float32,
-        )
-
-        rotated_points = torch.matmul(points_flat, R_x.T)  # (B,H*W,3)
-
+        # theta = torch.deg2rad(torch.tensor(0.5, device=device))
+        # cos_theta = torch.cos(theta)
+        # sin_theta = torch.sin(theta)
+        # R_x = torch.tensor(
+        #     [[1, 0, 0],
+        #     [0, cos_theta, -sin_theta],
+        #     [0, sin_theta,  cos_theta]],
+        #     device=device, dtype=torch.float32,
+        # )
+        def deg2rad(v, device):
+            return torch.tensor(v, device=device) * torch.pi / 180.0
+        roll  = deg2rad(90.0, device)
+        pitch = deg2rad(0.0,  device)
+        yaw   = deg2rad(90.0, device)
+        c1, s1 = torch.cos(roll), torch.sin(roll)
+        c2, s2 = torch.cos(pitch), torch.sin(pitch)
+        c3, s3 = torch.cos(yaw), torch.sin(yaw)
+        Rx = torch.tensor([
+            [1, 0, 0],
+            [0,  c1, -s1],
+            [0,  s1,  c1]
+        ], device=device, dtype=torch.float32)
+        Ry = torch.tensor([
+            [ c2, 0, s2],
+            [  0, 1, 0],
+            [-s2, 0, c2]
+        ], device=device, dtype=torch.float32)
+        Rz = torch.tensor([
+            [c3, -s3, 0],
+            [s3,  c3, 0],
+            [ 0,   0, 1]
+        ], device=device, dtype=torch.float32)
+        # -----------------------------
+        # 构造 4x4 transformation 矩阵 T
+        # -----------------------------
+        x1 = deg2rad(0.011, device)
+        c = torch.cos(x1)
+        s = torch.sin(x1)
+        Rx1 = torch.tensor([
+            [1., 0., 0.],
+            [0.,     c,    -s],
+            [0.,     s,     c],
+        ], device=device)
+        R = Rx1@ Rz @ Ry @ Rx 
+        # import pdb
+        # pdb.set_trace()
+        points_flat = points.reshape(B, H * W, 3)
+        rotated_points = torch.matmul(points_flat, R.T)
+        translation = torch.tensor([0.1654, 0.0, 0.049], device=device)
+        trans_points = rotated_points +translation
+        # Save Stage 1: After rotation
         if save_ply_debug:
-            save_ply(rotated_points[env_id].cpu().numpy(), "1_rotated")
+            points_trans = trans_points[env_id].cpu().numpy()
+            save_ply(points_trans, "1_rotated")
+        # Apply distance filtering
+        # mask1 = rotated_points[:, :, 2] < 0.21
+        # mask2 = rotated_points[:, :, 1] > -0.0628
+        # mask3 = rotated_points[:, :, 1] < 0.0428
+        
+        # mask1 = trans_points[:,:, 0] >=0.35
+        mask2 = trans_points[:,:, 0] <=0.42
+        mask3 = trans_points[:,:, 2] >= 0.00
+       
+        mask =  mask2 & mask3 
+        # Save Stage 2: After filtering
+        if save_ply_debug:
+            points_filtered = trans_points[env_id][mask[env_id]].cpu().numpy()
+            save_ply(points_filtered, "2_filtered")
 
         # 几何过滤 mask: (B,H*W)
-        z = rotated_points[:, :, 2]
-        y = rotated_points[:, :, 1]
-        mask1 = z < 0.21
-        mask2 = y > -0.06
-        mask3 = y < 0.0428
-        mask = mask1 & mask2 & mask3           # (B,H*W)
+        # z = rotated_points[:, :, 2]
+        # y = rotated_points[:, :, 1]
+        # mask1 = z < 0.21
+        # mask2 = y > -0.06
+        # mask3 = y < 0.0428
+        # mask = mask1 & mask2 & mask3           # (B,H*W)
 
-        if save_ply_debug:
-            points_filtered = rotated_points[env_id][mask[env_id]].cpu().numpy()
-            save_ply(points_filtered, "2_filtered")
+        # if save_ply_debug:
+        #     points_filtered = rotated_points[env_id][mask[env_id]].cpu().numpy()
+        #     save_ply(points_filtered, "2_filtered")
 
         sampled_points_list = []
         sampled_semantic_list = [] if seg_batch is not None else None
@@ -666,7 +723,7 @@ class image_features(ManagerTermBase):
                     sampled_semantic_list.append(sampled_semantic)
                 continue
 
-            valid_points = rotated_points[b][valid_idx]         # (M,3)
+            valid_points = trans_points[b][valid_idx]         # (M,3)
 
             if seg_batch is not None:
                 valid_semantic = seg_flat[b][valid_idx]         # (M,)
@@ -731,14 +788,20 @@ class image_features(ManagerTermBase):
             seg = seg[..., 0]
 
         self._frame_counter += 1
+        cam1 = env.scene.sensors["depth_camera"]
+        K = cam1._data.intrinsic_matrices[0]
+        fx = K[0][0]
+        fy = K[1][1]
+        cx = K[0][2]
+        cy = K[1][2]
 
         # --- 一次性得到点云 + 点级语义 ID ---
         batch_points_tensor, semantic_ids = self.depth_to_pointcloud_batch_gpu(
             depth_tensor,
-            self.fx,
-            self.fy,
-            self.cx,
-            self.cy,
+            fx,
+            fy,
+            cx,
+            cy,
             seg_batch=seg,                      # <--- 传进去
             num_points=1024,
             save_ply_debug=False,

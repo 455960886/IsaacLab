@@ -30,12 +30,12 @@ MY_ROBOT_CFG = ArticulationCfg(
         # collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.005, rest_offset=0.0),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0, 0, 0.005),
+        # pos=(0, 0, 0.005),
         joint_pos={
             # "M0": 0,   
             "M1": 1.571, 
             # "M2": 1.57,
-            "M3": 3.9,
+            "M3": 3.8,
             "M4": 1.4,
             "M5": 0.0,
             "M6_1": 0.0,

@@ -279,16 +279,16 @@ def pcd_contain_object_semantic(
             should_print_semantic_table = True
 
     if should_print_semantic_table and rank == 0:
-        print("\n[SEMANTIC] [pcd_contain_object_semantic]")
-        print(f"  step              = {step}")
-        print(f"  valid_object_name = {valid_object_name}")
-        print(f"  valid_object_id   = {valid_object_id}")
-        print(f"  excluded_names    = {excluded_object_names}")
-        print(f"  excluded_ids      = {excluded_object_ids}")
-        print("  idToLabels:")
-        for line in semantic_class_names:
-            print("    ", line)
-        print("")
+        # print("\n[SEMANTIC] [pcd_contain_object_semantic]")
+        # print(f"  step              = {step}")
+        # print(f"  valid_object_name = {valid_object_name}")
+        # print(f"  valid_object_id   = {valid_object_id}")
+        # print(f"  excluded_names    = {excluded_object_names}")
+        # print(f"  excluded_ids      = {excluded_object_ids}")
+        # print("  idToLabels:")
+        # for line in semantic_class_names:
+        #     print("    ", line)
+        # print("")
 
         env._debug_sem_last_print_step = step
         env._debug_sem_last_valid_object_id = valid_object_id

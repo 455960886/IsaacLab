@@ -86,13 +86,13 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
             convention="opengl"),
         data_types=["distance_to_image_plane", "semantic_segmentation"],
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=11.8,
+            focal_length = 26.29,
             focus_distance=400.0,
             horizontal_aperture=36,
             vertical_aperture=25.45,
         ),
-        width=400,
-        height=300,
+        width=200,
+        height=150,
         debug_vis=False,
         update_period=0.05,
         colorize_semantic_segmentation=False,
@@ -252,7 +252,7 @@ class RewardsCfg:
     reaching_object = RewTerm(
         func=mdp.object_ee_distance,
         params={"std": 0.1},
-        weight=10,
+        weight=5,
     )
 
     ############################################### 2. contain ###############################################
@@ -275,25 +275,25 @@ class RewardsCfg:
             "valid_object_name": "eye_drops",
             "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
         },
-        weight=50.0,  # Tune this: 5.0-20.0 depending on importance
+        weight=15.0,  # Tune this: 5.0-20.0 depending on importance
     )
-    debug_semantic_pcd = RewTerm(
-        func=mdp.debug_semantic_pcd_density,
-        params={
-            "sensor_cfg_name": "depth_camera",
-            "valid_object_name": "eye_drops",
-            "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
-            "log_interval": 50,           # 想每步打就改成 1
-            "env_id_to_print": 0,
-            "density_scale": 1.0,
-            "use_tanh": True,
-            "min_ee_robot_distance": 0.26,
-            "contact_z_threshold": 0.7,
-            "contact_force_threshold": 1.5,
-            "require_both_contacts": True,
-        },
-        weight=0.00001,
-    )
+    # debug_semantic_pcd = RewTerm(
+    #     func=mdp.debug_semantic_pcd_density,
+    #     params={
+    #         "sensor_cfg_name": "depth_camera",
+    #         "valid_object_name": "eye_drops",
+    #         "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
+    #         "log_interval": 50,           # 想每步打就改成 1
+    #         "env_id_to_print": 0,
+    #         "density_scale": 1.0,
+    #         "use_tanh": True,
+    #         "min_ee_robot_distance": 0.26,
+    #         "contact_z_threshold": 0.7,
+    #         "contact_force_threshold": 1.5,
+    #         "require_both_contacts": True,
+    #     },
+    #     weight=0.00001,
+    # )
 
     ############################################### 3. clamp ###############################################
     clamp_object_contact = RewTerm(
@@ -303,7 +303,7 @@ class RewardsCfg:
             "reward_value": 1.0,
             "gripper_closed_threshold": 0.2,
         },
-        weight=40.0,
+        weight=25.0,
     )
 
     ################################################ 4. lift ###############################################
@@ -326,7 +326,7 @@ class RewardsCfg:
 
     ################################################ 5. penalty ###############################################
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
-    visualize_sphere = RewTerm(func=mdp.visualize_pcd_sphere, weight=0.01)
+    # visualize_sphere = RewTerm(func=mdp.visualize_pcd_sphere, weight=0.01)
     joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
         weight=-0.0001,
@@ -385,7 +385,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         
         """Post initialization."""
         self.decimation = 5  # 2 20 48
-        self.episode_length_s = 0.25
+        self.episode_length_s = 0.3
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation
         # self.sim.render_interval = 1
