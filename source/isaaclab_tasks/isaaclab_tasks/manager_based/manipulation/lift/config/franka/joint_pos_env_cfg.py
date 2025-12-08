@@ -154,7 +154,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                             articulation_enabled=False,  # CRITICAL: Disable articulation
                         ),
                     ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.0, 0.00)),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.012, 0.00)),
                 ),
                 # "cube": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/Object",
@@ -191,7 +191,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/M5_wrist_link",
                     name="end_effector",
                     offset=OffsetCfg(
-                        pos=[0.10, 0, -0.0015],
+                        pos=(0.10, 0, -0.0015),
                     ),
                 ),
             ],
@@ -206,7 +206,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/M6_1_leftfinger_link",
                     name="end_effector_1",
                     offset=OffsetCfg(
-                        pos=[0.028, -0.001, 0.0],
+                        pos=(0.028, -0.001, 0.0),
                     ),
                 ),
             ],
@@ -221,7 +221,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/M6_2_rightfinger_link",
                     name="end_effector_2",
                     offset=OffsetCfg(
-                        pos=[0.028, 0.003, 0.0],
+                        pos=(0.028, 0.003, 0.0),
                     ),
                 ),
             ],
