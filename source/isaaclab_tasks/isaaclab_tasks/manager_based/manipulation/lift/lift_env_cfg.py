@@ -99,62 +99,62 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         colorize_semantic_segmentation=False,
     )
 
-    gripper_camera: TiledCameraCfg = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/M5_wrist_link/camera_Link/gripper_camera",
-        offset=TiledCameraCfg.OffsetCfg(
-            pos=(0.0, -0.00037, -0.00082),
-            rot=(0, -1, 0.0, 0.0),
-            convention="opengl",
-        ),
-        data_types=["rgb"],
-        spawn=sim_utils.FisheyeCameraCfg(
-            focal_length=18.14756,       # Focal Length
-            focus_distance=400.0,        # Focus Distance
-            f_stop=0.0,                  # fStop
-            horizontal_aperture=20.955,  # Horizontal Aperture
-            vertical_aperture=15.2908,   # Vertical Aperture
-
-            projection_type="fisheyeRadTanThinPrism",  # Projection Type
-
-            fisheye_nominal_width=1936.0,   # Nominal Width
-            fisheye_nominal_height=1216.0,  # Nominal Height
-
-            fisheye_optical_centre_x=970.94244,  # Optical Center X
-            fisheye_optical_centre_y=600.37482,  # Optical Center Y
-
-            fisheye_max_fov=200.0,  # Max FOV
-
-            fisheye_polynomial_a=0.25,  # Poly k0
-            fisheye_polynomial_b=0.0,   # Poly k1
-            fisheye_polynomial_c=0.0,   # Poly k2
-            fisheye_polynomial_d=-0.0,  # Poly k3
-            fisheye_polynomial_e=0.0,   # Poly k4
-            fisheye_polynomial_f=0.0,   # Poly k5
-        ),
-        width=640,
-        height=480,
-        debug_vis=False,
-        update_period=0.15,
-    )
     # gripper_camera: TiledCameraCfg = TiledCameraCfg(
     #     prim_path="{ENV_REGEX_NS}/Robot/M5_wrist_link/camera_Link/gripper_camera",
     #     offset=TiledCameraCfg.OffsetCfg(
-    #         pos=(0.0, -0.00009, -0.00402),
-    #         rot=((0.04717, -0.99889, 0.0, 0.0)),
-    #         convention="opengl"
+    #         pos=(0.0, -0.00037, -0.00082),
+    #         rot=(0, -1, 0.0, 0.0),
+    #         convention="opengl",
     #     ),
     #     data_types=["rgb"],
-    #     spawn=sim_utils.PinholeCameraCfg(
-    #         focal_length=15.6,
-    #         focus_distance=400.0,
-    #         horizontal_aperture=20.955,
-    #         vertical_aperture=15.2908,    
+    #     spawn=sim_utils.FisheyeCameraCfg(
+    #         focal_length=18.14756,       # Focal Length
+    #         focus_distance=400.0,        # Focus Distance
+    #         f_stop=0.0,                  # fStop
+    #         horizontal_aperture=20.955,  # Horizontal Aperture
+    #         vertical_aperture=15.2908,   # Vertical Aperture
+
+    #         projection_type="fisheyeRadTanThinPrism",  # Projection Type
+
+    #         fisheye_nominal_width=1936.0,   # Nominal Width
+    #         fisheye_nominal_height=1216.0,  # Nominal Height
+
+    #         fisheye_optical_centre_x=970.94244,  # Optical Center X
+    #         fisheye_optical_centre_y=600.37482,  # Optical Center Y
+
+    #         fisheye_max_fov=200.0,  # Max FOV
+
+    #         fisheye_polynomial_a=0.25,  # Poly k0
+    #         fisheye_polynomial_b=0.0,   # Poly k1
+    #         fisheye_polynomial_c=0.0,   # Poly k2
+    #         fisheye_polynomial_d=-0.0,  # Poly k3
+    #         fisheye_polynomial_e=0.0,   # Poly k4
+    #         fisheye_polynomial_f=0.0,   # Poly k5
     #     ),
     #     width=640,
     #     height=480,
     #     debug_vis=False,
     #     update_period=0.15,
     # )
+    gripper_camera: TiledCameraCfg = TiledCameraCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/M5_wrist_link/camera_Link/gripper_camera",
+        offset=TiledCameraCfg.OffsetCfg(
+            pos=(0.0, -0.00009, -0.00402),
+            rot=((0.04717, -0.99889, 0.0, 0.0)),
+            convention="opengl"
+        ),
+        data_types=["rgb"],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=15.6,
+            focus_distance=400.0,
+            horizontal_aperture=20.955,
+            vertical_aperture=15.2908,    
+        ),
+        width=640,
+        height=480,
+        debug_vis=False,
+        update_period=0.15,
+    )
 
     contact_forces_left = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/M6_1_leftfinger_link",  # Left gripper finger link
@@ -313,7 +313,7 @@ class RewardsCfg:
             "valid_object_name": "eye_drops",
             "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
         },
-        weight=200.0,
+        weight=400.0,
     )
     # debug_semantic_pcd = RewTerm(
     #     func=mdp.debug_semantic_pcd_density,
@@ -341,7 +341,7 @@ class RewardsCfg:
             "reward_value": 1.0,
             "gripper_closed_threshold": 0.2,
         },
-        weight=250.0,
+        weight=150.0,
     )
 
     ################################################ 4. lift ###############################################
@@ -422,8 +422,8 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         
         """Post initialization."""
-        self.decimation = 20  # 2 20 48
-        self.episode_length_s = 4
+        self.decimation = 5  # 2 20 48
+        self.episode_length_s = 0.35
         # self.decimation = 1
         # self.episode_length_s = 10
         self.sim.dt = 0.01  # 100Hz
