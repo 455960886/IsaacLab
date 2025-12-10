@@ -409,7 +409,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=7)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=5, env_spacing=7)
     observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()

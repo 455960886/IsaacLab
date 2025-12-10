@@ -393,60 +393,17 @@ class image_features(ManagerTermBase):
     """
 
     def __init__(self, cfg: ObservationTermCfg, env: ManagerBasedEnv):
-        # initialize the base class
+        """这里只做两件事：
+        1. 保存相机内参（如果你要用，也可以不用）
+        2. 准备一个 frame_counter，用来给 debug 保存图片/点云编号
+        """
         super().__init__(cfg, env)
 
-        # extract parameters from the configuration
-        self.model_zoo_cfg: dict = cfg.params.get("model_zoo_cfg")  # type: ignore
-        self.model_name: str = cfg.params.get("model_name", "resnet18")  # type: ignore
-        self.model_device: str = cfg.params.get("model_device", env.device)  # type: ignore
-
-        # List of Theia models - These are configured through `_prepare_theia_transformer_model` function
-        default_theia_models = [
-            "theia-tiny-patch16-224-cddsv",
-            "theia-tiny-patch16-224-cdiv",
-            "theia-small-patch16-224-cdiv",
-            "theia-base-patch16-224-cdiv",
-            "theia-small-patch16-224-cddsv",
-            "theia-base-patch16-224-cddsv",
-        ]
-        # List of ResNet models - These are configured through `_prepare_resnet_model` function
-        default_resnet_models = ["resnet18", "resnet34", "resnet50", "resnet101"]
-
-        # Check if model name is specified in the model zoo configuration
-        if self.model_zoo_cfg is not None and self.model_name not in self.model_zoo_cfg:
-            raise ValueError(
-                f"Model name '{self.model_name}' not found in the provided model zoo configuration."
-                " Please add the model to the model zoo configuration or use a different model name."
-                f" Available models in the provided list: {list(self.model_zoo_cfg.keys())}."
-                "\nHint: If you want to use a default model, consider using one of the following models:"
-                f" {default_theia_models + default_resnet_models}. In this case, you can remove the"
-                " 'model_zoo_cfg' parameter from the observation term configuration."
-            )
-        if self.model_zoo_cfg is None:
-            if self.model_name in default_theia_models:
-                model_config = self._prepare_theia_transformer_model(self.model_name, self.model_device)
-            elif self.model_name in default_resnet_models:
-                model_config = self._prepare_resnet_model(self.model_name, self.model_device)
-            else:
-                raise ValueError(
-                    f"Model name '{self.model_name}' not found in the default model zoo configuration."
-                    f" Available models: {default_theia_models + default_resnet_models}."
-                )
-        else:
-            model_config = self.model_zoo_cfg[self.model_name]
-
-        # Retrieve the model, preprocess and inference functions
-        self._model = model_config["model"]()
-        self._reset_fn = model_config.get("reset")
-        self._inference_fn = model_config["inference"]
-        self._prepare_pointnet_model()
-        # self.fx, self.fy = 525.0, 525.0
-        # self.cx, self.cy = 319.5, 239.5
-
+        # 如果你之后想用固定内参，可以留着（当前 depth_to_pointcloud_batch_gpu 已经从相机 K 里读）
         self.fx, self.fy = 117.78, 124.95
         self.cx, self.cy = 200.0, 150.0
 
+        # 计数器：用在 _apply_domain_randomization / 保存 debug 图
         self._frame_counter = 0
 
     def _apply_domain_randomization(
@@ -552,8 +509,7 @@ class image_features(ManagerTermBase):
         # reset the model if a reset function is provided
         # this might be useful when the model has a state that needs to be reset
         # for example: video transformers
-        if self._reset_fn is not None:
-            self._reset_fn(self._model, env_ids)
+        return
 
     def depth_to_pointcloud(self, depth_image, fx, fy, cx, cy, rgb_image=None, output_path="pointcloud.ply"):
         """
@@ -863,32 +819,61 @@ class image_features(ManagerTermBase):
         inference_kwargs: dict | None = None,
         save_augmentation_debug: bool = False,
     ) -> torch.Tensor:
+        """
+        现在只做一件事：
+        👉 从相机拿「原始图像 + 原始点云」，拉平成 1D 向量后返回。
+
+        输出格式：
+            obs_visual: [B, C*H*W + 3*N]
+            - 前 C*H*W 维：按 (C,H,W) 的顺序 flatten 的图像
+            - 后 3*N 维：按 (3,N) 的顺序 flatten 的点云 (x,y,z)
+        """
+        # ===== 1. 读取 RGB 图像，并做 domain randomization =====
         sensor: TiledCamera | Camera | RayCasterCamera = env.scene.sensors[sensor_cfg.name]
-        images = sensor.data.output[data_type]
+        images = sensor.data.output[data_type]          # 通常是 [B, H, W, C]，dtype=uint8
+        images = images[:, 120:, :, :]
+        # 做 sim-to-real 的模糊 + 噪声增强（你之前写好的函数）
         images = self._apply_domain_randomization(
             images,
             save_debug=save_augmentation_debug,
-            step_counter=self._frame_counter
+            step_counter=self._frame_counter,
         )
-        image_device = images.device
-        features = self._inference_fn(self._model, images, **(inference_kwargs or {}))
+        self._frame_counter += 1
 
-        # --- 深度 & 语义 ---
+        device = images.device
+        B = images.shape[0]
+
+        # 确保变成 (B, C, H, W) 再 flatten
+        if images.ndim == 4 and images.shape[-1] in [1, 3, 4]:
+            # 原本是 (B, H, W, C) -> (B, C, H, W)
+            images_chw = images.permute(0, 3, 1, 2).contiguous()
+        else:
+            # 已经是 (B, C, H, W)
+            images_chw = images
+
+        _, C, H, W = images_chw.shape
+
+        # 按 (C,H,W) 顺序 flatten，每个环境一行
+        img_flat = images_chw.view(B, -1)   # [B, C*H*W]
+
+        # ===== 2. 读取深度图 & 语义分割，生成点云 =====
         depth_sensor = env.scene.sensors[depth_cfg.name]
-        depth = depth_sensor.data.output["distance_to_image_plane"]          # (B,H,W,1)
-        seg = depth_sensor.data.output.get("semantic_segmentation", None)  # 语义分割
+        depth = depth_sensor.data.output["distance_to_image_plane"]          # [B, H, W, 1] 或 [B, H, W]
+        seg = depth_sensor.data.output.get("semantic_segmentation", None)    # 语义分割 (B,H,W) 或 (B,H,W,1)
 
-        depth_tensor = depth.squeeze(-1)                                     # (B,H,W)
+        depth_tensor = depth.squeeze(-1)   # [B, H, W]
 
         if seg is None:
-            raise RuntimeError("[image_features] depth camera 没有 semantic_segmentation 输出，"
-                               "pcd_contain_object1 需要语义信息。")
+            raise RuntimeError(
+                "[image_features] depth camera 没有 semantic_segmentation 输出，"
+                "pcd_contain_object1 等奖励需要语义信息。"
+            )
 
         # 如果 seg 是 (B,H,W,1)，压成 (B,H,W)
         if seg.ndim == 4 and seg.shape[-1] == 1:
             seg = seg[..., 0]
 
-        self._frame_counter += 1
+        # 从 depth_camera 中读取真实 K 内参（你之前就这么用的）
         cam1 = env.scene.sensors["depth_camera"]
         K = cam1._data.intrinsic_matrices[0]
         fx = K[0][0]
@@ -896,15 +881,16 @@ class image_features(ManagerTermBase):
         cx = K[0][2]
         cy = K[1][2]
 
-        # --- 一次性得到点云 + 点级语义 ID ---
+        # 一次性得到 batch 点云 + 语义标签
+        # 返回: batch_points_tensor: [B, N, 3], semantic_ids: [B, N]
         batch_points_tensor, semantic_ids = self.depth_to_pointcloud_batch_gpu(
             depth_tensor,
             fx,
             fy,
             cx,
             cy,
-            seg_batch=seg,                      # <--- 传进去
-            num_points=1024,
+            seg_batch=seg,                      # 语义信息一起传进去
+            num_points=1024,                    # 每个 env 采样 1024 个点（你在 ActorCritic 里 pcd_points=1024 要和这里一致）
             save_ply_debug=False,
             env_id=0,
             frame_counter=self._frame_counter,
@@ -912,25 +898,38 @@ class image_features(ManagerTermBase):
             env=env,
         )
 
-        env.point_cloud_cache = batch_points_tensor.detach()         # (B,N,3)
-        env.point_cloud_semantic_cache = semantic_ids.detach()       # (B,N)
+        # 把点云和语义信息 cache 到 env 上（奖励函数还会用）
+        env.point_cloud_cache = batch_points_tensor.detach()         # [B, N, 3]
+        env.point_cloud_semantic_cache = semantic_ids.detach()       # [B, N]
         env._pcd_cache_step = env.common_step_counter
 
-        pts_input = batch_points_tensor.permute(0, 2, 1).contiguous()
+        # ===== 3. 把点云整理成 (B, 3, N) 再 flatten =====
+        # depth_to_pointcloud_batch_gpu 返回的是 (B, N, 3)
+        # 我们转成 (B, 3, N)，再按 (3,N) 顺序 flatten，和 ActorCritic 那边保持一致
+        pcd_chw = batch_points_tensor.permute(0, 2, 1).contiguous()   # [B, 3, N]
+        B_p, C_p, N_p = pcd_chw.shape
+        assert B_p == B, "batch size 不一致，点云 B 和 图像 B 要相同！"
 
-        with torch.no_grad():
-            depth_features_batch = self._point_encoder(pts_input)
+        pcd_flat = pcd_chw.view(B, -1)   # [B, 3*N]
+
+        # ===== 4. 拼接图像向量 + 点云向量 =====
+        # 最终的视觉 obs:  [ image_flat | pointcloud_flat ]
+        obs_visual = torch.cat([img_flat, pcd_flat], dim=1)   # [B, C*H*W + 3*N]
+
+        # 🙋‍♀️ 第一次可以打印一下形状帮你确认
+        if not hasattr(self, "_printed_shape"):
+            self._printed_shape = True
+            print("[image_features] images_chw shape:", images_chw.shape)          # (B, C, H, W)
+            print("[image_features] batch_points_tensor shape:", batch_points_tensor.shape)  # (B, N, 3)
+            print("[image_features] obs_visual dim:", obs_visual.shape[1])
         
-        # import pdb
-        # pdb.set_trace()
-        
-        img_feat_norm = torch.nn.functional.normalize(features, p=2, dim=1)
-        
-        pc_feat_norm = torch.nn.functional.normalize(depth_features_batch, p=2, dim=1)
-        
-        features = torch.cat((img_feat_norm,pc_feat_norm),dim=-1)
-        
-        return features.detach().to(image_device)
+        env.visual_obs_info = {
+            "img_shape": (C, H, W),   # 来自前面 images_chw.shape
+            "pcd_points": N_p,        # depth_to_pointcloud_batch_gpu 采样的点数（例如 1024）
+        }
+
+        return obs_visual.to(device)
+
 
     """
     Helper functions.
@@ -973,6 +972,8 @@ class image_features(ManagerTermBase):
             image_proc = (image_proc - mean) / std
 
             # Taken from Transformers; inference converted to be GPU only
+            # features = model.backbone.model(pixel_values=image_proc, interpolate_pos_encoding=True)
+            # return features.last_hidden_state[:, 1:]
             features = model.backbone.model(pixel_values=image_proc, interpolate_pos_encoding=True)
             return features.last_hidden_state[:, 1:]
 
@@ -1019,9 +1020,8 @@ class image_features(ManagerTermBase):
             mean = torch.tensor([0.485, 0.456, 0.406], device=model_device).view(1, 3, 1, 1)
             std = torch.tensor([0.229, 0.224, 0.225], device=model_device).view(1, 3, 1, 1)
             image_proc = (image_proc - mean) / std
-            with torch.no_grad():
-                feats = model(image_proc)          # [N, 512, 1, 1]
-                feats = feats.view(feats.size(0), -1)  # [N, 512]
+            feats = model(image_proc)          # [N, 512, 1, 1]
+            feats = feats.view(feats.size(0), -1)  # [N, 512]
             return feats
             # forward the image through the model
             # return model(image_proc)
@@ -1092,7 +1092,6 @@ class image_features(ManagerTermBase):
                 return features
 
         self._point_encoder = PointNet2Encoder(classifier).cuda().eval()
-        
 
 
 """

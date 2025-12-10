@@ -43,7 +43,7 @@ MY_ROBOT_CFG = ArticulationCfg(
         },
     ),
     actuators={
-        
+
         "base": ImplicitActuatorCfg(
             joint_names_expr=["M[0]"],
             effort_limit=870.0,
@@ -51,8 +51,7 @@ MY_ROBOT_CFG = ArticulationCfg(
             stiffness=800.0,
             damping=40.0,
         ),
-        
-        
+
         "shoulder": ImplicitActuatorCfg(
             joint_names_expr=["M[1-4]"],
             effort_limit=87.0,
@@ -60,7 +59,7 @@ MY_ROBOT_CFG = ArticulationCfg(
             stiffness=80.0,
             damping=4.0,
         ),
-        
+
         "forearm": ImplicitActuatorCfg(
             joint_names_expr=["M5"],
             effort_limit=120.0,
