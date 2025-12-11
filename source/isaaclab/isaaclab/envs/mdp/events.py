@@ -2023,7 +2023,7 @@ def randomize_floor_texture(
     随机化地板材质（Color + Normal + Roughness + Displacement）。
     自动扫描 texture_root 下的所有文件夹（每个文件夹为一套贴图）。
     """
-    texture_root = "/home/robo/code/IsaacLab/assets1/textures/floor"
+    texture_root = "/home/roborock/data/private/shengmei/IsaacLab/assets1/textures/floor"
 
     if env_ids is None:
         env_ids = torch.arange(env.scene.num_envs, device=env.device)

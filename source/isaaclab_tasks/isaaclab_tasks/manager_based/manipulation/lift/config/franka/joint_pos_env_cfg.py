@@ -16,7 +16,7 @@ from isaaclab.assets.articulation import ArticulationCfg
 
 MY_ROBOT_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/r50_v6_rev/r50_v6_rev.usd",
+        usd_path=f"/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/r50_v6_rev/r50_v6_rev.usd",
         activate_contact_sensors=False,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
@@ -43,7 +43,7 @@ MY_ROBOT_CFG = ArticulationCfg(
         },
     ),
     actuators={
-        
+
         "base": ImplicitActuatorCfg(
             joint_names_expr=["M[0]"],
             effort_limit=870.0,
@@ -51,8 +51,7 @@ MY_ROBOT_CFG = ArticulationCfg(
             stiffness=800.0,
             damping=40.0,
         ),
-        
-        
+
         "shoulder": ImplicitActuatorCfg(
             joint_names_expr=["M[1-4]"],
             effort_limit=87.0,
@@ -60,7 +59,7 @@ MY_ROBOT_CFG = ArticulationCfg(
             stiffness=80.0,
             damping=4.0,
         ),
-        
+
         "forearm": ImplicitActuatorCfg(
             joint_names_expr=["M5"],
             effort_limit=120.0,
@@ -127,7 +126,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "lego_1": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/lego",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/01_rigid_blocks/lego_real/2.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets1/3D_assets_usd_new/01_rigid_blocks/lego_real/2.usdc",
                 #         scale=(0.01, 0.01, 0.01),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=128,
@@ -143,7 +142,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 "eye_drops": RigidObjectCfg(
                     prim_path="/World/envs/env_.*/eye_drops",
                     spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/2.usdc",
+                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets1/3D_assets_usd_new/2.usdc",
                         scale=(0.0002, 0.0002, 0.0002),
                         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                             solver_position_iteration_count=128,
@@ -157,19 +156,25 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.012, 0.00)),
                 ),
                 # "cube": RigidObjectCfg(
-                #     prim_path="/World/envs/env_.*/Object",
+                #     prim_path="/World/envs/env_.*/Cube",
                 #     spawn=sim_utils.MultiAssetSpawnerCfg(
-                #         assets_cfg=[sim_utils.CuboidCfg(
-                #             size=(cube_size, cube_size, cube_size),
-                #             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.5, 0.0, 0.0), metallic=0.2)),],
+                #         assets_cfg=[
+                #             sim_utils.CuboidCfg(
+                #                 size=(cube_size, cube_size, cube_size),
+                #                 visual_material=sim_utils.PreviewSurfaceCfg(
+                #                     diffuse_color=(0.5, 0.0, 0.0), metallic=0.2
+                #                 ),
+                #                 semantic_tags=[("class", "cube")],
+                #             ),
+                #         ],
                 #         random_choice=True,
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                #             solver_position_iteration_count=4, solver_velocity_iteration_count=0
+                #             solver_position_iteration_count=128, solver_velocity_iteration_count=64
                 #         ),
                 #         mass_props=sim_utils.MassPropertiesCfg(mass=0.01),
                 #         collision_props=sim_utils.CollisionPropertiesCfg(),
                 #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.038, 0), rot=(1, 0, 0, 0)),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0, 0), rot=(1, 0, 0, 0)),
                 # ),
             },
         )

@@ -1019,7 +1019,7 @@ class image_features(ManagerTermBase):
         # self._point_encoder.eval()
         # self._point_encoder.cuda()
 
-        experiment_dir = '/home/robo/code/IsaacLab'
+        experiment_dir = '/home/roborock/data/private/shengmei/IsaacLab'
         ckpt_path = f"{experiment_dir}/best_model.pth"
 
         # ✅ 模型输入通道：原模型是 normal_channel=True（6 通道）
