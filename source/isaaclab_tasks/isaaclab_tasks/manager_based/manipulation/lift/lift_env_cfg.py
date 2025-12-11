@@ -55,7 +55,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
             pos=(-0.04, 1.2, 0.775),
             rot=(0, 0, 0, 1),
         ),
-        spawn=UsdFileCfg(usd_path="/home/robo/code/IsaacLab/assets/FloorWithPanels.usd"),
+        spawn=UsdFileCfg(usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/FloorWithPanels.usd"),
     )
 
     dome_light = AssetBaseCfg(
@@ -272,11 +272,11 @@ class EventCfg:
     #     mode="reset",
     # )
 
-    randomize_lighting_reset = EventTerm(
-        func=mdp.randomize_multiple_sphere_lights,
-        mode="reset",
-        params={"num_lights": 1},
-    )
+    # randomize_lighting_reset = EventTerm(
+    #     func=mdp.randomize_multiple_sphere_lights,
+    #     mode="reset",
+    #     params={"num_lights": 1},
+    # )
     # randomize_floor = EventTerm(
     #     func=mdp.randomize_floor_texture,
     #     mode="reset",
@@ -319,7 +319,7 @@ class RewardsCfg:
     #     func=mdp.debug_semantic_pcd_density,
     #     params={
     #         "sensor_cfg_name": "depth_camera",
-    #         "valid_object_name": "eye_drops",
+    #         "valid_object_name": "cube",
     #         "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
     #         "log_interval": 50,           # 想每步打就改成 1
     #         "env_id_to_print": 0,
@@ -409,7 +409,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=7)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=18, env_spacing=7)
     observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()

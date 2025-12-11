@@ -17,10 +17,24 @@ class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=0.2,
-        # init_noise_std=1.0,
         actor_hidden_dims=[256, 128, 64],
         critic_hidden_dims=[256, 128, 64],
         activation="elu",
+
+        # ========= 新增：视觉 encoder 配置 =========
+        # 打开我们在 ActorCritic 里写的 ResNet + PointNet2 encoder
+        use_visual_encoder=True,
+
+        # 现在 obs 里只有视觉（图像 + 点云），没有关节等低维状态，所以先设 0
+        state_dim=0,
+
+        # 和 image_features 打印出来的图像尺寸保持一致：
+        img_channels=3,
+        img_height=480,
+        img_width=640,
+
+        # 和 depth_to_pointcloud_batch_gpu 里 num_points 一致：
+        pcd_points=1024,
     )
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,

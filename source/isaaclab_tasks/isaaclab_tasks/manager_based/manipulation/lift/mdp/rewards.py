@@ -291,9 +291,9 @@ def pcd_contain_object_semantic(
         env._debug_sem_last_valid_object_id = None
 
     should_print_semantic_table = False
-    warmup_steps = 10          # 前 10 步视为“预热期”
+    warmup_steps = 100000
     big_interval = 10        # 之后每隔这么多步打一回大表
-    warn_interval = 50         # 找不到 eye_drops 时，隔多少步再提醒一次
+    warn_interval = 50000      # 找不到 eye_drops 时，隔多少步再提醒一次
 
     if valid_object_id is None:
         # 预热期：第 0 步和第 warmup_steps-1 步各打一回，确认语义表
@@ -430,7 +430,7 @@ def pcd_contain_object_semantic(
 
         sphere_center = (left_finger_cam + right_finger_cam) / 2.0   # (B,3)
         finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-        sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)  # (B,)
+        sphere_radius = torch.clamp(finger_distance * 0.23, min=0.003)  # (B,)
 
         # 5) 用点级 mask 计算密度
         density, num_points = calculate_pointcloud_density_in_sphere1(
