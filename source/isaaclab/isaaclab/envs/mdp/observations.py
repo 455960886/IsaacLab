@@ -831,13 +831,13 @@ class image_features(ManagerTermBase):
         # ===== 1. 读取 RGB 图像，并做 domain randomization =====
         sensor: TiledCamera | Camera | RayCasterCamera = env.scene.sensors[sensor_cfg.name]
         images = sensor.data.output[data_type]          # 通常是 [B, H, W, C]，dtype=uint8
-        images = images[:, 120:, :, :]
+        # images = images[:, 120:, :, :]
         # 做 sim-to-real 的模糊 + 噪声增强（你之前写好的函数）
-        images = self._apply_domain_randomization(
-            images,
-            save_debug=save_augmentation_debug,
-            step_counter=self._frame_counter,
-        )
+        # images = self._apply_domain_randomization(
+        #     images,
+        #     save_debug=save_augmentation_debug,
+        #     step_counter=self._frame_counter,
+        # )
         self._frame_counter += 1
 
         device = images.device

@@ -430,7 +430,7 @@ def pcd_contain_object_semantic(
 
         sphere_center = (left_finger_cam + right_finger_cam) / 2.0   # (B,3)
         finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-        sphere_radius = torch.clamp(finger_distance * 0.3, min=0.003)  # (B,)
+        sphere_radius = torch.clamp(finger_distance * 0.23, min=0.003)  # (B,)
 
         # 5) 用点级 mask 计算密度
         density, num_points = calculate_pointcloud_density_in_sphere1(

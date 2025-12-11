@@ -156,19 +156,25 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.012, 0.00)),
                 ),
                 # "cube": RigidObjectCfg(
-                #     prim_path="/World/envs/env_.*/Object",
+                #     prim_path="/World/envs/env_.*/Cube",
                 #     spawn=sim_utils.MultiAssetSpawnerCfg(
-                #         assets_cfg=[sim_utils.CuboidCfg(
-                #             size=(cube_size, cube_size, cube_size),
-                #             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.5, 0.0, 0.0), metallic=0.2)),],
+                #         assets_cfg=[
+                #             sim_utils.CuboidCfg(
+                #                 size=(cube_size, cube_size, cube_size),
+                #                 visual_material=sim_utils.PreviewSurfaceCfg(
+                #                     diffuse_color=(0.5, 0.0, 0.0), metallic=0.2
+                #                 ),
+                #                 semantic_tags=[("class", "cube")],
+                #             ),
+                #         ],
                 #         random_choice=True,
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                #             solver_position_iteration_count=4, solver_velocity_iteration_count=0
+                #             solver_position_iteration_count=128, solver_velocity_iteration_count=64
                 #         ),
                 #         mass_props=sim_utils.MassPropertiesCfg(mass=0.01),
                 #         collision_props=sim_utils.CollisionPropertiesCfg(),
                 #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.038, 0), rot=(1, 0, 0, 0)),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0, 0), rot=(1, 0, 0, 0)),
                 # ),
             },
         )

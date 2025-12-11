@@ -272,11 +272,11 @@ class EventCfg:
     #     mode="reset",
     # )
 
-    randomize_lighting_reset = EventTerm(
-        func=mdp.randomize_multiple_sphere_lights,
-        mode="reset",
-        params={"num_lights": 1},
-    )
+    # randomize_lighting_reset = EventTerm(
+    #     func=mdp.randomize_multiple_sphere_lights,
+    #     mode="reset",
+    #     params={"num_lights": 1},
+    # )
     # randomize_floor = EventTerm(
     #     func=mdp.randomize_floor_texture,
     #     mode="reset",
@@ -319,7 +319,7 @@ class RewardsCfg:
     #     func=mdp.debug_semantic_pcd_density,
     #     params={
     #         "sensor_cfg_name": "depth_camera",
-    #         "valid_object_name": "eye_drops",
+    #         "valid_object_name": "cube",
     #         "excluded_object_names": ["m6_1_leftfinger_link", "m6_2_rightfinger_link", "m5_wrist_link"],
     #         "log_interval": 50,           # 想每步打就改成 1
     #         "env_id_to_print": 0,
