@@ -32,6 +32,8 @@ import torch.nn as nn
 # from .custom_ray_caster import FixedRayCaster
 
 from . import mdp
+import math
+
 ##
 # Scene definition
 ##
@@ -50,8 +52,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     ee_frame: FrameTransformerCfg = MISSING
     finger_frame_1: FrameTransformerCfg = MISSING
     finger_frame_2: FrameTransformerCfg = MISSING
-    ee_tip_probe_frame:FrameTransformerCfg = MISSING
-    gripper_peak:FrameTransformerCfg = MISSING
+    ee_tip_probe_frame: FrameTransformerCfg = MISSING
+    gripper_peak: FrameTransformerCfg = MISSING
     # target object: will be populated by agent env cfg
     object: RigidObjectCfg | DeformableObjectCfg = MISSING
     # object_id :int=0
@@ -354,29 +356,6 @@ class EventCfg:
 
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
 
-    # reset_object_position = EventTerm(
-    #     func=mdp.reset_root_state_uniform,
-    #     mode="reset",
-    #     params={
-    #         # "pose_range": {"x": (-0.1, 0.1), "y": (-0.25, 0.25), "z": (0.0, 0.0)},
-    #         # "pose_range": {"x": (-0.05, 0.05), "y": (-0.25, 0.25), "z": (0.0, 0.0)},
-
-    #         "pose_range": {
-    #             "x": (-0.02, 0.02),
-    #             "y": (0.00, 0.00),
-    #             "z": (0.0, 0.0),
-    #             # "yaw": (-0.5, 0.5),
-    #         },
-
-            
-    #         "velocity_range": {},
-    #     },
-    # )
-    # object_pool_spawn = EventTerm(
-    #     func=mdp.randomize_object_pool_selection,
-    #     mode="startup",
-    #     params={"asset_cfg": SceneEntityCfg("object_pool")},
-    # )
     reset_object_or_paper_and_position = EventTerm(
         func=mdp.randomize_object_and_position,
         mode="reset",
@@ -390,6 +369,18 @@ class EventCfg:
                 "yaw": (0.0, 0.0),
             },
             "rigid_asset_cfg": SceneEntityCfg("object_pool"),
+        },
+    )
+
+    randomize_bus_texture = EventTerm(
+        func=mdp.randomize_bus_texture_event,
+        mode="reset",
+        params={
+            "bus_name": "bus",
+            "body_name": "Xform",
+            "texture_paths": "/home/robo/桌面/car",  # 根目录
+            "event_name": "randomize_bus_texture",   # 现在只占位，不再真正用到
+            "texture_rotation": (0.0, 2 * math.pi),  # 同上
         },
     )
     randomize_lighting_reset = EventTerm(

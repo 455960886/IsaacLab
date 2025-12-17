@@ -40,6 +40,7 @@ from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 import torch
 import random
+import os
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -1653,6 +1654,124 @@ def randomize_object_pool_selection(
                 env_ids=torch.tensor([env_idx], device=env.device),
                 object_ids=torch.tensor([obj_idx], device=env.device)
             )
+
+
+def randomize_bus_texture_event(
+    env,
+    env_ids,
+    bus_name: str,
+    body_name: str,
+    texture_paths: list[str] | str,
+    event_name: str,
+    texture_rotation: tuple[float, float] = (0.0, 0.0),
+):
+    """
+    每个 env 独立贴图随机：
+    - 为每个 env_i 建一个独立的 Replicator 自定义事件 event_name_env<i>
+    - reset 哪个 env，就只触发它对应的事件
+    """
+
+    try:
+        from omni.isaac.core.utils.extensions import enable_extension
+    except ModuleNotFoundError:
+        from isaacsim.core.utils.extensions import enable_extension
+
+    # 1) 确保开启 replicator 扩展
+    enable_extension("omni.replicator.core")
+    import omni.replicator.core as rep
+
+    # 2) 第一次调用时：扫描贴图 + 搭建每个 env 的事件
+    if not hasattr(env, "_bus_tex_randomizer_initialized"):
+
+        # 2.1 如果传的是目录字符串，就扫描所有 *_Color.jpg
+        if isinstance(texture_paths, str):
+            root_dir = os.path.expanduser(texture_paths)
+            all_textures: list[str] = []
+            for dirpath, dirnames, filenames in os.walk(root_dir):
+                for fname in filenames:
+                    if fname.endswith("_Color.jpg"):
+                        full_path = os.path.join(dirpath, fname)
+                        all_textures.append(full_path)
+
+            if not all_textures:
+                print(
+                    f"[BusTex][scan] WARNING: no '*_Color.jpg' found under {root_dir}",
+                    flush=True,
+                )
+            else:
+                all_textures.sort()
+                # print(
+                #     f"[BusTex][scan] Found {len(all_textures)} *_Color.jpg under {root_dir}",
+                #     flush=True,
+                # )
+            texture_paths = all_textures
+
+        # 2.2 安全检查
+        if env.cfg.scene.replicate_physics:
+            raise RuntimeError(
+                "Bus texture randomization requires 'replicate_physics = False' "
+                "in ObjectTableSceneCfg."
+            )
+
+        texture_rotation_deg = tuple(math.degrees(a) for a in texture_rotation)
+
+        # 为每个 env 建立一个事件名映射
+        env._bus_tex_events = {}  # env_id -> event_name_env<id>
+
+        num_envs = env.num_envs
+        # print(f"[BusTex][init] building per-env texture events for {num_envs} envs", flush=True)
+
+        for env_index in range(num_envs):
+            # 每个 env 的 bus 精确路径：
+            # 例如：/World/envs/env_3/bus/Xform/visuals
+            prim_path = f"/World/envs/env_{env_index}/{bus_name}/{body_name}/visuals"
+            event_name_i = f"{event_name}_env{env_index}"
+            env._bus_tex_events[env_index] = event_name_i
+
+            print(
+                f"  env {env_index}: prim_path={prim_path}, event={event_name_i}",
+                flush=True,
+            )
+
+            # 用默认参数把循环变量“固定”进闭包，避免 Python 闭包陷阱
+            def _make_rep_tex_node(_prim_path=prim_path, _event_name=event_name_i):
+                def rep_texture_randomization_single():
+                    prims_group = rep.get.prims(path_pattern=_prim_path)
+                    # print(
+                    #     f"[BusTex][graph] {_event_name}: prims_group={prims_group}",
+                    #     flush=True,
+                    # )
+                    with prims_group:
+                        rep.randomizer.texture(
+                            textures=texture_paths,
+                            project_uvw=True,
+                            texture_rotate=rep.distribution.uniform(*texture_rotation_deg),
+                        )
+                    return prims_group.node
+
+                with rep.trigger.on_custom_event(event_name=_event_name):
+                    rep_texture_randomization_single()
+
+            _make_rep_tex_node()
+
+        env._bus_tex_randomizer_initialized = True
+
+    # 3) 每次 reset：只给这次 reset 的 env_ids 触发对应事件
+    step = getattr(env, "common_step_counter", None)
+    ids = env_ids.tolist() if hasattr(env_ids, "tolist") else list(env_ids)
+
+    for eid in ids:
+        eid_int = int(eid)
+        ev_name = env._bus_tex_events.get(eid_int, None)
+        if ev_name is None:
+            print(f"[BusTex][call] WARNING: no event for env_id={eid_int}", flush=True)
+            continue
+
+        # print(
+        #     f"[BusTex][call] step={step} -> trigger {ev_name} for env_id={eid_int}",
+        #     flush=True,
+        # )
+        rep.utils.send_og_event(ev_name)
 
 
 def randomize_object_and_position(
