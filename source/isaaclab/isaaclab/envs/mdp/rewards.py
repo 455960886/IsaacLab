@@ -260,8 +260,10 @@ def action_rate_l2(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 
 def action_l2(env: ManagerBasedRLEnv) -> torch.Tensor:
+    # import pdb 
+    # pdb.set_trace()
     """Penalize the actions using L2 squared kernel."""
-    return torch.sum(torch.square(env.action_manager.action), dim=1)
+    return torch.sum(torch.square(env.action_manager.action[:,:2]), dim=1)
 
 
 """

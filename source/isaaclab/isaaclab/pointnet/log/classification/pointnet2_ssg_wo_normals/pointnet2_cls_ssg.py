@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from isaaclab.pointnet.log.classification.pointnet2_ssg_wo_normals.pointnet2_utils import PointNetSetAbstraction
+from isaaclab.pointnet.log.classification.pointnet2_ssg_wo_normals.pointnet2_utils import PointNetSetAbstraction 
 
 
 class get_model(nn.Module):
@@ -34,7 +34,7 @@ class get_model(nn.Module):
         x = self.drop2(F.relu(self.bn2(self.fc2(x))))
         x = self.fc3(x)
         x = F.log_softmax(x, -1)
-
+        print("using cls")
 
         return x, l3_points
 

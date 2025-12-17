@@ -144,6 +144,8 @@ class BinaryJointPositionAction(BinaryJointAction):
 
     def apply_actions(self):
         self._asset.set_joint_position_target(self._processed_actions, joint_ids=self._joint_ids)
+        
+
 
 
 class BinaryJointVelocityAction(BinaryJointAction):
