@@ -1,13 +1,13 @@
 import os
 
 # 设置你的图片文件夹路径
-folder_path = '/home/roborock/桌面/floor/dataset'  # ✅ 例如：'/Users/yourname/Pictures'
+folder_path = '/home/robo/code/IsaacLab/assets1/3D_assets_usd/floor/dataset'  # ✅ 例如：'/Users/yourname/Pictures'
 
 # 可识别的图片扩展名（可根据需要添加）
 image_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.gif', '.webp')
 
 # 输出文件名（可选）
-output_file = '/home/roborock/桌面/floor.txt'
+output_file = '/home/robo/code/IsaacLab/assets1/3D_assets_usd/floor.txt'
 
 # 打开文件准备写入
 with open(output_file, 'w') as f:

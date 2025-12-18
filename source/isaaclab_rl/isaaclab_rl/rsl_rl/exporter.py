@@ -170,95 +170,15 @@ class _OnnxPolicyExporter(torch.nn.Module):
                 dynamic_axes={},
             )
         else:
-            # obs = torch.zeros(1, self.actor[0].in_features)
-            # torch.onnx.export(
-            #     self,
-            #     obs,
-            #     os.path.join(path, filename),
-            #     export_params=True,
-            #     opset_version=11,
-            #     verbose=self.verbose,
-            #     input_names=["obs"],
-            #     output_names=["actions"],
-            #     dynamic_axes={},
-            # )
-        
-        #改动
-            dummy_input = torch.zeros(1, 1536)
+            obs = torch.zeros(1, 1536)
             torch.onnx.export(
-            self,
-            dummy_input,
-            os.path.join(path, filename),
-            export_params=True,
-            opset_version=11,
-            verbose=self.verbose,
-            input_names=["obs"],
-            output_names=["actions"],
-            dynamic_axes={},
-        )
-
-        #改动
-        #     obs = {"image":torch.zeros(1, 3, 128, 128),"joint_pos":torch.zeros(6,)}
-        # torch.onnx.export(
-        #     self,
-        #     obs,
-        #     os.path.join(path, filename),
-        #     export_params=True,
-        #     opset_version=11,
-        #     verbose=self.verbose,
-        #     input_names=["obs"],
-        #     output_names=["actions"],
-        #     dynamic_axes={},
-        # )
-        import onnx
-        
-        import onnxruntime
-        
-        import cv2
-        from PIL import Image
-
-        onnx_model_path = '/home/robo/code/IsaacLab/logs/rsl_rl/coarse_arm_lift/random_y_2/exported2/policy1905.onnx'
-        
-        # Load and check ONNX model
-        onnx_model = onnx.load(onnx_model_path)
-        try:
-            onnx.checker.check_model(onnx_model)
-        except onnx.checker.ValidationError as e:
-            print("The model is invalid: %s" % e)
-            return
-        else:
-            print("The model is valid!")
-
-        # Create inference session
-        ort_session = onnxruntime.InferenceSession(onnx_model_path, providers=["CUDAExecutionProvider"])
-        print("ONNX Runtime Providers:", ort_session.get_providers())
-
-        # Load and preprocess image
-        img = cv2.imread('/home/robo/code/下载/test/test_5.png')
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = torch.from_numpy(img).float() 
-
-        # print("pre img.shape:", img.shape)
-        # print("pre img:", img)
-      
-        # Normalize image (zero mean)
-        mean_tensor = torch.mean(img, dim=(0, 1), keepdim=True)
-        img = (img-127.5)/255.0
-        # Change shape to [N, C, H, W]
-        img = img.permute(2, 0, 1).unsqueeze(0)
-        # print("post img.shape:", img.shape)
-        # print("post img:", img)
-
-        # Convert to numpy
-        img = img.cpu().numpy()
-
-        # Inference
-        ort_inputs = {"obs": img}
-        ort_outputs = ort_session.run(None, ort_inputs)
-        ort_output = ort_outputs[0]
-
-        print("######### ort_output:", ort_output)
-        return ort_output
-
-
-
+                self,
+                obs,
+                os.path.join(path, filename),
+                export_params=True,
+                opset_version=11,
+                verbose=self.verbose,
+                input_names=["obs"],
+                output_names=["actions"],
+                dynamic_axes={},
+            )

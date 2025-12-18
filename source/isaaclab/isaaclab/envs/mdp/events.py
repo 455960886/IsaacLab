@@ -1665,25 +1665,15 @@ def randomize_bus_texture_event(
     event_name: str,
     texture_rotation: tuple[float, float] = (0.0, 0.0),
 ):
-    """
-    每个 env 独立贴图随机：
-    - 为每个 env_i 建一个独立的 Replicator 自定义事件 event_name_env<i>
-    - reset 哪个 env，就只触发它对应的事件
-    """
-
     try:
         from omni.isaac.core.utils.extensions import enable_extension
     except ModuleNotFoundError:
         from isaacsim.core.utils.extensions import enable_extension
 
-    # 1) 确保开启 replicator 扩展
     enable_extension("omni.replicator.core")
     import omni.replicator.core as rep
 
-    # 2) 第一次调用时：扫描贴图 + 搭建每个 env 的事件
     if not hasattr(env, "_bus_tex_randomizer_initialized"):
-
-        # 2.1 如果传的是目录字符串，就扫描所有 *_Color.jpg
         if isinstance(texture_paths, str):
             root_dir = os.path.expanduser(texture_paths)
             all_textures: list[str] = []
@@ -1705,8 +1695,6 @@ def randomize_bus_texture_event(
                 #     flush=True,
                 # )
             texture_paths = all_textures
-
-        # 2.2 安全检查
         if env.cfg.scene.replicate_physics:
             raise RuntimeError(
                 "Bus texture randomization requires 'replicate_physics = False' "
@@ -1714,16 +1702,10 @@ def randomize_bus_texture_event(
             )
 
         texture_rotation_deg = tuple(math.degrees(a) for a in texture_rotation)
-
-        # 为每个 env 建立一个事件名映射
-        env._bus_tex_events = {}  # env_id -> event_name_env<id>
+        env._bus_tex_events = {} 
 
         num_envs = env.num_envs
-        # print(f"[BusTex][init] building per-env texture events for {num_envs} envs", flush=True)
-
         for env_index in range(num_envs):
-            # 每个 env 的 bus 精确路径：
-            # 例如：/World/envs/env_3/bus/Xform/visuals
             prim_path = f"/World/envs/env_{env_index}/{bus_name}/{body_name}/visuals"
             event_name_i = f"{event_name}_env{env_index}"
             env._bus_tex_events[env_index] = event_name_i
@@ -1733,7 +1715,6 @@ def randomize_bus_texture_event(
                 flush=True,
             )
 
-            # 用默认参数把循环变量“固定”进闭包，避免 Python 闭包陷阱
             def _make_rep_tex_node(_prim_path=prim_path, _event_name=event_name_i):
                 def rep_texture_randomization_single():
                     prims_group = rep.get.prims(path_pattern=_prim_path)
@@ -1766,11 +1747,6 @@ def randomize_bus_texture_event(
         if ev_name is None:
             print(f"[BusTex][call] WARNING: no event for env_id={eid_int}", flush=True)
             continue
-
-        # print(
-        #     f"[BusTex][call] step={step} -> trigger {ev_name} for env_id={eid_int}",
-        #     flush=True,
-        # )
         rep.utils.send_og_event(ev_name)
 
 
@@ -1805,10 +1781,11 @@ def randomize_object_and_position(
     # Case 1: 单物体 → 不需要随机选物体，不需要 active_object_indices
     # =============================================================================
     if num_objs == 1:
+        env.active_object_indices[env_ids] = 0
         base_pos = default_states[:, 0, 0:3]
         base_quat = default_states[:, 0, 3:7]
         # pose range
-        range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x","y","z","roll","pitch","yaw"]]
+        range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll","pitch","yaw"]]
         ranges = torch.tensor(range_list, device=device)
         rand_pose = torch.empty((num_envs, 6), device=device)
         for k in range(6):
@@ -1829,7 +1806,15 @@ def randomize_object_and_position(
     # =============================================================================
     # 随机选择 active object
     active_obj_ids = torch.randint(0, num_objs, (num_envs,), device=device)
-    env.active_object_indices = active_obj_ids.clone()
+    # 1) 确保 active_object_indices 是 (env.scene.num_envs,) 的全局buffer
+    if (not hasattr(env, "active_object_indices")) or (env.active_object_indices.numel() != env.scene.num_envs):
+        env.active_object_indices = torch.zeros(env.scene.num_envs, dtype=torch.long, device=env.device)
+
+    # 2) env_ids 可能只是子集：只更新这些 env
+    # num_envs = len(env_ids)  # 你原来就是这么算的:contentReference[oaicite:3]{index=3}
+    active_obj_ids = torch.randint(0, num_objs, (num_envs,), device=env.device)
+
+    env.active_object_indices[env_ids] = active_obj_ids  # ✅关键：别覆盖整个tensor
     # hide 未选中的物体
     dummy_z = 10000.0
     for i in range(num_envs):
@@ -1838,7 +1823,7 @@ def randomize_object_and_position(
                 state_w[i, j, 0:3] = torch.tensor([0.0, 0.0, dummy_z], device=device)
                 state_w[i, j, 7:13] = 0.0
     # pose range
-    range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x","y","z","roll","pitch","yaw"]]
+    range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
     ranges = torch.tensor(range_list, device=device)
     rand_pose = torch.empty((num_envs, 6), device=device)
     for k in range(6):

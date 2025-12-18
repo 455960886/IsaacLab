@@ -20,37 +20,35 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-
-
-## Help Function to get the states of active object from the object pool
+# Help Function to get the states of active object from the object pool
 def get_active_object_states(env: ManagerBasedRLEnv, object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")):
     """
     Helper function to get states of active objects from object pool.
-    
+
     Returns:
         pos_w: (num_envs, 3) - World positions of active objects
         quat_w: (num_envs, 4) - World orientations of active objects [w, x, y, z]
     """
     from isaaclab.assets import RigidObjectCollection
-    
+
     object_collection: RigidObjectCollection = env.scene[object_cfg.name]
-    
+
     # Get active object indices for each environment
     if not hasattr(env, 'active_object_indices'):
         raise RuntimeError("active_object_indices not found. Ensure randomize_object_pool_selection has been called.")
-    
+
     active_indices = env.active_object_indices  # (num_envs,)
-    
+
     # Get all object states: (num_envs, num_objects, state_dim)
     all_pos_w = object_collection.data.object_pos_w  # (num_envs, num_objects, 3)
     all_quat_w = object_collection.data.object_quat_w  # (num_envs, num_objects, 4)
-    
+
     # Index to get only active objects
     # Use advanced indexing: env_indices = [0, 1, 2, ...], object_indices = active_indices
     env_indices = torch.arange(env.num_envs, device=env.device)
     active_pos_w = all_pos_w[env_indices, active_indices]  # (num_envs, 3)
     active_quat_w = all_quat_w[env_indices, active_indices]  # (num_envs, 4)
-    
+
     return active_pos_w, active_quat_w
 
 
@@ -68,6 +66,23 @@ def object_is_lifted(
     # Check if active objects are above minimal height
     return torch.where(active_pos_w[:, 2] > minimal_height, 1.0, 0.0)
 
+# def smooth_reach(env: ManagerBasedRLEnv, distance) -> torch.Tensor:
+ 
+#     # 1. 动作差 L2
+#     action_diff_l2 = torch.norm(env.action_manager.action[:,:1] - env.action_manager.prev_action[:,:1], dim=1) # (num_envs,)
+#     # print(f"diff{action_diff_l2}")
+
+#     # 2. 判断 close 动作
+#     mask = distance < 0.005  # 根据 gripper 闭合判定
+
+#     # 3. 奖励/惩罚逻辑
+#     close_reward = torch.where(
+#                                 mask,
+#                                 0.0,                # 手稳 close → 奖励
+#                                 -action_diff_l2  # 手在动 close → 惩罚
+#                             )
+#     # print(f"reward {close_reward}")
+#     return close_reward
 
 def object_is_lifted_linear(
     env: ManagerBasedRLEnv, 
@@ -79,18 +94,41 @@ def object_is_lifted_linear(
     # Get active object positions
     active_pos_w, _ = get_active_object_states(env, object_cfg)
     
-    current_height = active_pos_w[:, 2]
+    current_height = active_pos_w[:, 2] -0.035
     
-    # Clip height between [minimal_height, max_height]
     clipped_height = torch.clamp(current_height, minimal_height, max_height)
-    # Normalize linearly to [0, 1]
     normalized = (clipped_height - minimal_height) / (max_height - minimal_height)
-    # Square to increase reward for higher lifts
-    reward = torch.square(normalized)
-    
+    reward = normalized**2
+
     return reward
 
 
+def penalize_xy_displacement(
+    env: ManagerBasedRLEnv,
+    penalty_scale: float = 1.0,
+    min_height: float = -0.05,
+    max_height: float = 0.1,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+) -> torch.Tensor:
+
+    active_pos_w, _ = get_active_object_states(env, object_cfg)
+    if not hasattr(env, '_prev_object_xy_pos'):
+        env._prev_object_xy_pos = active_pos_w[:, :2].clone()  # Store only x,y
+        return torch.zeros(env.num_envs, device=env.device)
+
+    # Calculate XY displacement (L2 norm)
+    current_xy = active_pos_w[:, :2]
+    xy_displacement = torch.norm(current_xy - env._prev_object_xy_pos, dim=1)
+    env._prev_object_xy_pos = current_xy.clone()
+
+    current_height = active_pos_w[:, 2]
+
+    mask = current_height < 0.05
+
+    # Calculate penalty
+    penalty = xy_displacement * penalty_scale
+
+    return penalty * mask
 
 def object_is_lifted_with_contact(
     env: ManagerBasedRLEnv,
@@ -124,6 +162,7 @@ def object_is_lifted_with_contact(
     # 1. Get object height
     active_pos_w, _ = get_active_object_states(env, object_cfg)
     current_height = active_pos_w[:, 2]  # Z coordinate
+    # print(f"current height {current_height[0]}")
 
     # 2. Calculate height-based reward component
     clipped_height = torch.clamp(current_height, minimal_height, max_height)
@@ -156,11 +195,11 @@ def object_is_lifted_with_contact(
     else:
         # At least one finger in contact (more lenient)
         proper_contact = left_contact | right_contact
-
+    
     # 7. Only reward lifting when proper contact is detected
     reward = torch.where(
         proper_contact,
-        height_reward,  # Give height reward when contact verified
+        height_reward*100,  # Give height reward when contact verified
         torch.zeros_like(height_reward)  # Zero reward without contact
     )
 
@@ -176,48 +215,71 @@ def object_ee_distance(
     """Reward the agent for reaching the active object using tanh-kernel."""
     # Get active object positions
     active_pos_w, _ = get_active_object_states(env, object_cfg)
-    
+    # print(active_pos_w[0])
     # Extract the end-effector frame
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
-    ee_w = ee_frame.data.target_pos_w[..., 0, :]
-
+    ee_frame_w = ee_frame.data.target_pos_w[..., 0, :]
     # Calculate distance between EE and active object
-    object_ee_distance = torch.norm(active_pos_w - ee_w, dim=1)
+    object_ee_distance = torch.norm(active_pos_w - ee_frame_w, dim=1) 
+    print(object_ee_distance[0])
+    joint_pos = env.scene["robot"].data.joint_pos  # (envs, joints)
     
-    # joint_pos = env.scene["robot"].data.joint_pos  # (envs, joints)
-    # gripper_status = torch.abs(joint_pos[:, -1])
-    # gripper_open = gripper_status >0.4
-    # mask = 0.2 + 0.8*gripper_open
-    # # print(object_ee_distance)
-    # return (1 - torch.tanh(object_ee_distance/std)) *mask
-    
-    return 1 - torch.tanh(object_ee_distance/std)
+    return (1 - torch.tanh(object_ee_distance / std) ) 
 
-
-def contain_object(env, std, object_cfg=SceneEntityCfg("object_pool"),
-                   finger_frame_1_cfg=SceneEntityCfg("finger_frame_1"),
-                   finger_frame_2_cfg=SceneEntityCfg("finger_frame_2")):
+def penalty_if_gripper_closed_far(
+    env: ManagerBasedRLEnv,
+    reach_threshold: float = 0.005 ,  # 10cm 外必须张开  
+    open_threshold: float = 0.04,   # gripper opening 小于这个算“关闭”
+    penalty_value: float = -0.2,    # 惩罚
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+):
+    # 1. 获取 EE 和物体距离
     active_pos_w, _ = get_active_object_states(env, object_cfg)
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    ee_w = ee_frame.data.target_pos_w[..., 0, :]
+    dist = torch.norm(active_pos_w - ee_w, dim=1)
+    try_close = (env.action_manager.prev_action[:,2]>0) & (env.action_manager.action[:,2] < 0) 
+   
+    need_close_mask = dist < reach_threshold        # True = 靠近
 
-    finger_frame_1 = env.scene[finger_frame_1_cfg.name]
-    finger_frame_2 = env.scene[finger_frame_2_cfg.name]
+    reward = torch.where(
+    need_close_mask & try_close,
+    torch.ones(env.num_envs, device=env.device)*3,   # 奖励
+    torch.ones(env.num_envs, device=env.device)*0                # 否则0
+)
+
+
+    return reward
+
+
+def contain_object(
+    env: ManagerBasedRLEnv,
+    std: float,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
+    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
+) -> torch.Tensor:
+    # Get active object positions
+    active_pos_w, _ = get_active_object_states(env, object_cfg)
+    
+    finger_frame_1: FrameTransformer = env.scene[finger_frame_1_cfg.name]
+    finger_frame_2: FrameTransformer = env.scene[finger_frame_2_cfg.name]
+
     finger_w_1 = finger_frame_1.data.target_pos_w[..., 0, :]
     finger_w_2 = finger_frame_2.data.target_pos_w[..., 0, :]
-
-    v1 = finger_w_1 - active_pos_w
-    v2 = finger_w_2 - active_pos_w
-    dot = torch.sum(v1 * v2, dim=1)
-    n1 = torch.norm(v1, dim=1)
-    n2 = torch.norm(v2, dim=1)
-    cos_theta = dot / (n1 * n2 + 1e-8)
+    
+    vector_1 = finger_w_1 - active_pos_w
+    vector_2 = finger_w_2 - active_pos_w
+    dot_products = torch.sum(vector_1 * vector_2, dim=1)
+    norm_1 = torch.norm(vector_1, dim=1)
+    norm_2 = torch.norm(vector_2, dim=1)
+    cos_theta = dot_products / (norm_1 * norm_2 + 1e-8)
     cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
+    
     theta = torch.acos(cos_theta)
+    reward = theta / np.pi
 
-    x = theta / np.pi  # [0,1]
-
-    gamma = 2.0  # 推荐先从 2 开始试
-    # 或者用 std 控制：gamma = 1.0 + 1.0/(std+1e-6)
-    reward = x.pow(gamma)
     return reward
 
 
@@ -291,6 +353,7 @@ def debug_gripper_state(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros(env.num_envs, device=env.device)
 
 
+
 def penalize_m0_after_lift(
     env: ManagerBasedRLEnv,
     minimal_height: float,
@@ -341,40 +404,6 @@ def penalize_m0_after_lift(
         -m0_movement * m0_movement_penalty_scale,
         torch.zeros_like(m0_movement)
     )
-
-    return penalty
-
-
-def penalize_xy_displacement(
-    env: ManagerBasedRLEnv,
-    penalty_scale: float = 1.0,
-    min_height: float = -0.05,
-    max_height: float = 0.1,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-) -> torch.Tensor:
-
-    active_pos_w, _ = get_active_object_states(env, object_cfg)
-    if not hasattr(env, '_prev_object_xy_pos'):
-        env._prev_object_xy_pos = active_pos_w[:, :2].clone()  # Store only x,y
-        return torch.zeros(env.num_envs, device=env.device)
-
-    # Calculate XY displacement (L2 norm)
-    current_xy = active_pos_w[:, :2]
-    xy_displacement = torch.norm(current_xy - env._prev_object_xy_pos, dim=1)
-    # print(xy_displacement)
-    env._prev_object_xy_pos = current_xy.clone()
-
-    current_height = active_pos_w[:, 2]
-
-    # Normalize height
-    normalized_height = torch.clamp(
-        (current_height - min_height) / (max_height - min_height),
-        0.0, 1.0
-    )
-    height_weight = 1.0 - normalized_height
-
-    # Calculate penalty
-    penalty = xy_displacement * height_weight * penalty_scale
 
     return penalty
 
@@ -436,6 +465,9 @@ def pcd_contain_object(
     # 1. Check contact sensors first - if Y threshold satisfied, return max reward immediately
     left_sensor = env.scene.sensors[left_sensor_cfg.name]
     right_sensor = env.scene.sensors[right_sensor_cfg.name]
+    joint_pos = env.scene["robot"].data.joint_pos  # (envs, joints)
+    gripper_status = torch.abs(joint_pos[:, -1])
+    gripper_open = gripper_status >0.4
 
     contact_force_satisfied = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
 
@@ -460,7 +492,8 @@ def pcd_contain_object(
             max_reward if isinstance(max_reward, torch.Tensor) else torch.full((env.num_envs,), max_reward, device=env.device),
             torch.zeros(env.num_envs, device=env.device)
         )
-        
+        # print("using 3 ")
+
         # For envs where contact not satisfied, compute density-based reward
         if not contact_force_satisfied.all():
             # Continue with normal logic for non-contact-satisfied envs
@@ -474,7 +507,7 @@ def pcd_contain_object(
 
                 sphere_center = (left_finger_cam + right_finger_cam) / 2.0
                 finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-                sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003)
+                sphere_radius = torch.clamp(finger_distance * 0.22, min=0.000)
 
                 density, num_points = calculate_pointcloud_density_in_sphere(
                     pointcloud, sphere_center, sphere_radius
@@ -497,12 +530,8 @@ def pcd_contain_object(
                 right_z = right_sensor.data.net_forces_w[:, 0, 2]
                 contact_z_valid = (left_z < contact_z_threshold) & (right_z < contact_z_threshold)
 
-                # joint_pos = env.scene["robot"].data.joint_pos
-                # gripper_status = torch.abs(joint_pos[:, -1])
-                # gripper_open = gripper_status > 0.4
-
-                all_conditions_met = distance_mask & contact_z_valid & ee_z_valid
-
+                all_conditions_met = distance_mask & contact_z_valid & ee_z_valid & gripper_open
+                # print("using 1 ")
                 # Update reward for non-contact-satisfied envs
                 reward = torch.where(
                     contact_force_satisfied,
@@ -525,7 +554,7 @@ def pcd_contain_object(
 
     sphere_center = (left_finger_cam + right_finger_cam) / 2.0
     finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-    sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003)
+    sphere_radius = torch.clamp(finger_distance * 0.22, min=0.0)
 
     density, num_points = calculate_pointcloud_density_in_sphere(
         pointcloud, sphere_center, sphere_radius
@@ -547,13 +576,8 @@ def pcd_contain_object(
     left_z = left_sensor.data.net_forces_w[:, 0, 2]
     right_z = right_sensor.data.net_forces_w[:, 0, 2]
     contact_z_valid = (left_z < contact_z_threshold) & (right_z < contact_z_threshold)
-
-    joint_pos = env.scene["robot"].data.joint_pos
-    gripper_status = torch.abs(joint_pos[:, -1])
-    gripper_open = gripper_status > 0.4
-
-    all_conditions_met = distance_mask & contact_z_valid & ee_z_valid & gripper_open
-
+    print("using 2")
+    all_conditions_met = distance_mask & contact_z_valid & ee_z_valid 
     reward = torch.where(
         all_conditions_met,
         density_reward,
@@ -561,38 +585,6 @@ def pcd_contain_object(
     )
 
     return reward
-
-
-
-def penalty_if_gripper_closed_far(
-    env: ManagerBasedRLEnv,
-    reach_threshold: float = 0.03 ,  # 10cm 外必须张开  
-    open_threshold: float = 0.04,   # gripper opening 小于这个算“关闭”
-    penalty_value: float = -0.2,    # 惩罚
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
-):
-    # 1. 获取 EE 和物体距离
-    active_pos_w, _ = get_active_object_states(env, object_cfg)
-    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
-    ee_w = ee_frame.data.target_pos_w[..., 0, :]
-    dist = torch.norm(active_pos_w - ee_w, dim=1)
-
-    # 2. 获取 gripper 的两个关节角
-    joint_pos = env.scene["robot"].data.joint_pos  # (envs, joints)
-    gripper_opening = torch.abs(joint_pos[:, -1])
-
-    # 3. 若距离远且没张开 → 惩罚
-    need_open_mask = dist > reach_threshold        # True = 还没靠近
-    is_closed_mask = gripper_opening < open_threshold
-
-    penalty_mask = need_open_mask & is_closed_mask
-
-    penalty = torch.zeros(env.num_envs, device=env.device)
-    penalty[penalty_mask] = penalty_value
-
-    return penalty
-
 
 
 def pcd_clamp_object(
@@ -679,7 +671,7 @@ def pcd_clamp_object(
                 right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
                 sphere_center = (left_finger_cam + right_finger_cam) / 2.0
                 finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-                sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003)
+                sphere_radius = torch.clamp(finger_distance * 0.22, min=0.0)
 
                 density, num_points = calculate_pointcloud_density_in_sphere(
                     pointcloud, sphere_center, sphere_radius
@@ -731,7 +723,7 @@ def pcd_clamp_object(
     right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
     sphere_center = (left_finger_cam + right_finger_cam) / 2.0
     finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-    sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003)
+    sphere_radius = torch.clamp(finger_distance * 0.22, min=0.0)
 
     density, num_points = calculate_pointcloud_density_in_sphere(
         pointcloud, sphere_center, sphere_radius
@@ -764,7 +756,7 @@ def contact_clamp_object(
     env: ManagerBasedRLEnv,
     contact_force_threshold: float = 1.5,
     reward_value: float = 1.0,
-    gripper_closed_threshold: float = 0.2,
+    gripper_closed_threshold: float = 0.05,
     left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
     right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
 ) -> torch.Tensor:
@@ -774,9 +766,8 @@ def contact_clamp_object(
     """
     # Check gripper closed
     joint_positions = env.scene['robot'].data.joint_pos_target
-    gripper_closed = (torch.abs(joint_positions[:, 5]) < gripper_closed_threshold) & \
-                     (torch.abs(joint_positions[:, 6]) < gripper_closed_threshold)
-
+    gripper_closed = torch.abs(joint_positions[:, 5]) < gripper_closed_threshold
+ 
     # Get contact forces
     left_sensor = env.scene.sensors[left_sensor_cfg.name]
     right_sensor = env.scene.sensors[right_sensor_cfg.name]
@@ -827,7 +818,7 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
             # Calculate sphere
             sphere_center = (left_finger_cam + right_finger_cam) / 2.0
             finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-            sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003)
+            sphere_radius = torch.clamp(finger_distance * 0.22, min=0.0)
 
             # Calculate density
             density, num_points = calculate_pointcloud_density_in_sphere(
@@ -849,8 +840,14 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
     from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
     import os
 
+    # print("visualize_sphere started")
+
     if env.common_step_counter % 1 == 0:
         pointcloud, valid = get_cached_pointcloud(env)
+
+        # import pdb
+        # pdb.set_trace()
+
         if valid and pointcloud is not None:
             # Get gripper positions
             left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
@@ -867,11 +864,12 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
             right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, "depth_camera")
 
             object_cam = transform_world_to_camera(active_pos_w, env, "depth_camera")
+
             
             # Calculate sphere
             sphere_center = (left_finger_cam + right_finger_cam) / 2.0
             finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-            sphere_radius = torch.clamp(finger_distance *0.22, min=0.003)
+            sphere_radius = torch.clamp(finger_distance *0.22, min=0.0)
 
             # Get points inside sphere
             env_id = 0
