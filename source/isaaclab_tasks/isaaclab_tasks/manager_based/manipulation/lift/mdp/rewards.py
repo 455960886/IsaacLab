@@ -194,30 +194,33 @@ def object_ee_distance(
     return 1 - torch.tanh(object_ee_distance/std)
 
 
-def contain_object(env, std, object_cfg=SceneEntityCfg("object_pool"),
-                   finger_frame_1_cfg=SceneEntityCfg("finger_frame_1"),
-                   finger_frame_2_cfg=SceneEntityCfg("finger_frame_2")):
+def contain_object(
+    env: ManagerBasedRLEnv,
+    std: float,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
+    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
+) -> torch.Tensor:
+    # Get active object positions
     active_pos_w, _ = get_active_object_states(env, object_cfg)
+    
+    finger_frame_1: FrameTransformer = env.scene[finger_frame_1_cfg.name]
+    finger_frame_2: FrameTransformer = env.scene[finger_frame_2_cfg.name]
 
-    finger_frame_1 = env.scene[finger_frame_1_cfg.name]
-    finger_frame_2 = env.scene[finger_frame_2_cfg.name]
     finger_w_1 = finger_frame_1.data.target_pos_w[..., 0, :]
     finger_w_2 = finger_frame_2.data.target_pos_w[..., 0, :]
-
-    v1 = finger_w_1 - active_pos_w
-    v2 = finger_w_2 - active_pos_w
-    dot = torch.sum(v1 * v2, dim=1)
-    n1 = torch.norm(v1, dim=1)
-    n2 = torch.norm(v2, dim=1)
-    cos_theta = dot / (n1 * n2 + 1e-8)
+    
+    vector_1 = finger_w_1 - active_pos_w
+    vector_2 = finger_w_2 - active_pos_w
+    dot_products = torch.sum(vector_1 * vector_2, dim=1)
+    norm_1 = torch.norm(vector_1, dim=1)
+    norm_2 = torch.norm(vector_2, dim=1)
+    cos_theta = dot_products / (norm_1 * norm_2 + 1e-8)
     cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
+    
     theta = torch.acos(cos_theta)
+    reward = theta / np.pi
 
-    x = theta / np.pi  # [0,1]
-
-    gamma = 2.0  # 推荐先从 2 开始试
-    # 或者用 std 控制：gamma = 1.0 + 1.0/(std+1e-6)
-    reward = x.pow(gamma)
     return reward
 
 
@@ -289,6 +292,7 @@ def debug_gripper_state(env: ManagerBasedRLEnv) -> torch.Tensor:
         print(f"Object height: {object.data.root_pos_w[:, 2].mean():.3f}")
 
     return torch.zeros(env.num_envs, device=env.device)
+
 
 
 def penalize_m0_after_lift(

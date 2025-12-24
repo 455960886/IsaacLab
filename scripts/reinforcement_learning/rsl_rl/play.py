@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -6,10 +6,8 @@
 """Script to play a checkpoint if an RL agent from RSL-RL."""
 
 """Launch Isaac Sim Simulator first."""
-
-import argparse
-
 from isaaclab.app import AppLauncher
+import argparse
 
 # local imports
 import cli_args  # isort: skip
@@ -46,10 +44,12 @@ simulation_app = app_launcher.app
 
 import gymnasium as gym
 import os
+
 import time
 import torch
-
+import cv2
 from rsl_rl.runners import OnPolicyRunner
+import numpy as np
 
 from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
 from isaaclab.utils.assets import retrieve_file_path
@@ -66,19 +66,18 @@ from isaaclab_tasks.utils import get_checkpoint_path, parse_env_cfg
 
 def main():
     """Play with RSL-RL agent."""
-    task_name = args_cli.task.split(":")[-1]
     # parse configuration
     env_cfg = parse_env_cfg(
         args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=not args_cli.disable_fabric
     )
-    agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(task_name, args_cli)
+    agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
     # specify directory for logging experiments
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Loading experiment from directory: {log_root_path}")
     if args_cli.use_pretrained_checkpoint:
-        resume_path = get_published_pretrained_checkpoint("rsl_rl", task_name)
+        resume_path = get_published_pretrained_checkpoint("rsl_rl", args_cli.task)
         if not resume_path:
             print("[INFO] Unfortunately a pre-trained checkpoint is currently unavailable for this task.")
             return
@@ -113,9 +112,12 @@ def main():
 
     print(f"[INFO]: Loading model checkpoint from: {resume_path}")
     # load previously trained model
+    print("before creating runner")
+    print("6666")
     ppo_runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    print("7777")
     ppo_runner.load(resume_path)
-
+    print("after creating runner")
     # obtain the trained policy for inference
     policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
 
@@ -124,19 +126,25 @@ def main():
     try:
         # version 2.3 onwards
         policy_nn = ppo_runner.alg.policy
+        print("1111")
     except AttributeError:
         # version 2.2 and below
         policy_nn = ppo_runner.alg.actor_critic
 
     # export policy to onnx/jit
-    export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
+    export_model_dir = os.path.join(os.path.dirname(resume_path), "exported2")
     export_policy_as_jit(policy_nn, ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.pt")
     export_policy_as_onnx(
-        policy_nn, normalizer=ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.onnx"
+        policy_nn, normalizer=ppo_runner.obs_normalizer, path=export_model_dir, filename="policy1905.onnx"
     )
 
     dt = env.unwrapped.step_dt
-
+    # img_bgr = cv2.imread('/home/roborock/下载/9.png')
+    # img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    # img_tensor = torch.from_numpy(img_rgb).permute(2, 0, 1)
+    # obs = img_tensor.unsqueeze(0)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    save_dir = "/home/roborock/下载/"
     # reset environment
     obs, _ = env.get_observations()
     timestep = 0
@@ -146,16 +154,73 @@ def main():
         # run everything in inference mode
         with torch.inference_mode():
             # agent stepping
+            
+            
+            # obs = obs.permute(0, 3, 1, 2)
             actions = policy(obs)
-            # env stepping
-            obs, _, _, _ = env.step(actions)
-        if args_cli.video:
-            timestep += 1
-            # Exit the play loop after recording one video
-            if timestep == args_cli.video_length:
-                break
 
-        # time delay for real-time evaluation
+            # actions = torch.zeros(1, 4)
+            # actions = actions.to(device)  # 明确发送到 GPU 上
+
+            # print(obs) #输入是RRRRGGGGGBBBBB
+            # print(f"step{timestep} , action {actions}")
+            print(f"step{timestep} , action {180*(actions/np.pi)}" )
+            #############################################################
+            # obs_to_save = obs.permute(0, 2, 3, 1)  # back to NHWC
+            # # print(f'obs_rgb{obs_to_save}')
+            # obs_np = obs_to_save[0].cpu().numpy()  # assume batch size = 1
+            # obs_np = np.clip(obs_np * 255.0 +127.5 , 0, 255).astype(np.uint8)  # float32 to uint8
+         
+            # img_bgr = cv2.cvtColor(obs_np, cv2.COLOR_BGR2RGB)
+            # # cv2.imwrite(os.path.join(save_dir, f"sim_{timestep:04d}.png"), img_bgr)
+            # cv2.imwrite(os.path.join(save_dir, f"sim20_{timestep}.png"), img_bgr)
+            ###################################################################
+            # print(f"step{timestep} , action {180*(actions/np.pi)}" )
+            # actions = torch.ones(1, 4)
+            # with open('output_formres8.txt', 'a') as f:
+            #     f.write(f"actions : {actions}\n")
+            # actions[:, -1] = 0.01
+            # env stepping
+            # obs_to_save = obs.permute(0, 2, 3, 1)  # back to NHWC
+            # obs_np = obs_to_save[0].cpu().numpy()  # assume batch size = 1
+            # obs_np = np.clip(obs_np * 255.0, 0, 255).astype(np.uint8)  # float32 to uint8
+
+            # img_bgr = cv2.cvtColor(obs_np, cv2.COLOR_RGB2BGR)
+            # cv2.imwrite(os.path.join(save_dir, f"step_{timestep:04d}.png"), img_bgr)
+            ##########################################################
+            # img_bgr = cv2.imread('/home/roborock/下载/real_2.png')                                               
+            # img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+            # img_tensor = torch.from_numpy(img_rgb).float() / 255.0
+            
+            # mean_tensor = torch.mean(img_tensor, dim=(0, 1), keepdim=True)
+            # img_tensor -= 0.5
+            # obs = img_tensor.unsqueeze(0)
+            
+            # obs = obs.permute(0, 3, 1, 2)
+            # obs = obs.to(device)
+            # # print(f"obs_shape::{obs.shape}")
+            # # print(f"obs::{obs}")
+            
+            # actions = policy(obs)
+            # # print(f"step{timestep} , action {actions}" )
+            # print(f"step{timestep} , action {180*(actions/np.pi)}" )
+            # ###################################################
+            obs, _,dones, _ = env.step(actions)
+            timestep += 1
+            
+            
+            
+            # if torch.any(dones):
+            #     done_ids = dones.nonzero(as_tuple=False).squeeze(-1).tolist()
+            #     print(f"[INFO] Episode(s) done at timestep {timestep}: env_ids={done_ids}")
+        
+        # if args_cli.video:
+        #     timestep += 1
+            # # Exit the play loop after recording one video
+            # if timestep == 30:#args_cli.video_length:
+            #     break
+
+        # # time delay for real-time evaluation
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)

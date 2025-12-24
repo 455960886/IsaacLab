@@ -31,34 +31,34 @@ def transform_world_to_camera(points_world, env, sensor_cfg_name="depth_camera",
                                          apply_x_rotation=True):
     robot = env.scene["robot"]
     device = points_world.device
-
+    
     # Get base joint angle (M0 - rotation around Z)
     base_joint_pos = robot.data.joint_pos[:, 0]  # M0 is at index 0
-
+    
     # Get base position in world frame
     base_pos_w = robot.data.root_pos_w  # (B, 3)
-
+    
     # Get base rotation matrix
     R_base = get_base_rotation_matrix(base_joint_pos)  # (B, 3, 3)
-
+    
     # Camera's local position relative to base (extracted from Step 1)
     camera_local_pos = torch.tensor([0.163100, 0.000000, 0.059900], device=device)
-
+    
     camera_local_quat = torch.tensor([[-0.50000480, 0.50000480, -0.49999517, 0.49999517]], device=device)
     camera_local_rot = math_utils.matrix_from_quat(camera_local_quat).squeeze(0)  # (3, 3)
-
+    
     # Compute camera position in world frame
     # camera_pos_w = base_pos_w + R_base @ camera_local_pos
     camera_pos_w = base_pos_w + torch.matmul(
         R_base, camera_local_pos.unsqueeze(-1)
     ).squeeze(-1)  # (B, 3)
-
+    
     R_camera_w = torch.matmul(R_base, camera_local_rot)  # (B, 3, 3)
-
+    
     # Transform points to camera frame
     # R_w_to_c = R_camera_w^T (transpose for inverse)
     R_w_to_c = R_camera_w.transpose(-2, -1)  # (B, 3, 3)
-
+    
     # Handle both 2D and 3D point inputs
     if points_world.dim() == 2:
         # (B, 3) points
@@ -71,18 +71,18 @@ def transform_world_to_camera(points_world, env, sensor_cfg_name="depth_camera",
         points_camera = torch.matmul(
             points_relative, R_w_to_c.transpose(-2, -1)
         )  # (B, N, 3)
-
+    
     if points_world.dim() == 2:
         points_camera[:, 1] = -points_camera[:, 1]
     else:
         points_camera[:, :, 1] = -points_camera[:, :, 1]
-
+    
     # Apply the rotation
     if apply_x_rotation:
         R = torch.tensor([[-4.3711e-08,  4.3711e-08,  1.0000e+00],
         [ 1.0000e+00, -1.9199e-04,  4.3720e-08],
         [ 1.9199e-04,  1.0000e+00, -4.3703e-08]], device=points_camera.device, dtype=points_camera.dtype)
-
+        
         if points_world.dim() == 2:
             points_camera = torch.matmul(points_camera, R.T)
         else:
@@ -90,7 +90,7 @@ def transform_world_to_camera(points_world, env, sensor_cfg_name="depth_camera",
 
     translation = torch.tensor([0.1654, 0.0, 0.0494], device=points_camera.device, dtype=points_camera.dtype)
     trans_points = points_camera + translation
-
+        
     return trans_points
 
 

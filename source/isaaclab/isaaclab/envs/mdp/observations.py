@@ -21,24 +21,23 @@ from isaaclab.managers.manager_base import ManagerTermBase
 from isaaclab.managers.manager_term_cfg import ObservationTermCfg
 from isaaclab.sensors import Camera, Imu, RayCaster, RayCasterCamera, TiledCamera
 import numpy as np
+import torchvision
 import cv2
 import os
 import time
 from isaaclab.pointnet.models.pointnet_utils import PointNetEncoder, feature_transform_reguliarzer
 import importlib
 from isaaclab.pointnet.log.classification.pointnet2_ssg_wo_normals.pointnet2_cls_ssg import get_model as PointNet2ClsMsg
+# from .gripper_transform import add_gripper_labels_to_observation, debug_gripper_transformation, transform_world_to_camera
 import open3d as o3d
-import torch.nn.functional as F
-import torchvision
+
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnv
 
-
 """
 Root state.
 """
-
 
 def base_pos_z(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Root height in the simulation world frame."""
@@ -254,11 +253,11 @@ def imu_lin_acc(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg
 def image(
     env: ManagerBasedEnv,
     # cnt: int = 0,
-    sensor_cfg: SceneEntityCfg = SceneEntityCfg("gripper_camera"),
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("tiled_camera"),
     data_type: str = "rgb",
     convert_perspective_to_orthogonal: bool = False,
     normalize: bool = True,
-    depth_cfg:SceneEntityCfg = SceneEntityCfg("depth_camera")
+    depth_cfg : SceneEntityCfg = SceneEntityCfg("tiled_camera2"),
 ) -> torch.Tensor:
     """Images of a specific datatype from the camera sensor.
 
@@ -285,31 +284,33 @@ def image(
 
     # obtain the input image
     images = sensor.data.output[data_type]
-    # images = cv2.imread(, cv2.IMREAD_COLOR)
-    # image_path = "/home/roborock/下载/2.jpg"
-    # img_bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
-    # img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-  
-    # img_tensor = torch.from_numpy(img_rgb).float()  # shape: (H, W, 3), float32
- 
-    # img_tensor = img_tensor / 255.0
-    depth = env.scene.sensors[depth_cfg.name].data.output["distance_to_image_plane"]
-    # img_tensor = img_tensor.permute(2, 0, 1)
-
-    # # 6. Add batch dimension -> (1, C, H, W)
-    # images = img_tensor.unsqueeze(0)
-    
     # depth image conversion
     # images = images[:, :, images.shape[2] // 2:, :]
-    
-#     obs_image = images.clone().detach().float().squeeze(0).cpu().numpy()
-#   # Convert to tensor and float type
-#     obs_bgr = cv2.cvtColor(obs_image, cv2.COLOR_RGB2BGR)
-#     cv2.imwrite(f"/home/roborock/下载/obs.png", obs_bgr)
-#     # with open('output_formres8.txt', 'a') as f:
-    #     f.write(f"observation_{time1}.png\n")
-    # print(f"./IMAGES9/observation_{time1}.png")
 
+    # obs_image = torch.tensor(images).float().squeeze(0).cpu().numpy()  # Convert to tensor and float type
+    # obs_bgr = cv2.cvtColor(obs_image, cv2.COLOR_RGB2BGR)
+    # os.makedirs("IMAGES2", exist_ok=True)
+    # # os.makedirs("IMAGES17", exist_ok=True)
+    step = 0
+    step +=1
+    # # cv2.imwrite(f"./IMAGES16/observation_{time1}.png", obs_image)
+    # cv2.imwrite(f"/home/roborock/下载/{step}.png", images)
+    # import pdb
+    # pdb.set_trace()
+    # with open('output_formres9.txt', 'a') as f:
+    #     f.write(f"observation_{time1}.png\n")
+    # print(f"./IMAGES2/observation_{time1}.png")
+    depth = env.scene.sensors[depth_cfg.name].data.output["distance_to_image_plane"]
+    # print("depth shape:",depth.shape)
+    # depth_np = depth.squeeze(0).squeeze(-1).cpu().numpy()  # shape [H, W]
+
+    # # 归一化到 0~255
+    # depth_norm = (depth_np - depth_np.min()) / (depth_np.max() - depth_np.min())
+    # depth_uint8 = (depth_norm * 255).astype(np.uint8)
+
+    # os.makedirs("depth_images", exist_ok=True)
+    # timestamp = time.time()
+    # cv2.imwrite(f"depth_images/depth_{timestamp}.png", depth_uint8)
     if (data_type == "distance_to_camera") and convert_perspective_to_orthogonal:
         images = math_utils.orthogonalize_perspective_depth(images, sensor.data.intrinsic_matrices)
     # obs_np = rgb_image_tensor.squeeze(0).cpu().numpy() 
@@ -328,26 +329,10 @@ def image(
     if normalize:
         # print(f"Normalizing images of type: {data_type}")
         if data_type == "rgb":
-            # obs_image = images.clone().detach().float().squeeze(0).cpu().numpy()
-            # obs_bgr = cv2.cvtColor(obs_image, cv2.COLOR_RGB2BGR)
-            # cv2.imwrite(f"/home/roborock/下载/obs.png", obs_bgr)
-            images = images.float()
-            # print(images.shape)
-            images = images  / 255.0
-            images = images.permute(0, 3, 1, 2)
-            target_size = (300, 400)  # (height, width)
-            images = F.interpolate(images, size=target_size, mode="bilinear", align_corners=False)
-        # # resize 到目标分辨率 (150, 200)
-        #     
-
-        #     # 如果想保持原来的 (B, H, W, C) 形状
-        #     
+            images = images.float() / 255.0
             mean_tensor = torch.mean(images, dim=(1, 2), keepdim=True)
-            images = images -0.5
-            images = images.permute(0, 2, 3, 1)
-            # print(f"1 {images.shape}")
+            images -= mean_tensor
             
-            # print('minus mean')
             # images = images.float()
 
             # obs_np2 = images.squeeze(0).cpu().numpy() 
@@ -359,14 +344,16 @@ def image(
 
             # # RGB 转 BGR 再保存
             # obs_bgr2 = cv2.cvtColor(obs_np2, cv2.COLOR_RGB2BGR)
-            # os.makedirs("IMAGES6", exist_ok=True)
-            # cv2.imwrite(f"./IMAGES6/observation_{time.time()}.png", obs_bgr2)
+            # os.makedirs("IMAGES13", exist_ok=True)
+            # cv2.imwrite(f"./IMAGES13/observation_{time.time()}.png", obs_np2)
             
             pass
         elif "distance_to" in data_type or "depth" in data_type:
             images[images == float("inf")] = 0
+    # print("image shape11:",images.shape)
+    #深度图与RGB图拼接
     images = torch.cat((images,depth),dim=-1)
-    # print(f"输入图像 {images}")
+    # print("image shape22:",images.shape)
     return images.clone()
 
 
@@ -463,10 +450,9 @@ class image_features(ManagerTermBase):
         self._prepare_pointnet_model()
         # self.fx, self.fy = 525.0, 525.0
         # self.cx, self.cy = 319.5, 239.5
-        
 
-        self.fx, self.fy = 117.78, 124.95
-        self.cx, self.cy = 200.0, 150.0
+        # self.fx, self.fy = 117.78, 124.95
+        # self.cx, self.cy = 200.0, 150.0
 
         self._frame_counter = 0
 
@@ -477,106 +463,121 @@ class image_features(ManagerTermBase):
         # for example: video transformers
         if self._reset_fn is not None:
             self._reset_fn(self._model, env_ids)
-    def _save_images(self, images: torch.Tensor, step: int, prefix: str = "img"):
-        """Save images to disk for debugging."""
-        import os
-        import cv2
-        import numpy as np
 
-        save_dir = "debug_augmentation"
-        os.makedirs(save_dir, exist_ok=True)
+    def depth_to_pointcloud(self,depth_image, fx, fy, cx, cy, rgb_image=None, output_path="pointcloud.ply"):
+        """
+        将深度图转换为点云（可选带颜色）
+        
+        参数:
+            depth_image : np.ndarray
+                深度图（H, W），单位为米。
+            fx, fy, cx, cy : float
+                相机内参。
+            rgb_image : np.ndarray, optional
+                彩色图（H, W, 3），与深度图对齐。
+            output_path : str
+                点云保存路径。
+        """
+        assert len(depth_image.shape) == 2, "深度图必须是单通道 (H, W)"
+        height, width = depth_image.shape
+        u, v = np.meshgrid(np.arange(width), np.arange(height))
+        
+        # 深度图中无效值置0（避免NaN）
+        depth = np.nan_to_num(depth_image, nan=0.0)
+        # depth = (depth.max() - depth)
+        # print(depth_image.dtype)
+        # print("min, max, median:", np.nanmin(depth_image), np.nanmax(depth_image), np.nanmedian(depth_image))
+        # print("non-zero fraction:", np.count_nonzero(~np.isnan(depth_image) & (depth_image!=0)) / depth_image.size)
+        mask = depth > 0  # 有效深度
+        
+        # 反投影到3D空间
+        Z = depth[mask]
+        X = (u[mask] - cx) * Z / fx
+        Y = (v[mask] - cy) * Z / fy
+        points = np.stack((X, -Y, Z), axis=-1)
 
-        # Save only the first image in the batch
-        img_to_save = images[0]  # Take first image from batch
+        def save_ply(points, colors=None, output_path="pointcloud.ply"):
+            """
+            保存点云为 PLY 文件
+            参数:
+                points: (N, 3) numpy 数组
+                colors: (N, 3) numpy 数组 (0~255 或 0~1)
+                output_path: 输出文件路径
+            """
+            # 创建 open3d 点云对象
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(points)
 
-        # Convert from torch tensor to numpy
-        img_np = img_to_save.detach().cpu().numpy()
+            if colors is not None:
+                if colors.max() > 1.0:
+                    colors = colors / 255.0  # 归一化到 [0,1]
+                pcd.colors = o3d.utility.Vector3dVector(colors)
 
-        # Check the shape and handle accordingly
-        print(f"Image shape: {img_np.shape}")  # Debug print
+            # 保存为 PLY 文件
+            o3d.io.write_point_cloud(output_path, pcd)
+            print(f"✅ 点云已保存到: {output_path}")
+        
+        # save_ply(points, colors=None, output_path=output_path.replace(".ply","_0.ply"))
+        theta = np.deg2rad(0.5)
+        R_x = np.array([
+            [1, 0, 0],
+            [0, np.cos(theta), -np.sin(theta)],
+            [0, np.sin(theta),  np.cos(theta)]
+        ])
 
-        # If shape is (C, H, W), convert to (H, W, C)
-        if img_np.ndim == 3 and img_np.shape[0] in [1, 3, 4]:  # Channel first
-            img_np = np.transpose(img_np, (1, 2, 0))
+        rotated_points = points @ R_x.T
+        # save_ply(rotated_points, colors=None, output_path=output_path.replace(".ply","_1.ply"))
+        # save_ply(points, colors=None, output_path=output_path)
+        # ===== 距离筛选部分 =====
+        points = rotated_points[rotated_points[:,2]<0.16]
+        points = points[points[:,1]>-0.05]
 
-        # Ensure values are in [0, 1] range, then convert to [0, 255]
-        img_np = np.clip(img_np, 0, 1)
-        img_np = (img_np * 255).astype(np.uint8)
+        def voxel_down_sample_fixed(points, voxel_size=2.0, num_points=1024, seed=None):
+            """
+            对点云进行体素下采样，并确保输出固定数量的点。
 
-        # Handle different channel counts
-        if img_np.shape[-1] == 3:  # RGB
-            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-        elif img_np.shape[-1] == 1:  # Grayscale
-            img_bgr = img_np.squeeze(-1)
-        elif img_np.shape[-1] == 4:  # RGBA
-            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGBA2BGR)
-        else:
-            print(f"Warning: Unexpected channel count {img_np.shape[-1]}, saving as-is")
-            img_bgr = img_np
+            参数:
+                points: np.ndarray, shape [N, 3]
+                voxel_size: float, 体素大小
+                num_points: int, 输出固定点数
+                seed: int or None, 随机种子（可选）
 
-        save_path = os.path.join(save_dir, f"{prefix}_step_{step:06d}.png")
-        cv2.imwrite(save_path, img_bgr)
+            返回:
+                down_points: np.ndarray, shape [num_points, 3]
+            """
+            if len(points) == 0:
+                # 返回一个全零点云（或可选 raise）
+                return np.zeros((num_points, 3), dtype=np.float32)
+
+            if seed is not None:
+                np.random.seed(seed)
+
+            decay_rate = voxel_size / 2.0
+            dist = np.linalg.norm(points, axis=1)
+            p = np.exp(-dist / decay_rate)   # 近处概率大
+            p /= p.sum()
+
+            # ✅ 修复点：若点数不足，则允许放回采样
+            replace_flag = len(points) < num_points
+            indices = np.random.choice(len(points), num_points, replace=replace_flag, p=p)
+            down_points = points[indices]
+
+            # ✅ 第二步其实可以省略，但如果你想保持逻辑清晰：
+            N = down_points.shape[0]
+            if N < num_points:
+                extra_indices = np.random.choice(N, num_points - N, replace=True)
+                down_points = np.concatenate([down_points, down_points[extra_indices]], axis=0)
+
+            return down_points
+                
+        points = voxel_down_sample_fixed(points, voxel_size=2.0)
+        # save_ply(points, colors=None, output_path=output_path.replace(".ply","_downsampled8.ply"))
+        return points
+    
+
     # GPU-accelerated version for batch processing
-    def _apply_domain_randomization(
-        self, 
-        images: torch.Tensor, 
-        save_debug: bool = False,
-        step_counter: int = 0
-    ) -> torch.Tensor:
-        """
-        Apply domain randomization (Gaussian blur and noise) to images for sim-to-real transfer.
-
-        Args:
-            images: Input images tensor of shape (B, C, H, W) or (B, H, W, C)
-            save_debug: If True, save before/after images
-            step_counter: Current step number for filename
-
-        Returns:
-            Augmented images tensor
-        """
-        # Convert to float if needed and normalize to [0, 1]
-        original_dtype = images.dtype
-        if images.dtype == torch.uint8:
-            images = images.float() / 255.0
-
-        # Ensure tensor is in (B, C, H, W) format for transforms
-        if images.ndim == 4 and images.shape[-1] in [1, 3, 4]:  # (B, H, W, C)
-            images = images.permute(0, 3, 1, 2)
-            was_channels_last = True
-        else:
-            was_channels_last = False
-
-        if save_debug:
-            self._save_images(images, step_counter, prefix="before_aug")
-
-        # Random Gaussian blur
-        # if torch.rand(1).item() < 0.5:  # 50% chance to apply blur
-        kernel_size = int(torch.randint(3, 8, (1,)).item())
-        if kernel_size % 2 == 0:
-            kernel_size += 1  # Ensure odd kernel size
-        sigma = torch.rand(1).item() * 1.5 + 0.5  # Random sigma between 0.5-2.0
-        images = torchvision.transforms.functional.gaussian_blur(
-            images, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma]
-        )
-
-        # Random Gaussian noise
-        noise_std = torch.rand(1).item() * 0.03  # Random std between 0-0.03
-        noise = torch.randn_like(images) * noise_std
-        images = torch.clamp(images + noise, 0.0, 1.0)
-
-        if save_debug:
-            self._save_images(images, step_counter, prefix="after_aug")
-
-        # Convert back to original format
-        if was_channels_last:
-            images = images.permute(0, 2, 3, 1)
-
-        if original_dtype == torch.uint8:
-            images = (images * 255.0).byte()
-
-        return images
     def depth_to_pointcloud_batch_gpu(self, depth_batch, fx, fy, cx, cy, num_points=1024, 
-                                      save_ply_debug=False, env_id=0, frame_counter=None, save_dir="debug_pointclouds"):
+                                      save_ply_debug=False, env_id=0, frame_counter=None, save_dir="debug_pointclouds", env=None):
         """GPU-accelerated batch point cloud generation with systematic PLY saving."""
         import os
         B, H, W = depth_batch.shape
@@ -657,7 +658,7 @@ class image_features(ManagerTermBase):
         # 构造 4x4 transformation 矩阵 T
         # -----------------------------
         x1 = deg2rad(0.011, device)
-    
+
         c = torch.cos(x1)
         s = torch.sin(x1)
 
@@ -667,13 +668,13 @@ class image_features(ManagerTermBase):
             [0.,     s,     c],
         ], device=device)
 
-
         R = Rx1@ Rz @ Ry @ Rx 
+        # print(R)
         # import pdb
         # pdb.set_trace()
         points_flat = points.reshape(B, H * W, 3)
         rotated_points = torch.matmul(points_flat, R.T)
-        translation = torch.tensor([0.1654, 0.0, 0.054], device=device)
+        translation = torch.tensor([0.1654, 0.0, 0.0494], device=device)
         trans_points = rotated_points +translation
         # Save Stage 1: After rotation
         if save_ply_debug:
@@ -684,10 +685,11 @@ class image_features(ManagerTermBase):
         # mask1 = rotated_points[:, :, 2] < 0.21
         # mask2 = rotated_points[:, :, 1] > -0.0628
         # mask3 = rotated_points[:, :, 1] < 0.0428
-        rand_thresh = np.random.uniform(0.0, 0.02)
-
+        rand_thresh = np.random.uniform(-0.0003, 0.002)
         mask2 = trans_points[:,:, 0] <=0.42
+        # mask3 = trans_points[:,:, 2] >= -0.0003
         mask3 = trans_points[:,:, 2] >= rand_thresh
+
         # mask4 = trans_points[:,:, 1] <=0.20
         # mask5 = trans_points[:,:, 1] >=-0.20
         mask = mask2 & mask3
@@ -719,25 +721,137 @@ class image_features(ManagerTermBase):
         if save_ply_debug:
             points_final = result[env_id].cpu().numpy()
             save_ply(points_final, "3_downsampled")
+        
+        # from .pointcloud_noise import add_noise
+
+        # for b in range(B):
+        #     result[b] = add_noise(result[b])
+        #         # Save Stage 3: Final downsampled
+        
+        # if save_ply_debug:
+        #     points_final = result[env_id].cpu().numpy()
+        #     save_ply(points_final, "4_noised")
         result = randomize_pointcloud_batch_torch(result,dropout_rate=0.02,outlier_ratio=0.02,outlier_max_offset=0.08,surface_jitter=0.001)
-        if save_ply_debug:
-            points_final = result[env_id].cpu().numpy()
-            save_ply(points_final, "4_random")
+        
+        # if save_ply_debug:
+        #     points_final = result[env_id].cpu().numpy()
+        #     save_ply(points_final, "4_random")
+        
         return result
+
+
+    def _apply_domain_randomization(
+        self, 
+        images: torch.Tensor, 
+        save_debug: bool = False,
+        step_counter: int = 0
+    ) -> torch.Tensor:
+        """
+        Apply domain randomization (Gaussian blur and noise) to images for sim-to-real transfer.
+        
+        Args:
+            images: Input images tensor of shape (B, C, H, W) or (B, H, W, C)
+            save_debug: If True, save before/after images
+            step_counter: Current step number for filename
+        
+        Returns:
+            Augmented images tensor
+        """
+        # Convert to float if needed and normalize to [0, 1]
+        original_dtype = images.dtype
+        if images.dtype == torch.uint8:
+            images = images.float() / 255.0
+        
+        # Ensure tensor is in (B, C, H, W) format for transforms
+        if images.ndim == 4 and images.shape[-1] in [1, 3, 4]:  # (B, H, W, C)
+            images = images.permute(0, 3, 1, 2)
+            was_channels_last = True
+        else:
+            was_channels_last = False
+        
+        if save_debug:
+            self._save_images(images, step_counter, prefix="before_aug")
+        
+        # Random Gaussian blur
+        # if torch.rand(1).item() < 0.5:  # 50% chance to apply blur
+        kernel_size = int(torch.randint(3, 12, (1,)).item())
+        if kernel_size % 2 == 0:
+            kernel_size += 1  # Ensure odd kernel size
+        sigma = torch.rand(1).item() * 3.0 + 0.5  # Random sigma between 0.5-2.0
+        images = torchvision.transforms.functional.gaussian_blur(
+            images, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma]
+        )
+        
+        # Random Gaussian noise
+        noise_std = torch.rand(1).item() * 0.08 + 0.02  # Random std between 0-0.03
+        noise = torch.randn_like(images) * noise_std
+        images = torch.clamp(images + noise, 0.0, 1.0)
+        
+        if save_debug:
+            self._save_images(images, step_counter, prefix="after_aug")
+        
+        # Convert back to original format
+        if was_channels_last:
+            images = images.permute(0, 2, 3, 1)
+        
+        if original_dtype == torch.uint8:
+            images = (images * 255.0).byte()
+        
+        return images
+
+    def _save_images(self, images: torch.Tensor, step: int, prefix: str = "img"):
+        """Save images to disk for debugging."""
+        import os
+        import cv2
+        import numpy as np
+        
+        save_dir = "debug_augmentation"
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # Save only the first image in the batch
+        img_to_save = images[0]  # Take first image from batch
+        
+        # Convert from torch tensor to numpy
+        img_np = img_to_save.detach().cpu().numpy()
+        
+        # Check the shape and handle accordingly
+        print(f"Image shape: {img_np.shape}")  # Debug print
+        
+        # If shape is (C, H, W), convert to (H, W, C)
+        if img_np.ndim == 3 and img_np.shape[0] in [1, 3, 4]:  # Channel first
+            img_np = np.transpose(img_np, (1, 2, 0))
+        
+        # Ensure values are in [0, 1] range, then convert to [0, 255]
+        img_np = np.clip(img_np, 0, 1)
+        img_np = (img_np * 255).astype(np.uint8)
+        
+        # Handle different channel counts
+        if img_np.shape[-1] == 3:  # RGB
+            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+        elif img_np.shape[-1] == 1:  # Grayscale
+            img_bgr = img_np.squeeze(-1)
+        elif img_np.shape[-1] == 4:  # RGBA
+            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGBA2BGR)
+        else:
+            print(f"Warning: Unexpected channel count {img_np.shape[-1]}, saving as-is")
+            img_bgr = img_np
+        
+        save_path = os.path.join(save_dir, f"{prefix}_step_{step:06d}.png")
+        cv2.imwrite(save_path, img_bgr)
 
 
     def __call__(
         self,
         env: ManagerBasedEnv,
-        sensor_cfg: SceneEntityCfg = SceneEntityCfg("gripper_camera"),
-        depth_cfg: SceneEntityCfg = SceneEntityCfg("depth_camera"),
+        sensor_cfg: SceneEntityCfg = SceneEntityCfg("tiled_camera"),
+        depth_cfg: SceneEntityCfg = SceneEntityCfg("tiled_camera2"),
         data_type: str = "rgb",
         convert_perspective_to_orthogonal: bool = False,
         model_zoo_cfg: dict | None = None,
         model_name: str = "resnet18",
         model_device: str | None = None,
         inference_kwargs: dict | None = None,
-  
+        save_augmentation_debug: bool = False,
     ) -> torch.Tensor:
         # obtain the images from the sensor
         # image_data = image(
@@ -749,56 +863,81 @@ class image_features(ManagerTermBase):
         # )
         sensor: TiledCamera | Camera | RayCasterCamera = env.scene.sensors[sensor_cfg.name]
 
-    # obtain the input image
+        # obtain the input image
         images = sensor.data.output[data_type]
+
         images = images[:, 120:, :, :]
-        # store the device of the image
+
+        # Apply domain randomization
         images = self._apply_domain_randomization(
             images, 
-            save_debug=False,
+            save_debug=save_augmentation_debug,
             step_counter=self._frame_counter
         )
-        image_device = images.device
 
+        # import pdb
+        # pdb.set_trace()
+        
+        # store the device of the image
+        image_device = images.device
         # forward the images through the model
         features = self._inference_fn(self._model, images, **(inference_kwargs or {}))
 
         depth = env.scene.sensors[depth_cfg.name].data.output["distance_to_image_plane"]
+
         cam1 = env.scene.sensors["depth_camera"]
         K = cam1._data.intrinsic_matrices[0]
         fx = K[0][0]
         fy = K[1][1]
         cx = K[0][2]
         cy = K[1][2]
-        depth_tensor = depth.squeeze(-1)  # Keep on GPU, no .cpu().numpy()
+
+        depth_tensor = depth.squeeze(-1)
 
         self._frame_counter += 1
 
         # Generate point clouds on GPU in one batch
         batch_points_tensor = self.depth_to_pointcloud_batch_gpu(
             depth_tensor, 
-            fx, 
-            fy, 
+            fx,
+            fy,
             cx,
             cy,
             num_points=1024,
             save_ply_debug=False,
             env_id=0,
             frame_counter=self._frame_counter,
-            save_dir="debug_pointclouds"
+            save_dir="debug_pointclouds",
+            env=env
         )
+
+        # env.point_cloud_cache = batch_points_tensor
         env.point_cloud_cache = batch_points_tensor.detach()
         env._pcd_cache_step = env.common_step_counter
-        
+
         pts_input = batch_points_tensor.permute(0, 2, 1).contiguous()
-    
+
         with torch.no_grad():
             depth_features_batch = self._point_encoder(pts_input)
-   
+
+        # # Change grid_size parameter
+        # depth_features_batch = self.voxelize_pointcloud_batch(
+        #     batch_points_tensor,
+        #     grid_size=16,
+        #     x_range=(0.15, 0.5),  # Adjust these to fit your workspace
+        #     y_range=(-0.04, 0.04),
+        #     z_range=(-0.0004, 0.085),
+        #     save_debug=False,  # ← EVERY 10 STEPS
+        #     # save_debug=(self._frame_counter % 1 == 0),  # ← EVERY 10 STEPS
+        #     frame_counter=self._frame_counter
+        # )
         
+        # import pdb
+        # pdb.set_trace()
         
         img_feat_norm = torch.nn.functional.normalize(features, p=2, dim=1)
-        
+        # import pdb
+        # pdb.set_trace()
         pc_feat_norm = torch.nn.functional.normalize(depth_features_batch, p=2, dim=1)
         
         features = torch.cat((img_feat_norm,pc_feat_norm),dim=-1)
@@ -808,6 +947,136 @@ class image_features(ManagerTermBase):
     """
     Helper functions.
     """
+
+
+    def voxelize_pointcloud_batch(
+        self,
+        points: torch.Tensor,
+        grid_size: int = 8,
+        x_range: tuple = (-0.5, 0.5),
+        y_range: tuple = (-0.5, 0.5),
+        z_range: tuple = (0.0, 1.0),
+        save_debug: bool = False,
+        frame_counter: int = 0
+    ) -> torch.Tensor:
+        """
+        Convert point cloud batch to voxel grid with occupancy.
+        
+        Args:
+            points: [B, N, 3] point cloud in world coordinates
+            grid_size: Resolution of voxel grid (e.g., 8 = 8x8x8 = 512 voxels)
+            x_range: (min, max) bounds for X axis in meters
+            y_range: (min, max) bounds for Y axis in meters
+            z_range: (min, max) bounds for Z axis in meters
+            save_debug: If True, save voxel visualization
+            frame_counter: Current frame number for debug filenames
+        
+        Returns:
+            voxels: [B, grid_size^3] flattened voxel grid
+        """
+        B, N, _ = points.shape
+        device = points.device
+        
+        # Unpack bounds
+        x_min, x_max = x_range
+        y_min, y_max = y_range
+        z_min, z_max = z_range
+        
+        # Normalize points to [0, grid_size] coordinates
+        x_normalized = (points[:, :, 0] - x_min) / (x_max - x_min) * grid_size
+        y_normalized = (points[:, :, 1] - y_min) / (y_max - y_min) * grid_size
+        z_normalized = (points[:, :, 2] - z_min) / (z_max - z_min) * grid_size
+        
+        # Convert to integer indices and clamp
+        x_idx = torch.clamp(x_normalized.long(), 0, grid_size - 1)
+        y_idx = torch.clamp(y_normalized.long(), 0, grid_size - 1)
+        z_idx = torch.clamp(z_normalized.long(), 0, grid_size - 1)
+        
+        # Create occupancy grid
+        voxels = torch.zeros(B, grid_size, grid_size, grid_size, device=device)
+        
+        # Fill occupancy (batch-wise)
+        for b in range(B):
+            voxels[b, x_idx[b], y_idx[b], z_idx[b]] = 1.0
+        
+        # Debug visualization
+        if save_debug:
+            self._save_voxel_visualization(voxels[0], grid_size, frame_counter)
+            occupied_count = (voxels[0] > 0).sum().item()
+            print(f"Voxel occupancy: {occupied_count}/{grid_size**3} ({occupied_count/(grid_size**3)*100:.1f}%)")
+        
+        # Flatten spatial dimensions [B, D, H, W] -> [B, D*H*W]
+        return voxels.flatten(start_dim=1)
+
+
+    def _save_voxel_visualization(self, voxels: torch.Tensor, grid_size: int, frame_counter: int):
+        """
+        Save voxel grid visualization.
+        
+        Args:
+            voxels: [D, H, W] single voxel grid
+            grid_size: Grid resolution
+            frame_counter: Frame number for filename
+        """
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        import numpy as np
+        
+        save_dir = "voxel_viz"
+        os.makedirs(save_dir, exist_ok=True)
+        
+        voxels_np = voxels.cpu().numpy()
+        occupied = np.argwhere(voxels_np > 0.1)
+        
+        if len(occupied) == 0:
+            print(f"Warning: No occupied voxels to visualize")
+            return
+        
+        fig = plt.figure(figsize=(15, 5))
+        
+        # 3D scatter plot
+        ax1 = fig.add_subplot(131, projection='3d')
+        ax1.scatter(occupied[:, 0], occupied[:, 1], occupied[:, 2],
+                c=voxels_np[occupied[:, 0], occupied[:, 1], occupied[:, 2]],
+                cmap='viridis', marker='s', s=50, alpha=0.6)
+        ax1.set_xlabel('X')
+        ax1.set_ylabel('Y')
+        ax1.set_zlabel('Z')
+        ax1.set_title(f'3D Voxel Grid ({grid_size}³)')
+        ax1.set_xlim([0, grid_size])
+        ax1.set_ylim([0, grid_size])
+        ax1.set_zlim([0, grid_size])
+        
+        # Top-down view
+        ax2 = fig.add_subplot(132)
+        z_slice = voxels_np[:, :, grid_size // 2]
+        im2 = ax2.imshow(z_slice.T, origin='lower', cmap='viridis', 
+                        interpolation='nearest', vmin=0, vmax=1)
+        ax2.set_title(f'Top View (Z={grid_size//2})')
+        ax2.set_xlabel('X')
+        ax2.set_ylabel('Y')
+        plt.colorbar(im2, ax=ax2)
+        
+        # Side view
+        ax3 = fig.add_subplot(133)
+        y_slice = voxels_np[:, grid_size // 2, :]
+        im3 = ax3.imshow(y_slice.T, origin='lower', cmap='viridis',
+                        interpolation='nearest', vmin=0, vmax=1)
+        ax3.set_title(f'Side View (Y={grid_size//2})')
+        ax3.set_xlabel('X')
+        ax3.set_ylabel('Z')
+        plt.colorbar(im3, ax=ax3)
+        
+        plt.tight_layout()
+        save_path = os.path.join(save_dir, f"voxels_{frame_counter:06d}.png")
+        plt.savefig(save_path, dpi=100, bbox_inches='tight')
+        plt.close()
+        print(f"Saved voxel visualization: {save_path}")
+
+
+
 
     def _prepare_theia_transformer_model(self, model_name: str, model_device: str) -> dict:
         """Prepare the Theia transformer model for inference.
@@ -851,6 +1120,7 @@ class image_features(ManagerTermBase):
 
         # return the model, preprocess and inference functions
         return {"model": _load_model, "inference": _inference}
+
 
     def _prepare_resnet_model(self, model_name: str, model_device: str) -> dict:
         """Prepare the ResNet model for inference.
@@ -927,18 +1197,12 @@ class image_features(ManagerTermBase):
 
         # return the model, preprocess and inference functions
         return {"model": _load_model, "inference": _inference}
-    
-    def _prepare_pointnet_model(self) :
-        import torch.nn as nn
-        # experiment_dir = '/home/roborock/IsaacLab' 
-        # classifier = MODEL.get_model(13).cuda()
-        # checkpoint = torch.load(str(experiment_dir) + '/best_model.pth')
-        # classifier.load_state_dict(checkpoint['model_state_dict'])
-        # classifier = classifier.eval()
 
-        # self._point_encoder = classifier.feat
-        # self._point_encoder.eval()
-        # self._point_encoder.cuda()
+
+
+    def _prepare_pointnet_model(self) :
+        
+        import torch.nn as nn
 
         experiment_dir = '/home/robo/code/IsaacLab'
         ckpt_path = f"{experiment_dir}/best_model.pth"
@@ -951,20 +1215,6 @@ class image_features(ManagerTermBase):
 
         # 拿出权重字典
         state_dict = checkpoint['model_state_dict']
-
-        # # ✅ 动态修正输入通道权重 mismatch（从 6 -> 3）
-        # for key in list(state_dict.keys()):
-        #     if 'sa1' in key and 'weight' in key and state_dict[key].dim() == 4:
-        #         if state_dict[key].shape[1] == 6:
-        #             print(f"[INFO] Trimming {key} from 6→3 input channels.")
-        #             state_dict[key] = state_dict[key][:, :3, :, :]  # 截取前3个通道 (XYZ)
-
-        # # ✅ 忽略分类头不匹配部分
-        # ignore_keys = ['fc3.weight', 'fc3.bias']
-        # for k in ignore_keys:
-        #     if k in state_dict:
-        #         print(f"[INFO] Removing {k} from checkpoint.")
-        #         del state_dict[k]
 
         # ✅ 加载修正后的权重
         classifier.load_state_dict(state_dict, strict=False)
@@ -986,17 +1236,51 @@ class image_features(ManagerTermBase):
                 B, _, _ = xyz.shape
                 norm = None
                 l1_xyz, l1_points = self.sa1(xyz, norm)
+                # import pdb
+                # pdb.set_trace()
                 l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
                 l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
                 features = l3_points.view(B, 1024)
                 return features
 
         self._point_encoder = PointNet2Encoder(classifier).cuda().eval()
-        
+            
+
 
 """
 Actions.
 """
+
+
+def randomize_pointcloud_batch_torch(
+    pts, 
+    dropout_rate=0.02, 
+    outlier_ratio=0.015, 
+    outlier_max_offset=0.04, 
+    surface_jitter=0.0005
+):
+    B, N, _ = pts.shape
+    device = pts.device
+
+    pts = pts.clone()
+
+    # 1. Dropout
+    # dropout_mask = torch.rand(B, N, device=device) > dropout_rate
+    # pts = pts * dropout_mask.unsqueeze(-1)
+
+    # 2. Outliers（沿 X 轴正方向）
+    num_outliers = max(1, int(outlier_ratio * N))
+
+    for b in range(B):
+        idx = torch.randperm(N, device=device)[:num_outliers].long()  # 确保是 long
+        offset = torch.rand(num_outliers, device=device, dtype=pts.dtype) * outlier_max_offset
+        pts[b].index_add_(0, idx, torch.stack([offset, torch.zeros_like(offset), torch.zeros_like(offset)], dim=1))
+
+
+    jitter = torch.randn_like(pts) * surface_jitter
+    pts = pts + jitter
+
+    return pts
 
 
 def last_action(env: ManagerBasedEnv, action_name: str | None = None) -> torch.Tensor:
@@ -1024,38 +1308,6 @@ def last_action(env: ManagerBasedEnv, action_name: str | None = None) -> torch.T
 """
 Commands.
 """
-
-
-def randomize_pointcloud_batch_torch(
-    pts, 
-    dropout_rate=0.02, 
-    outlier_ratio=0.015, 
-    outlier_max_offset=0.05, 
-    surface_jitter=0.001
-):
-    B, N, _ = pts.shape
-    device = pts.device
-
-    pts = pts.clone()
-
-    # 1. Dropout
-    # dropout_mask = torch.rand(B, N, device=device) > dropout_rate
-    # pts = pts * dropout_mask.unsqueeze(-1)
-
-    # 2. Outliers（沿 X 轴正方向）
-    num_outliers = max(1, int(outlier_ratio * N))
-
-    for b in range(B):
-        idx = torch.randperm(N, device=device)[:num_outliers].long()  # 确保是 long
-        offset = torch.rand(num_outliers, device=device, dtype=pts.dtype) * outlier_max_offset
-        pts[b].index_add_(0, idx, torch.stack([offset, torch.zeros_like(offset), torch.zeros_like(offset)], dim=1))
-
-
-    jitter = torch.randn_like(pts) * surface_jitter
-    pts = pts + jitter
-
-    return pts
-   
 
 
 def generated_commands(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:

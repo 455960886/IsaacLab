@@ -40,21 +40,6 @@ class RslRlPpoActorCriticCfg:
 
     activation: str = MISSING
     """The activation function for the actor and critic networks."""
-    # ========= 新增：和 ActorCritic __init__ 对应的字段 =========
-    # 是否启用 ResNet + PointNet2 视觉 encoder
-    use_visual_encoder: bool = False
-
-    # “非视觉”的低维状态（关节角、速度等）的维度
-    # 现在你只用视觉，就先设 0；以后要加 joint，就把维度算清楚填上
-    state_dim: int = 0
-
-    # 图像尺寸（要和 image_features 里 flatten 的大小一一对应）
-    img_channels: int = 3
-    img_height: int = 480
-    img_width: int = 640
-
-    # 点云里每个 env 采样的点数（和 depth_to_pointcloud_batch_gpu 的 num_points 对齐）
-    pcd_points: int = 1024
 
 
 @configclass
@@ -147,7 +132,7 @@ class RslRlPpoAlgorithmCfg:
 class RslRlOnPolicyRunnerCfg:
     """Configuration of the runner for on-policy algorithms."""
 
-    seed: int = 777
+    seed: int = 50
     """The seed for the experiment. Default is 42."""
 
     device: str = "cuda:0"

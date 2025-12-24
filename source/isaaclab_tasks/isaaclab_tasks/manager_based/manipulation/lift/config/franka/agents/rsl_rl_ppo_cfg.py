@@ -1,3 +1,8 @@
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
 from isaaclab.utils import configclass
 
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
@@ -5,15 +10,11 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 
 @configclass
 class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
-    num_steps_per_env = 24
+    num_steps_per_env = 16
     max_iterations = 50000
     save_interval = 10
     experiment_name = "coarse_arm_lift"
-    empirical_normalization = False
-
-    # 👉 加这一行：清空 git_status_repos，关闭 git diff 记录
-    git_status_repos = {}
-
+    empirical_normalization = True
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=0.2,
         # init_noise_std=1.0,
@@ -28,12 +29,11 @@ class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
         entropy_coef=0.002,
         num_learning_epochs=5,
         num_mini_batches=8,
-        learning_rate=1.0e-4,
+        learning_rate=3.0e-4,
+        # learning_rate=1.0e-4,
         schedule="adaptive",
         gamma=0.98,
         lam=0.95,
         desired_kl=0.01,
-        max_grad_norm=1.0,
+        max_grad_norm=0.5,
     )
-
-print("using fixed")

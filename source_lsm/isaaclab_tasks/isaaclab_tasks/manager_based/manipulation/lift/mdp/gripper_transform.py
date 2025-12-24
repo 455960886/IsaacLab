@@ -2,7 +2,6 @@ import torch
 import numpy as np
 import isaaclab.utils.math as math_utils
 
-
 def get_base_rotation_matrix(base_joint_angle):
     """
     Create rotation matrix for base rotation around Z-axis.
@@ -93,6 +92,7 @@ def transform_world_to_camera(points_world, env, sensor_cfg_name="depth_camera",
     trans_points = points_camera + translation
 
     return trans_points
+
 
 
 def debug_gripper_transformation(env, sensor_cfg_name="depth_camera"):
@@ -284,44 +284,3 @@ def calculate_pointcloud_density_in_sphere(pointcloud, sphere_center, sphere_rad
     scaled_density = torch.clamp(scaled_density, 0.0, 1.0)
 
     return scaled_density, num_points_in_sphere
-
-
-def calculate_pointcloud_density_in_sphere1(
-    pointcloud: torch.Tensor,
-    sphere_center: torch.Tensor,
-    sphere_radius: torch.Tensor,
-    mask: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    带语义 mask 的点云密度计算（只支持点级 mask）:
-    - pointcloud: (B, N, 3)
-    - sphere_center: (B, 3)
-    - sphere_radius: (B,)
-    - mask: (B, N) 的 bool 型语义 / 有效性 mask
-
-    返回:
-        density: (B,)   每个 env 球体内点的归一化密度
-        num_points: (B,) 球体内点的数量
-    """
-    device = pointcloud.device
-    B, N, _ = pointcloud.shape
-
-    center = sphere_center.view(B, 1, 3)
-    radius = sphere_radius.view(B, 1)
-
-    distances = torch.norm(pointcloud - center, dim=-1)  # (B, N)
-    inside_sphere = distances < radius                   # (B, N) bool
-
-    if mask is not None:
-        if mask.shape != (B, N):
-            raise RuntimeError(
-                f"[calculate_pointcloud_density_in_sphere1] expect mask shape (B,N)={B,N}, "
-                f"got {mask.shape}. 现在只支持点级 mask，请在生成点云时同步下采样语义 ID。"
-            )
-        mask = mask.to(device=device, dtype=torch.bool)
-        inside_sphere = inside_sphere & mask
-
-    num_points = inside_sphere.sum(dim=1)             # (B,)
-    density = num_points.float() / float(N)           # (B,)
-
-    return density, num_points

@@ -1116,6 +1116,7 @@ def unproject_depth(depth: torch.Tensor, intrinsics: torch.Tensor, is_ortho: boo
         ValueError: When depth is not of shape (H, W) or (H, W, 1) or (N, H, W) or (N, H, W, 1).
         ValueError: When intrinsics is not of shape (3, 3) or (N, 3, 3).
     """
+
     # clone inputs to avoid in-place modifications
     intrinsics_batch = intrinsics.clone()
     # convert depth image to orthogonal if needed

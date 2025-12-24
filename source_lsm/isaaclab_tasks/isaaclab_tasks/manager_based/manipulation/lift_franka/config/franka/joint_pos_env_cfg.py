@@ -13,7 +13,7 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from isaaclab_tasks.manager_based.manipulation.lift import mdp
 from isaaclab_tasks.manager_based.manipulation.lift.lift_env_cfg import LiftEnvCfg
-from isaaclab_tasks.manager_based.manipulation.lift.lift_camera_env_cfg import LiftResNet18CameraEnvCfg, LiftRGBCameraEnvCfg
+from isaaclab_tasks.manager_based.manipulation.lift.lift_camera_env_cfg import LiftResNet18CameraEnvCfg,LiftRGBCameraEnvCfg
 import isaaclab.sim as sim_utils
 ##
 # Pre-defined configs

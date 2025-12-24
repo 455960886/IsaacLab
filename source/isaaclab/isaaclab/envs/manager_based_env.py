@@ -385,8 +385,6 @@ class ManagerBasedEnv:
         Returns:
             A tuple containing the observations and extras.
         """
-
-
         # process actions
         self.action_manager.process_action(action.to(self.device))
 
@@ -404,7 +402,6 @@ class ManagerBasedEnv:
             # set actions into simulator
             self.scene.write_data_to_sim()
             # simulate
-   
             self.sim.step(render=False)
             # render between steps only if the GUI or an RTX sensor needs it
             # note: we assume the render interval to be the shortest accepted rendering interval.

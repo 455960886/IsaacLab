@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING
 from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import combine_frame_transforms
-from isaaclab.sensors import FrameTransformer
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -52,56 +51,3 @@ def object_reached_goal(
 
     # rewarded if the object is lifted above the threshold
     return distance < threshold
-
-
-def root_height_below_minimum(
-    env: ManagerBasedRLEnv, minimum_height: float, asset_cfg:SceneEntityCfg = SceneEntityCfg("robot"),
-    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
-) -> torch.Tensor:
-    """Terminate when the asset's root height is below the minimum height.
-
-    Note:
-        This is currently only supported for flat terrains, i.e. the minimum height is in the world frame.
-    """
-    # extract the used quantities (to enable type-hinting)
-    asset: RigidObject = env.scene[asset_cfg.name]
-    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
-
-    return (asset.data.root_pos_w[:, 2] < minimum_height) | (ee_frame.data.target_pos_w[..., 0, 2] <0.0)
-
-# def object_dropped_after_lifted(env, lift_threshold=0.065, drop_threshold=0.018):
-#     obj = env.scene["object"]
-#     heights = obj.data.root_pos_w[:, 2]
-#     print("heights: ", heights[0].item())
-#     # 初始化lifted状态，只在第一次调用时创建
-#     if not hasattr(env, "lifted_flags"):
-#         env.lifted_flags = torch.zeros_like(heights, dtype=torch.bool)
-#     else:
-#         # reset those environments where episode just ended
-#         env.lifted_flags[env.reset_buf] = False
-    
-#     # 更新 lifted 状态
-#     just_lifted = heights > lift_threshold
-#     env.lifted_flags = env.lifted_flags | just_lifted
-
-#     # 判断是否 dropped（仅在 lifted 过后才触发）
-#     dropped = (heights < drop_threshold) & env.lifted_flags
-
-#     # 打印调试信息
-#     print("heights: ", heights[0].item())
-#     print("lifted_flags: ", env.lifted_flags.nonzero(as_tuple=False).squeeze(-1).tolist())
-#     if dropped.any():
-#         print("掉落的环境编号:", dropped.nonzero(as_tuple=False).squeeze(-1).tolist())
-
-#     return dropped
-       
-def gripper_tip_below_ground(
-    env: ManagerBasedRLEnv,
-    threshold: float,
-    ee_probe_cfg: SceneEntityCfg = SceneEntityCfg("ee_tip_probe_frame"),
-) -> torch.Tensor:
-    """Terminate the episode if the gripper tip (probe frame) drops below the ground height."""
-    ee_probe_frame: FrameTransformer = env.scene[ee_probe_cfg.name]
-    z_pos = ee_probe_frame.data.target_pos_w[..., 0, 2]
-    # print(z_pos[0])
-    return z_pos < threshold

@@ -74,7 +74,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0, 0], rot=[0.707, 0, 0, 0.707]),
         spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/SeattleLabTable/table_instanceable.usd"),
         
-        # spawn=UsdFileCfg(usd_path=f"/home/robo/code/IsaacLab/new_table.usd"),
+        # spawn=UsdFileCfg(usd_path=f"/home/roborock/IsaacLab/new_table.usd"),
     )
 
     # plane

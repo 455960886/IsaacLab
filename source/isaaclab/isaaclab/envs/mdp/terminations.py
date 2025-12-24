@@ -60,6 +60,83 @@ def bad_orientation(
     return torch.acos(-asset.data.projected_gravity_b[:, 2]).abs() > limit_angle
 
 
+
+def object_pushed_away(
+    env: ManagerBasedRLEnv, 
+    x_limits: tuple[float, float] = (0.22, 0.42),
+    y_tolerance: float = 0.05,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """
+    Terminate when the active object is pushed too far from its spawn area.
+    Works with RigidObjectCollection (object pools).
+
+    Object base position relative to robot: (0.28, 0.0, 0.0)
+    Randomization: x(-0.01, 0.09), y(0.0, 0.0), z(0.0, 0.0)
+    """
+    from isaaclab.assets import RigidObjectCollection, Articulation
+
+    object_collection: RigidObjectCollection = env.scene[object_cfg.name]
+    robot: Articulation = env.scene[robot_cfg.name]
+
+    # Get active object indices
+    if not hasattr(env, 'active_object_indices'):
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    active_indices = env.active_object_indices
+
+    # Get positions: (num_envs, 3)
+    all_positions = object_collection.data.object_link_pos_w
+    env_indices = torch.arange(env.num_envs, device=env.device)
+    active_positions_w = all_positions[env_indices, active_indices]
+
+    robot_base_pos_w = robot.data.root_pos_w
+
+    # Convert to robot frame
+    active_positions_robot = active_positions_w - robot_base_pos_w
+
+    # Check if outside legal range
+    outside_x = (active_positions_robot[:, 0] < x_limits[0]) | (active_positions_robot[:, 0] > x_limits[1])
+    outside_y = torch.abs(active_positions_robot[:, 1] - 0.0) > y_tolerance
+
+    return outside_x | outside_y
+
+
+
+def bad_object_orientation(
+    env: ManagerBasedRLEnv, 
+    limit_angle: float,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")
+) -> torch.Tensor:
+    """
+    Terminate when the active object's orientation is too tilted.
+    Works with RigidObjectCollection (object pools).
+    """
+    from isaaclab.assets import RigidObjectCollection
+
+    object_collection: RigidObjectCollection = env.scene[object_cfg.name]
+
+    # Get active object indices
+    if not hasattr(env, 'active_object_indices'):
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    active_indices = env.active_object_indices
+
+    # Get projected gravity for all objects: (num_envs, num_objects, 3)
+    all_projected_gravity = object_collection.data.projected_gravity_b
+
+    # Index to get only active objects: (num_envs, 3)
+    env_indices = torch.arange(env.num_envs, device=env.device)
+    active_projected_gravity = all_projected_gravity[env_indices, active_indices]
+
+    # Calculate tilt angle
+    tilt_angle = torch.acos(-active_projected_gravity[:, 2].clamp(-1.0, 1.0)).abs()
+
+    # Terminate if angle exceeds limit
+    return tilt_angle > limit_angle
+
+
 def root_height_below_minimum(
     env: ManagerBasedRLEnv, minimum_height: float, asset_cfg:SceneEntityCfg = SceneEntityCfg("robot"),
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
@@ -72,8 +149,8 @@ def root_height_below_minimum(
     # extract the used quantities (to enable type-hinting)
     asset: RigidObject = env.scene[asset_cfg.name]
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
-    # print(f"gripper peak{ee_frame[0]}")
-    return (asset.data.root_pos_w[:, 2] < minimum_height) | (ee_frame.data.target_pos_w[..., 0, 2] <0.0)
+
+    return (asset.data.root_pos_w[:, 2] < minimum_height) | (ee_frame.data.target_pos_w[..., 0, 2] < 0.0)
 
 
 """
@@ -184,3 +261,89 @@ def object_target(
     return torch.any(
         object.data.root_pos_w[:, 2] > 0.1
     )  # Returns True if the distance is less than 0.05 meters
+
+
+# def gripper_floor_contact(
+#     env: ManagerBasedRLEnv, 
+#     threshold: float = 1.0, 
+#     sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces")
+# ) -> torch.Tensor:
+#     """Terminate when claw contacts filtered objects (ground/table) above threshold."""
+#     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+#     # Get filtered contact forces (only contacts with ground/table)
+#     # This is None if no filtering is configured
+#     if contact_sensor.data.force_matrix_w is None:
+#         return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+#     # Shape: (num_envs, num_bodies, num_filtered_objects, 3)
+#     filtered_forces = contact_sensor.data.force_matrix_w
+
+#     # Check if any filtered contact exceeds threshold
+#     contact_magnitudes = torch.norm(filtered_forces, dim=-1)  # (N, B, M)
+#     max_contact_force = torch.max(contact_magnitudes.view(env.num_envs, -1), dim=1)[0]
+
+#     return max_contact_force > threshold
+
+
+def gripper_floor_contact(
+    env: ManagerBasedRLEnv,
+    threshold: float = 1.0,
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces")
+) -> torch.Tensor:
+    """Terminate when claw contacts ground (using unfiltered contacts)."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+    # Use unfiltered contact forces
+    if contact_sensor.data.net_forces_w is None:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    # Get all contact forces
+    net_forces = torch.norm(contact_sensor.data.net_forces_w, dim=-1)  # Shape: (num_envs, num_bodies)
+    max_contact_force = torch.max(net_forces, dim=1)[0]  # Max across all bodies
+
+    # Simple heuristic: if contact force is high and object is not being lifted,
+    # assume it's ground contact
+    object: RigidObject = env.scene["object"]
+    object_height = object.data.root_pos_w[:, 2]
+    object_not_lifted = object_height < 0.025  # Object still on ground
+
+    # Terminate if high contact force while object is still on ground
+    violations = (max_contact_force > threshold) & object_not_lifted
+
+    print(f"[DEBUG] Max contact: {max_contact_force.max().item():.4f}, Object heights: {object_height.cpu().numpy()}")
+    print(f"[DEBUG] Violations: {violations.sum().item()}/{env.num_envs}")
+
+    return violations
+
+
+def gripper_z_force_limit(
+    env: ManagerBasedRLEnv,
+    z_threshold: float = 5.0,
+    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
+    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
+    check_either: bool = True,
+) -> torch.Tensor:
+
+    left_sensor: ContactSensor = env.scene.sensors[left_sensor_cfg.name]
+    right_sensor: ContactSensor = env.scene.sensors[right_sensor_cfg.name]
+
+    if left_sensor.data.net_forces_w is None or right_sensor.data.net_forces_w is None:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    # Extract Z-component (index 2) of contact forces
+    left_z_force = torch.abs(left_sensor.data.net_forces_w[:, 0, 2])
+    right_z_force = torch.abs(right_sensor.data.net_forces_w[:, 0, 2])
+
+    # Check if forces exceed threshold
+    left_exceeds = left_z_force > z_threshold
+    right_exceeds = right_z_force > z_threshold
+
+    if check_either:
+        # Terminate if either finger exceeds threshold
+        terminate = left_exceeds | right_exceeds
+    else:
+        # Terminate only if both fingers exceed threshold
+        terminate = left_exceeds & right_exceeds
+
+    return terminate

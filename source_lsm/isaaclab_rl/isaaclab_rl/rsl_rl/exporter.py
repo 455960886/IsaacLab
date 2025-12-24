@@ -142,6 +142,14 @@ class _OnnxPolicyExporter(torch.nn.Module):
 
     def forward(self, x):
         return self.actor(self.normalizer(x))
+    
+    # def forward(self, x):
+    #     image_features = self.cnn_feature(x["image"])
+    #     state_features = self.state_encoder(x["joint_pos"])
+    #     # print("image_features : ",image_features.shape)
+    #     # print("state_features : ",state_features.shape)
+    #     observations = torch.cat((image_features, state_features), dim=1)
+    #     return self.actor(observations)
 
     def export(self, path, filename):
         self.to("cpu")

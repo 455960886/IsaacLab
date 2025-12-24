@@ -56,7 +56,7 @@ FRAME_MARKER_CFG = VisualizationMarkersCfg(
     markers={
         "frame": sim_utils.UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/frame_prim.usd",
-            scale=(0.05, 0.05, 0.05),
+            scale=(0.02, 0.02, 0.02),
         )
     }
 )

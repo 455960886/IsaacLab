@@ -182,3 +182,33 @@ class _OnnxPolicyExporter(torch.nn.Module):
                 output_names=["actions"],
                 dynamic_axes={},
             )
+        
+        #改动
+        #     dummy_input = torch.zeros(1, 3, 300, 400)
+        # torch.onnx.export(
+        #     self,
+        #     dummy_input,
+        #     os.path.join(path, filename),
+        #     export_params=True,
+        #     opset_version=11,
+        #     verbose=self.verbose,
+        #     input_names=["obs"],
+        #     output_names=["actions"],
+        #     dynamic_axes={},
+        # )
+
+        #改动
+        #     obs = {"image":torch.zeros(1, 3, 128, 128),"joint_pos":torch.zeros(6,)}
+        # torch.onnx.export(
+        #     self,
+        #     obs,
+        #     os.path.join(path, filename),
+        #     export_params=True,
+        #     opset_version=11,
+        #     verbose=self.verbose,
+        #     input_names=["obs"],
+        #     output_names=["actions"],
+        #     dynamic_axes={},
+        # )
+
+

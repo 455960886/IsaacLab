@@ -1,4 +1,7 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+import sys
+print("sys.argv =", sys.argv)
+
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -17,21 +20,29 @@ import cli_args  # isort: skip
 
 
 # add argparse arguments
+# 处理命令行参数
+# 输入--help会显示description的内容
 parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
 parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
-parser.add_argument("--video_interval", type=int, default=2000, help="Interval between video recordings (in steps).")
+parser.add_argument("--video_interval", type=int, default=2001, help="Interval between video recordings (in steps).")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
+# 是否用分布式训练（多 GPU 或多机）
 parser.add_argument(
     "--distributed", action="store_true", default=False, help="Run training with multiple GPUs or nodes."
 )
 # append RSL-RL cli arguments
+# 加入 RSL-RL 库中定义的一些标准训练参数（比如 policy 网络结构、优化器配置等）。
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
+# 添加关于模拟器（Isaac Sim）启动的参数，比如是否开启 GUI，是否启用相机等。
 AppLauncher.add_app_launcher_args(parser)
+
+# args_cli是所有你通过命令行显式指定的参数，存储为一个 Namespace
+# hydra_args 是多余的参数，后续会传给 Hydra（一个高级配置系统）
 args_cli, hydra_args = parser.parse_known_args()
 
 # always enable cameras to record video
@@ -74,6 +85,7 @@ import os
 import torch
 from datetime import datetime
 
+# RSL-RL 的训练循环逻辑（rsl_rl/runners/on_policy_runner.py）
 from rsl_rl.runners import OnPolicyRunner
 
 from isaaclab.envs import (
@@ -100,8 +112,12 @@ torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
 
 
+# hydra_task_config 会从配置文件加载环境 & agent 配置。
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point")
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
+    # 👉 env_cfg = 环境配置
+    # 👉 agent_cfg = RSL-RL 训练配置
+
     """Train with RSL-RL agent."""
     # override configurations with non-hydra CLI arguments
     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
@@ -144,20 +160,19 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
 
-    # --- 调试：打印 semantic_segmentation 的 ID 和 label 映射（只在启动时调用一次） ---
-    # try:
-    #     # 为了确保相机 buffer 已经更新，先 reset 一次
-    #     _obs, _info = env.reset()
-
-    #     from isaaclab_tasks.manager_based.manipulation.lift import mdp
-    #     # 传 env.unwrapped，里面才有 scene / sensors
-    #     mdp.debug_print_semantic_ids(env.unwrapped, max_envs=1)
-    # except Exception as e:
-    #     print("[WARN] debug_print_semantic_ids failed:", e)
-
     # save resume path before creating a new log_dir
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+    
+    # env.reset()
+    # for i in range(10):
+    #     actions = torch.zeros(env.unwrapped.num_envs, env.unwrapped.action_manager.total_action_dim, device=env.unwrapped.device)
+    #     obs, _, _, _,_ = env.step(actions)
+
+    # from step1_test_fingers import step1_simple_check, step1_visualize_fingers_and_pointcloud
+    # step1_simple_check(env.unwrapped)
+    # step1_visualize_fingers_and_pointcloud(env.unwrapped, env_id=0, output_path="test.ply")
+    # env.reset()
 
     # wrap for video recording
     if args_cli.video:

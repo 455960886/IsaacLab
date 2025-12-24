@@ -140,11 +140,10 @@ class ActionTerm(ManagerTermBase):
     @abstractmethod
     def apply_actions(self):
         """Applies the actions to the asset managed by the term.
-        
+
         Note:
             This is called at every simulation step by the manager.
         """
-        
         raise NotImplementedError
 
     def _set_debug_vis_impl(self, debug_vis: bool):
@@ -325,7 +324,6 @@ class ActionManager(ManagerBase):
         Args:
             action: The actions to process.
         """
-        
         # check if action dimension is valid
         if self.total_action_dim != action.shape[1]:
             raise ValueError(f"Invalid action shape, expected: {self.total_action_dim}, received: {action.shape[1]}.")
