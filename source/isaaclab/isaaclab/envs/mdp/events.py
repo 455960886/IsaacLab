@@ -19,6 +19,7 @@ import torch
 from typing import TYPE_CHECKING, Literal
 import numpy as np
 import carb
+import os
 import omni.physics.tensors.impl.api as physx
 import omni.usd
 from isaacsim.core.utils.extensions import enable_extension
@@ -1746,7 +1747,6 @@ def randomize_object_pool_selection(
             )
 
 
-
 def initialize_point_cloud_cache(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor | None,
@@ -1759,7 +1759,6 @@ def initialize_point_cloud_cache(
     env.point_cloud_cache = None
     env._pcd_cache_step = -1
     print("[INFO] Point cloud cache initialized")
-
 
 
 def randomize_floor_texture(
@@ -1797,6 +1796,100 @@ def randomize_floor_texture(
         # 随机选择一张贴图
         tex = np.random.choice(texture_files)
         shader.GetInput("diffuse_texture").Set(tex)
+
+
+def randomize_bus_texture_event(
+    env,
+    env_ids,
+    bus_name: str,
+    body_name: str,
+    texture_paths: list[str] | str,
+    event_name: str,
+    texture_rotation: tuple[float, float] = (0.0, 0.0),
+):
+    try:
+        from omni.isaac.core.utils.extensions import enable_extension
+    except ModuleNotFoundError:
+        from isaacsim.core.utils.extensions import enable_extension
+
+    enable_extension("omni.replicator.core")
+    import omni.replicator.core as rep
+
+    if not hasattr(env, "_bus_tex_randomizer_initialized"):
+        if isinstance(texture_paths, str):
+            root_dir = os.path.expanduser(texture_paths)
+            all_textures: list[str] = []
+            for dirpath, dirnames, filenames in os.walk(root_dir):
+                for fname in filenames:
+                    if fname.endswith("_Color.jpg"):
+                        full_path = os.path.join(dirpath, fname)
+                        all_textures.append(full_path)
+
+            if not all_textures:
+                print(
+                    f"[BusTex][scan] WARNING: no '*_Color.jpg' found under {root_dir}",
+                    flush=True,
+                )
+            else:
+                all_textures.sort()
+                # print(
+                #     f"[BusTex][scan] Found {len(all_textures)} *_Color.jpg under {root_dir}",
+                #     flush=True,
+                # )
+            texture_paths = all_textures
+        if env.cfg.scene.replicate_physics:
+            raise RuntimeError(
+                "Bus texture randomization requires 'replicate_physics = False' "
+                "in ObjectTableSceneCfg."
+            )
+
+        texture_rotation_deg = tuple(math.degrees(a) for a in texture_rotation)
+        env._bus_tex_events = {} 
+
+        num_envs = env.num_envs
+        for env_index in range(num_envs):
+            prim_path = f"/World/envs/env_{env_index}/{bus_name}/{body_name}/visuals"
+            event_name_i = f"{event_name}_env{env_index}"
+            env._bus_tex_events[env_index] = event_name_i
+
+            print(
+                f"  env {env_index}: prim_path={prim_path}, event={event_name_i}",
+                flush=True,
+            )
+
+            def _make_rep_tex_node(_prim_path=prim_path, _event_name=event_name_i):
+                def rep_texture_randomization_single():
+                    prims_group = rep.get.prims(path_pattern=_prim_path)
+                    # print(
+                    #     f"[BusTex][graph] {_event_name}: prims_group={prims_group}",
+                    #     flush=True,
+                    # )
+                    with prims_group:
+                        rep.randomizer.texture(
+                            textures=texture_paths,
+                            project_uvw=True,
+                            texture_rotate=rep.distribution.uniform(*texture_rotation_deg),
+                        )
+                    return prims_group.node
+
+                with rep.trigger.on_custom_event(event_name=_event_name):
+                    rep_texture_randomization_single()
+
+            _make_rep_tex_node()
+
+        env._bus_tex_randomizer_initialized = True
+
+    # 3) 每次 reset：只给这次 reset 的 env_ids 触发对应事件
+    step = getattr(env, "common_step_counter", None)
+    ids = env_ids.tolist() if hasattr(env_ids, "tolist") else list(env_ids)
+
+    for eid in ids:
+        eid_int = int(eid)
+        ev_name = env._bus_tex_events.get(eid_int, None)
+        if ev_name is None:
+            print(f"[BusTex][call] WARNING: no event for env_id={eid_int}", flush=True)
+            continue
+        rep.utils.send_og_event(ev_name)
 
 
 def load_texture_files_from_txt(txt_path: str) -> list[str]:

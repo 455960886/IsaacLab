@@ -49,7 +49,7 @@ MY_ROBOT_CFG = ArticulationCfg(
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         joint_pos={
-            # "M0": 0,
+            "M0": 0,
             "M1": 1.57,
             # "M2": 1.57,
             "M3": 3.8,
@@ -148,7 +148,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
-            joint_names=["M[34]"],
+            joint_names=["M[034]"],
             use_default_offset=True,
         )
 
@@ -178,48 +178,46 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
 
         self.scene.object_pool = RigidObjectCollectionCfg(
             rigid_objects={
-
-                "lego": RigidObjectCfg(
-                    prim_path="/World/envs/env_.*/lego",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/lego_1.usd",
-                        scale=(1.0, 2.0, 1.0),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.005, 0.0], rot=[0.5, 0.5, 0.5, 0.5]),
-                ),
-
-                "paperball": RigidObjectCfg(
-                    prim_path="/World/envs/env_.*/paperball",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cloth/paperball.usdc",
-                        scale=(0.8, 0.8, 1.2),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=64,
-                            disable_gravity=False,
-                        ),
-                        mass_props=sim_utils.MassPropertiesCfg(
-                        mass=0.01,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.01, 0.0]),
-                ),
+                # "lego": RigidObjectCfg(
+                #     prim_path="/World/envs/env_.*/lego",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/lego_1.usd",
+                #         scale=(1.0, 2.0, 1.0),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=32,
+                #             disable_gravity=False,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.005, 0.0], rot=[0.5, 0.5, 0.5, 0.5]),
+                # ),
+                # "paperball": RigidObjectCfg(
+                #     prim_path="/World/envs/env_.*/paperball",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cloth/paperball.usdc",
+                #         scale=(0.8, 0.8, 1.2),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=64,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #         mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.01, 0.0]),
+                # ),
 
                 "bus": RigidObjectCfg(
                     prim_path="/World/envs/env_.*/bus",
                     spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/bus_2.usd",
+                        usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/bus_2.usd",
                         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                             solver_position_iteration_count=128,
                             solver_velocity_iteration_count=64,
@@ -257,7 +255,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         # marker_cfg.markers["frame"].scale = (0.03, 0.03, 0.03)
         marker_cfg.prim_path = "/Visuals/FrameTransformer"
         self.scene.ee_frame = FrameTransformerCfg(
-            #prim_path="{ENV_REGEX_NS}/Robot/panda_link0",
+            # prim_path="{ENV_REGEX_NS}/Robot/panda_link0",
             prim_path="{ENV_REGEX_NS}/Robot/base_link",
             debug_vis=False,
             visualizer_cfg=marker_cfg,

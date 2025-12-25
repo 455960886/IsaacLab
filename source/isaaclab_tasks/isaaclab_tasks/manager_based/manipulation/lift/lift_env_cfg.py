@@ -28,6 +28,7 @@ from isaaclab.sensors.camera.utils import create_pointcloud_from_depth
 # from isaaclab.sensors.ray_caster.patterns.patterns_cfg import LidarPatternCfg
 
 import torch
+import math
 import torch.nn as nn
 # from .custom_ray_caster import FixedRayCaster
 
@@ -425,7 +426,6 @@ class RGBObservationsCfg:
     policy: ObsGroup = RGBCameraPolicyCfg()
 
 
-
 @configclass
 class ResNet18ObservationCfg:
     """Observation specifications for the MDP."""
@@ -475,7 +475,6 @@ class GripperCameraObservationCfg:
     policy: ObsGroup = GripperCameraPolicyCfg()
 
 
-
 @configclass
 class PcdObservationCfg:
 
@@ -505,14 +504,24 @@ class EventCfg:
         func=mdp.initialize_point_cloud_cache,
         mode="startup"
     )
-
-    randomize_floor = EventTerm(
-        func=mdp.randomize_floor_texture,
+    randomize_bus_texture = EventTerm(
+        func=mdp.randomize_bus_texture_event,
         mode="reset",
         params={
-            "texture_txt_path": "/home/robo/code/IsaacLab/assets1/3D_assets_usd/floor.txt"
+            "bus_name": "bus",
+            "body_name": "Xform",
+            "texture_paths": "/home/robo/code/IsaacLab/assets1/3D_assets_usd/car",
+            "event_name": "randomize_bus_texture",
+            "texture_rotation": (0.0, 2 * math.pi),
         },
     )
+    # randomize_floor = EventTerm(
+    #     func=mdp.randomize_floor_texture,
+    #     mode="reset",
+    #     params={
+    #         "texture_txt_path": "/home/robo/code/IsaacLab/assets1/3D_assets_usd/floor.txt"
+    #     },
+    # )
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
 
     # set_rt_subframes = EventTerm(
@@ -535,7 +544,7 @@ class EventCfg:
         params={
             "pose_range": {
                 "x": (-0.01, 0.07), 
-                "y": (-0.0, 0.0), 
+                "y": (-0.03, 0.03), 
                 # "y": (0.0, 0.0), 
                 "z": (0.0, 0.0), 
                 # "roll": (-0.1, 0.1),    
@@ -550,11 +559,11 @@ class EventCfg:
         }, 
     )
 
-    randomize_lighting_reset = EventTerm(
-        func=mdp.randomize_multiple_sphere_lights,
-        mode="startup",
-        params={"num_lights": 2},
-    )
+    # randomize_lighting_reset = EventTerm(
+    #     func=mdp.randomize_multiple_sphere_lights,
+    #     mode="startup",
+    #     params={"num_lights": 2},
+    # )
 
     # randomize_lighting_reset = EventTerm(
     #     func=mdp.randomize_sphere_light_intensity,
@@ -609,7 +618,6 @@ class RewardsCfg:
         weight=15.0,
     )
 
-
     # NEW: Point cloud density reward
     pcd_contain_object = RewTerm(
         func=mdp.pcd_contain_object,
@@ -636,88 +644,6 @@ class RewardsCfg:
 
     # action penalty
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
-
-    # # Stage 2: Close gripper when object is inside
-    # clamp_object = RewTerm(
-    #     func=mdp.pcd_clamp_object,
-    #     params={
-    #         "density_threshold": 0.05,  # Object detected when 10%+ points in sphere
-    #         "density_scale": 1.0,
-    #         "gripper_closed_threshold": 0.2,
-    #         "min_ee_robot_distance": 0.26,
-    #     },
-    #     weight=50.0,  # Higher weight since this is the actual grasp
-    # )
-
-    # open_gripper = RewTerm(
-    #     func=mdp.penalty_if_gripper_closed_far,
-    #     params={
-    #         "reach_threshold": 0.02,
-    #         "open_threshold": 0.04,
-    #         "penalty_value": 0.1,
-    #     },
-    #     weight=-50
-    # )
-    
-    # slide_penalty = RewTerm(
-    #     func=mdp.penalize_xy_displacement,
-    #     weight= -1.0,  # Negative weight since function returns negative values
-    #     params={
-    #         "penalty_scale": 1000,    # Adjust sensitivity
-    #         "min_height": -0.05,     # Height where penalty is maximum
-    #         "max_height": 0.1,       # Height where penalty becomes zero
-    #         "object_cfg": SceneEntityCfg("object_pool")
-    #     },
-    # )
-
-    # object_goal_tracking = RewTerm(
-    #     func=mdp.object_goal_distance,
-    #     params={"std": 0.3, "minimal_height": 0.028, "command_name": "object_pose"},
-    #     weight=10.0,  # 16.0
-    # )
-
-    # object_goal_tracking_fine_grained = RewTerm(
-    #     func=mdp.object_goal_distance,
-    #     # params={"std": 0.05, "minimal_height": 0.04, "command_name": "object_pose"},
-    #     params={"std": 0.05, "minimal_height": 0.028, "command_name": "object_pose"},
-    #     weight=0.5,  # 5.0
-    # )
-
-    # joint_vel = RewTerm(
-    #     func=mdp.joint_vel_l2,
-    #     weight=-0.0001,
-    #     params={"asset_cfg": SceneEntityCfg("robot")},
-    # )
-
-    # contain_object = RewTerm(
-    #     func=mdp.contain_object,
-    #     params={"std": 1},
-    #     weight=1.0,  # 2.0
-    # )
-
-    # clamp_object = RewTerm(
-    #     func=mdp.clamp_object,
-    #     params={"std": 1},
-    #     weight=0.0,  # 2.0
-    # )
-
-    # penalize_m0_after_lift = RewTerm(
-    #     func=mdp.penalize_m0_after_lift,
-    #     weight= 0.0,  # Adjust this weight as needed
-    #     params={
-    #         "minimal_height": 0.03,  
-    #         "m0_movement_penalty_scale": 10.0,  # Higher = stronger penalty
-    #     }
-    # )
-
-    # debug_density = RewTerm(func=mdp.debug_pcd_density, weight=0.1)
-    # visualize_sphere = RewTerm(func=mdp.visualize_pcd_sphere, weight=0.01)
-
-    # ee_to_cluster_centroid = RewTerm(
-    #     func=mdp.ee_to_object_cluster_centroid_distance,
-    #     params={"std": 0.1},
-    #     weight=5.0,  # Adjust this weight based on your needs
-    # )
 
 
 @configclass
@@ -750,7 +676,6 @@ class TerminationsCfg:
         },
     )
 
-
     object_pushed = DoneTerm(
         func=mdp.object_pushed_away,
         params={
@@ -762,20 +687,9 @@ class TerminationsCfg:
     )
 
 
-
-
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
-
-    #action_rate = CurrTerm(
-    #    func=mdp.modify_reward_weight, params={"term_name": "action_rate", "weight": -1e-1, "num_steps": 10000}
-    #)
-
-    #joint_vel = CurrTerm(
-    #    func=mdp.modify_reward_weight, params={"term_name": "joint_vel", "weight": -1e-1, "num_steps": 10000}
-    #)
-
 
 ##
 # Environment configuration
@@ -787,13 +701,9 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=128, env_spacing=2.5)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=2.5)
     
     observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
-
-    # observations: PcdObservationCfg = PcdObservationCfg()
-
-    # observations: RGBObservationsCfg = RGBObservationsCfg()
 
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()
