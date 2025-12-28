@@ -351,8 +351,8 @@ def image(
         elif "distance_to" in data_type or "depth" in data_type:
             images[images == float("inf")] = 0
     # print("image shape11:",images.shape)
-    #深度图与RGB图拼接
-    images = torch.cat((images,depth),dim=-1)
+    # 深度图与RGB图拼接
+    images = torch.cat((images, depth), dim=-1)
     # print("image shape22:",images.shape)
     return images.clone()
 
@@ -839,7 +839,6 @@ class image_features(ManagerTermBase):
         save_path = os.path.join(save_dir, f"{prefix}_step_{step:06d}.png")
         cv2.imwrite(save_path, img_bgr)
 
-
     def __call__(
         self,
         env: ManagerBasedEnv,
@@ -1008,7 +1007,6 @@ class image_features(ManagerTermBase):
         # Flatten spatial dimensions [B, D, H, W] -> [B, D*H*W]
         return voxels.flatten(start_dim=1)
 
-
     def _save_voxel_visualization(self, voxels: torch.Tensor, grid_size: int, frame_counter: int):
         """
         Save voxel grid visualization.
@@ -1074,9 +1072,6 @@ class image_features(ManagerTermBase):
         plt.savefig(save_path, dpi=100, bbox_inches='tight')
         plt.close()
         print(f"Saved voxel visualization: {save_path}")
-
-
-
 
     def _prepare_theia_transformer_model(self, model_name: str, model_device: str) -> dict:
         """Prepare the Theia transformer model for inference.
@@ -1197,8 +1192,6 @@ class image_features(ManagerTermBase):
 
         # return the model, preprocess and inference functions
         return {"model": _load_model, "inference": _inference}
-
-
 
     def _prepare_pointnet_model(self) :
         

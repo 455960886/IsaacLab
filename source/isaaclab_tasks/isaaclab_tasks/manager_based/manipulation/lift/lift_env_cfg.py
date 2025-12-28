@@ -124,7 +124,6 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     #     spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=1000.0),
     # )
 
-
     # sphere_light = AssetBaseCfg(
     #     prim_path="{ENV_REGEX_NS}/SphereLight",
     #     init_state=AssetBaseCfg.InitialStateCfg(
@@ -193,7 +192,6 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         debug_vis=False,
     )
 
-
     # prim_path="{ENV_REGEX_NS}/Robot/base_link/M0_chassis_link/tof_link",
 
     # ray_caster: RayCasterCfg = RayCasterCfg(
@@ -210,7 +208,6 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     #     ),
     #     debug_vis=True,
     # )
-
 
     # tiled_camera2: TiledCameraCfg = TiledCameraCfg(
     #     prim_path="{ENV_REGEX_NS}/Camera_2",
@@ -231,10 +228,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     #     #     "{ENV_REGEX_NS}/FloorwithPanels",  # Match your actual ground name
     #     # ],
     #     force_threshold=0.1,
-    # )    
-
-
-
+    # )
 
 ##
 # MDP settings
@@ -277,7 +271,6 @@ class ActionsCfg:
     arm_action: mdp.JointPositionActionCfg | mdp.DifferentialInverseKinematicsActionCfg = MISSING
     # arm_action: mdp.RelativeJointPositionActionCfg | mdp.DifferentialInverseKinematicsActionCfg = MISSING
     gripper_action: mdp.BinaryJointPositionActionCfg = MISSING
-
 
 
 @configclass
@@ -433,22 +426,11 @@ class ResNet18ObservationCfg:
     @configclass
     class ResNet18FeaturesCameraPolicyCfg(ObsGroup):
         """Observations for policy group with features extracted from RGB images with a frozen ResNet18."""
-
         image = ObsTerm(
             func=mdp.image_features,
             params={"sensor_cfg": SceneEntityCfg("gripper_camera"), "data_type": "rgb","model_name": "resnet18","depth_cfg":SceneEntityCfg("depth_camera")},
         )
 
-    # @configclass
-    # class SqueezeNetSA1FeaturesCameraPolicyCfg(ObsGroup):
-    #     """Observations for policy group with SqueezeNet (RGB) + PointNet SA1-only (Point Cloud)."""
-
-    #     image = ObsTerm(
-    #         func=mdp.image_features,
-    #         params={"sensor_cfg": SceneEntityCfg("gripper_camera"), "data_type": "rgb","model_name": "squeezenet1_1","depth_cfg":SceneEntityCfg("depth_camera")},
-    #     )
-
-    # policy: ObsGroup = SqueezeNetSA1FeaturesCameraPolicyCfg()
     policy: ObsGroup = ResNet18FeaturesCameraPolicyCfg()
 
 
@@ -482,7 +464,7 @@ class PcdObservationCfg:
     class PcdPolicyCfg(ObsGroup):
 
         pcd_features = ObsTerm(
-            func = mdp.image_features,
+            func=mdp.image_features,
             params={
                 "depth_cfg": SceneEntityCfg("depth_camera"),
             }
@@ -493,7 +475,6 @@ class PcdObservationCfg:
             self.concatenate_terms = True
     
     policy: ObsGroup = PcdPolicyCfg()
-
 
 
 @configclass
@@ -669,10 +650,10 @@ class TerminationsCfg:
     gripper_z_force = DoneTerm(
         func=mdp.gripper_z_force_limit,
         params={
-          "z_threshold": 30.0,  # Maximum Z-force in Newtons
-          "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
-          "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
-          "check_either": True,  # Terminate if either finger exceeds
+            "z_threshold": 30.0,  # Maximum Z-force in Newtons
+            "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
+            "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
+            "check_either": True,  # Terminate if either finger exceeds
         },
     )
 
@@ -702,7 +683,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
 
     # Scene settings
     scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=2.5)
-    
+
     observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
 
     actions: ActionsCfg = ActionsCfg()
@@ -714,7 +695,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
-        
+   
         """Post initialization."""
         # general settings
         # self.scene.replicate_physics=False
