@@ -183,18 +183,25 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
         """
         # process actions
         self.action_manager.process_action(action.to(self.device))
-        # print("actions11 : ",action)
+        # print(action[0])
+        current_joint_pos = self.scene['robot'].data.joint_pos
+
+        # print("joint", current_joint_pos[0] )
+        # print("actions11 : ",action[0])
+        # goal = current_joint_pos[:, [3, 5]] + action[:, [0, 1]]
+        
+        # print(goal[0],target[0])
         self.recorder_manager.record_pre_step()
 
         # check if we need to do rendering within the physics loop
         # note: checked here once to avoid multiple checks within the loop
         is_rendering = self.sim.has_gui() or self.sim.has_rtx_sensors()
-
+        converged_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         # perform physics stepping
         for _ in range(self.cfg.decimation):
             self._sim_step_counter += 1
             # set actions into buffers
-            # print("actions22 : ",action)
+            # print(f"actions {self._sim_step_counter} : ",action[0])
             # print("ee_data00: ",self.scene["ee_frame"].data.target_pos_w[..., 0, :])
             self.action_manager.apply_action()
             # set actions into simulator
@@ -208,9 +215,29 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
             if self._sim_step_counter % self.cfg.sim.render_interval == 0 and is_rendering:
                 self.sim.render()
             # update buffers at sim dt
-            # print("ee_data22: ",self.scene["ee_frame"].data.target_pos_w[..., 0, :])
+            # joint_pos = self.scene["robot"].data.joint_pos[:,:]
+            # last_two = joint_pos[0, -2:]
+            # print("last two:", last_two)
             self.scene.update(dt=self.physics_dt)
             # print("ee_data33: ",self.scene["ee_frame"].data.target_pos_w[..., 0, :])
+            # current_joint_pos = self.scene['robot'].data.joint_pos
+            # current_joint_pos = current_joint_pos[0][2:4]
+            # # print(current_joint_pos[0])
+            # print(f"joint pos {180*(current_joint_pos/np.pi)}" )
+            # target = self.scene['robot'].data.joint_pos_target[0][2:4]
+            # # # newly_done = (joint_error < 0.02).all(dim=1)  # [num_envs], 哪些已经到位
+            # # print(goal[0],target[0])
+            # joint_error = target-current_joint_pos
+            # # joint_error1 = torch.abs(target[:, [0, 1]] - goal)
+            # print(target-current_joint_pos)
+           
+            # if torch.all(joint_error1[0]< 0.03):
+            #     print("✅ 到位了！1")
+            # else:
+            #     print("❌ 还没到")
+            # print(joint_error[0])
+            
+     
 
         # post-step:
         # -- update env counters (used for curriculum generation)
@@ -365,7 +392,14 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
                 })
         # action space (unbounded since we don't impose any limits)
         action_dim = sum(self.action_manager.action_term_dim)
-        self.single_action_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(action_dim,))
+        
+
+        low = -1*np.ones(action_dim, dtype=np.float32)
+        high = np.ones(action_dim, dtype=np.float32)
+
+        
+
+        self.single_action_space = gym.spaces.Box(low=low, high=high, shape=(action_dim,))
 
         # batch the spaces for vectorized environments
         self.observation_space = gym.vector.utils.batch_space(self.single_observation_space, self.num_envs)
