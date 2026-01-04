@@ -61,6 +61,7 @@ class JointAction(ActionTerm):
         self._joint_ids, self._joint_names = self._asset.find_joints(
             self.cfg.joint_names, preserve_order=self.cfg.preserve_order
         )
+        print(f'joint ids {self._joint_ids}')
         self._num_joints = len(self._joint_ids)
         # log the resolved joint names for debugging
         omni.log.info(
@@ -130,8 +131,14 @@ class JointAction(ActionTerm):
     def process_actions(self, actions: torch.Tensor):
         # store the raw actions
         self._raw_actions[:] = actions
+        # current_joint_pos = self._asset.data.joint_pos
+        # print (f'current_joint_pos:{current_joint_pos}')
+        # print (f'actions:{self._raw_actions}')
+        # print (f'scale:{self._scale}')
         # apply the affine transformations
-        self._processed_actions = self._raw_actions * self._scale + self._offset
+        self._processed_actions = self._raw_actions * self._scale + self._offset   #初始代码
+        # self._processed_actions = self._offset 
+        # print(self._processed_actions[0])
         # clip actions
         if self.cfg.clip is not None:
             self._processed_actions = torch.clamp(
@@ -157,6 +164,7 @@ class JointPositionAction(JointAction):
 
     def apply_actions(self):
         # set position targets
+        # print(f"joint_pos {self._joint_ids}")
         self._asset.set_joint_position_target(self.processed_actions, joint_ids=self._joint_ids)
 
 
@@ -189,9 +197,13 @@ class RelativeJointPositionAction(JointAction):
     def apply_actions(self):
         # add current joint positions to the processed actions
         current_actions = self.processed_actions + self._asset.data.joint_pos[:, self._joint_ids]
-        # print("self.processed_actions : ",self.processed_actions)
-        # print("self._asset.data.joint_pos[:, self._joint_ids] : ",self._asset.data.joint_pos[:, self._joint_ids])
-        # print("current_actions : ",current_actions)
+        # print(f"joint_pos {self._joint_ids}")
+        # with open('/home/roborock/current_joint_positions.txt', 'a') as f:
+        #     f.write(f"{self._asset.data.joint_pos[:, self._joint_ids].cpu().numpy()}\n")
+        # print(f'action    {self.processed_actions}')
+        # print(f'goal      {current_actions}')
+        # goal = 
+        # joint_error = torch.abs(self._asset.data.joint_pos[:, [0, 1]] - goal)
         # set position targets
         self._asset.set_joint_position_target(current_actions, joint_ids=self._joint_ids)
 
