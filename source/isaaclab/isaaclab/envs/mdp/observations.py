@@ -827,11 +827,11 @@ class image_features(ManagerTermBase):
         images = sensor.data.output[data_type]          # 通常是 [B, H, W, C]，dtype=uint8
         images = images[:, 120:, :, :]
         # 做 sim-to-real 的模糊 + 噪声增强（你之前写好的函数）
-        images = self._apply_domain_randomization(
-            images,
-            save_debug=save_augmentation_debug,
-            step_counter=self._frame_counter,
-        )
+        # images = self._apply_domain_randomization(
+        #     images,
+        #     save_debug=save_augmentation_debug,
+        #     step_counter=self._frame_counter,
+        # )
         # ===== 强保险：确保 image 一定是 float32 且 0~1 =====
         if images.dtype == torch.uint8:
             images = images.float() / 255.0
