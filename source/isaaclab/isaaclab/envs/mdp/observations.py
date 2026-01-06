@@ -933,20 +933,14 @@ class image_features(ManagerTermBase):
         
         # import pdb
         # pdb.set_trace()
-        
-        img_feat_norm = torch.nn.functional.normalize(features, p=2, dim=1)
-        # import pdb
-        # pdb.set_trace()
-        pc_feat_norm = torch.nn.functional.normalize(depth_features_batch, p=2, dim=1)
-        
-        features = torch.cat((img_feat_norm,pc_feat_norm),dim=-1)
-        
+
+        features = torch.cat((features, depth_features_batch), dim=-1)
+
         return features.detach().to(image_device)
 
     """
     Helper functions.
     """
-
 
     def voxelize_pointcloud_batch(
         self,

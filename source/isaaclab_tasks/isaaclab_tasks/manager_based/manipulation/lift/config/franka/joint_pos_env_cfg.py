@@ -189,7 +189,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                             articulation_enabled=False,  # CRITICAL: Disable articulation
                         ),
                     ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.00, 0.02),rot = (0.7071 , 0.0 ,0.0 , 0.7071)),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.00, 0.02), rot=(0.7071, 0.0, 0.0, 0.7071)),
                 ),
 
                 # "eye_drops": RigidObjectCfg(
