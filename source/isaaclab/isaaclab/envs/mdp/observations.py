@@ -1154,28 +1154,7 @@ class image_features(ManagerTermBase):
             Returns:
                 The extracted features tensor. Shape is (num_envs, feature_dim).
             """
-    #         def load_image(img_path, input_size=(224, 224)):
-    # # 读取图片
-    #             img = cv2.imread(img_path)
-    #             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    #             # resize 到模型的输入尺寸
-    #             img = cv2.resize(img, input_size)
-
-    #             # HWC -> CHW
-    #             img = img.transpose(2, 0, 1).astype(np.float32) / 255.0  # 归一化到 [0,1]
-
-    #             # ResNet ImageNet 预处理
-    #             mean = np.array([0.485, 0.456, 0.406]).reshape(3,1,1)
-    #             std  = np.array([0.229, 0.224, 0.225]).reshape(3,1,1)
-    #             img = (img - mean) / std
-
-    #             # 增加 batch 维度 (1,3,H,W)
-    #             img = np.expand_dims(img, axis=0).astype(np.float32)
-
-    #             return img
-            # img = load_image("/home/roborock/docker_images_v1.8.x/docker_bushu/1.png", input_size=(224, 224))
-            # images = torch.from_numpy(img)
+  
             # move the image to the model device
             image_proc = images.to(model_device)
             # permute the image to (num_envs, channel, height, width)

@@ -20,9 +20,7 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-
-
-## Help Function to get the states of active object from the object pool
+# Help Function to get the states of active object from the object pool
 def get_active_object_states(env: ManagerBasedRLEnv, object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")):
     """
     Helper function to get states of active objects from object pool.
@@ -89,7 +87,6 @@ def object_is_lifted_linear(
     reward = torch.square(normalized)
     
     return reward
-
 
 
 def object_is_lifted_with_contact(
@@ -194,33 +191,30 @@ def object_ee_distance(
     return 1 - torch.tanh(object_ee_distance/std)
 
 
-def contain_object(
-    env: ManagerBasedRLEnv,
-    std: float,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
-    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
-) -> torch.Tensor:
-    # Get active object positions
+def contain_object(env, std, object_cfg=SceneEntityCfg("object_pool"),
+                   finger_frame_1_cfg=SceneEntityCfg("finger_frame_1"),
+                   finger_frame_2_cfg=SceneEntityCfg("finger_frame_2")):
     active_pos_w, _ = get_active_object_states(env, object_cfg)
-    
-    finger_frame_1: FrameTransformer = env.scene[finger_frame_1_cfg.name]
-    finger_frame_2: FrameTransformer = env.scene[finger_frame_2_cfg.name]
 
+    finger_frame_1 = env.scene[finger_frame_1_cfg.name]
+    finger_frame_2 = env.scene[finger_frame_2_cfg.name]
     finger_w_1 = finger_frame_1.data.target_pos_w[..., 0, :]
     finger_w_2 = finger_frame_2.data.target_pos_w[..., 0, :]
-    
-    vector_1 = finger_w_1 - active_pos_w
-    vector_2 = finger_w_2 - active_pos_w
-    dot_products = torch.sum(vector_1 * vector_2, dim=1)
-    norm_1 = torch.norm(vector_1, dim=1)
-    norm_2 = torch.norm(vector_2, dim=1)
-    cos_theta = dot_products / (norm_1 * norm_2 + 1e-8)
-    cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
-    
-    theta = torch.acos(cos_theta)
-    reward = theta / np.pi
 
+    v1 = finger_w_1 - active_pos_w
+    v2 = finger_w_2 - active_pos_w
+    dot = torch.sum(v1 * v2, dim=1)
+    n1 = torch.norm(v1, dim=1)
+    n2 = torch.norm(v2, dim=1)
+    cos_theta = dot / (n1 * n2 + 1e-8)
+    cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
+    theta = torch.acos(cos_theta)
+
+    x = theta / np.pi  # [0,1]
+
+    gamma = 2.0  # 推荐先从 2 开始试
+    # 或者用 std 控制：gamma = 1.0 + 1.0/(std+1e-6)
+    reward = x.pow(gamma)
     return reward
 
 
@@ -268,7 +262,6 @@ def clamp_object(
     return reward
 
 
-
 # OPTIONAL: Add this helper function to track gripper state for debugging
 def debug_gripper_state(env: ManagerBasedRLEnv) -> torch.Tensor:
     """
@@ -292,7 +285,6 @@ def debug_gripper_state(env: ManagerBasedRLEnv) -> torch.Tensor:
         print(f"Object height: {object.data.root_pos_w[:, 2].mean():.3f}")
 
     return torch.zeros(env.num_envs, device=env.device)
-
 
 
 def penalize_m0_after_lift(
@@ -567,7 +559,6 @@ def pcd_contain_object(
     return reward
 
 
-
 def penalty_if_gripper_closed_far(
     env: ManagerBasedRLEnv,
     reach_threshold: float = 0.03 ,  # 10cm 外必须张开  
@@ -596,7 +587,6 @@ def penalty_if_gripper_closed_far(
     penalty[penalty_mask] = penalty_value
 
     return penalty
-
 
 
 def pcd_clamp_object(
@@ -726,11 +716,6 @@ def pcd_clamp_object(
     left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
     right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
 
-    camera = env.scene.sensors[sensor_cfg_name]
-    camera_pos_w = camera.data.pos_w
-    camera_quat_w = camera.data.quat_w_ros
-    camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
-
     left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, sensor_cfg_name)
     right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
     sphere_center = (left_finger_cam + right_finger_cam) / 2.0
@@ -806,8 +791,6 @@ def contact_clamp_object(
     return reward
 
 
-
-
 def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Debug version - prints density info."""
     from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
@@ -845,7 +828,6 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
             print("=" * 50)
 
     return torch.zeros(env.num_envs, device=env.device)
-
 
 
 def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -955,7 +937,6 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
             print(f"{'='*80}\n")
 
     return torch.zeros(env.num_envs, device=env.device)
-
 
 
 def debug_contact_forces(env: ManagerBasedRLEnv) -> torch.Tensor:
