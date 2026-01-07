@@ -270,18 +270,18 @@ class EventCfg:
     #         "texture_rotation": (0.0, 2 * math.pi),
     #     },
     # )
-    # randomize_floor = EventTerm(
-    #     func=mdp.randomize_floor_texture,
-    #     mode="reset",
-    #     params={
-    #         "texture_txt_path": "/home/robo/code/IsaacLab/assets1/3D_assets_usd/floor.txt"
-    #     },
-    # )
+    randomize_floor = EventTerm(
+        func=mdp.randomize_floor_texture,
+        mode="reset",
+        params={
+            "texture_txt_path": "/home/robo/code/IsaacLab/assets1/3D_assets_usd/floor.txt"
+        },
+    )
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
 
     # set_rt_subframes = EventTerm(
-    #     func=mdp.set_camera_rt_subframes, 
-    #     mode="startup", 
+    #     func=mdp.set_camera_rt_subframes,
+    #     mode="startup",
     #     params={
     #         "subframes": 4,
     #     },
@@ -298,43 +298,27 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": (-0.01, 0.07), 
-                "y": (-0.03, 0.03), 
-                # "y": (0.0, 0.0), 
-                "z": (0.0, 0.0), 
-                # "roll": (-0.1, 0.1),    
-                # "pitch": (-0.1, 0.1),   
-                # "yaw": (-0.3, 0.3),    
-                "roll": (0.0, 0.0),    
-                "pitch": (0.0, 0.0),   
-                "yaw": (0.0, 0.0), 
-            }, 
-            "velocity_range": {}, 
-            "asset_cfg": SceneEntityCfg("object_pool"), 
-        }, 
+                "x": (-0.01, 0.07),
+                "y": (-0.03, 0.03),
+                # "y": (0.0, 0.0),
+                "z": (0.0, 0.0),
+                # "roll": (-0.1, 0.1),
+                # "pitch": (-0.1, 0.1),
+                # "yaw": (-0.3, 0.3),
+                "roll": (0.0, 0.0),
+                "pitch": (0.0, 0.0),
+                "yaw": (0.0, 0.0),
+            },
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("object_pool"),
+        },
     )
 
-    # randomize_lighting_reset = EventTerm(
-    #     func=mdp.randomize_multiple_sphere_lights,
-    #     mode="startup",
-    #     params={"num_lights": 2},
-    # )
-
-    # randomize_lighting_reset = EventTerm(
-    #     func=mdp.randomize_sphere_light_intensity,
-    #     mode="reset",
-    #     params={
-    #         "intensity_range": (2000.0, 50000.0),
-    #     },
-    # )
-
-    # randomize_light_reset_2 = EventTerm(
-    #     func=mdp.randomize_light_color_temperature,
-    #     mode="reset",
-    #     params={
-    #         "temperature_range": (4500.0, 11000.0),
-    #     },
-    # )
+    randomize_lighting_reset = EventTerm(
+        func=mdp.randomize_multiple_sphere_lights,
+        mode="startup",
+        params={"num_lights": 2},
+    )
 
 
 @configclass
