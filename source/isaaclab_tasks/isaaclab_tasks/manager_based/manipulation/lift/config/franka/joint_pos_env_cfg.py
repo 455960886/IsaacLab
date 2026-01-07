@@ -117,7 +117,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
             joint_names=["M6_.*"],
-            open_command_expr={"M6_1": 0.65, "M6_2": -0.65},  
+            open_command_expr={"M6_1": 0.65, "M6_2": -0.65},
             close_command_expr={"M6_1": 0.03, "M6_2": -0.03},
         )
 

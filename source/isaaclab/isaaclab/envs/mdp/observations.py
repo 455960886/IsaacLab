@@ -739,7 +739,6 @@ class image_features(ManagerTermBase):
         
         return result
 
-
     def _apply_domain_randomization(
         self, 
         images: torch.Tensor, 
