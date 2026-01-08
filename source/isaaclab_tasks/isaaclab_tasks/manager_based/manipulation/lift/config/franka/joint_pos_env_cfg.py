@@ -109,7 +109,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
             asset_name="robot",
             joint_names=["M6_.*"],
             open_command_expr={"M6_1": 0.65, "M6_2": -0.65},  
-            close_command_expr={"M6_1": 0.1, "M6_2": -0.1},
+            close_command_expr={"M6_1": 0.03, "M6_2": -0.03},
         )
 
         self.commands.object_pose.body_name = "M6_1_leftfinger_link"
@@ -129,22 +129,22 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
 
         self.scene.object_pool = RigidObjectCollectionCfg(
             rigid_objects={
-                "bus": RigidObjectCfg(
-                    prim_path="/World/envs/env_.*/bus",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets1/3D_assets_usd/bus_2.usd",
+                # "bus": RigidObjectCfg(
+                #     prim_path="/World/envs/env_.*/bus",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets1/3D_assets_usd/bus_2.usd",
                       
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=128,
-                            solver_velocity_iteration_count=64,
-                            disable_gravity=False,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.30, 0.00, 0.018), rot=(0.7071, 0.0, 0.0, 0.7071)),
-                ),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=128,
+                #             solver_velocity_iteration_count=64,
+                #             disable_gravity=False,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.30, 0.00, 0.018), rot=(0.7071, 0.0, 0.0, 0.7071)),
+                # ),
                 "gongzixing_lego": RigidObjectCfg(
                     prim_path="/World/envs/env_.*/gongzixing_lego",
                     spawn=sim_utils.UsdFileCfg(
