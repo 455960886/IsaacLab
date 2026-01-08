@@ -455,7 +455,11 @@ class image_features(ManagerTermBase):
         # self.cx, self.cy = 200.0, 150.0
 
         self._frame_counter = 0
-
+        self._pc_u = None
+        self._pc_v = None
+        self._pc_R = None
+        self._pc_t = None
+        self._pc_cache_hw = None
 
     def reset(self, env_ids: torch.Tensor | None = None):
         # reset the model if a reset function is provided
@@ -463,8 +467,52 @@ class image_features(ManagerTermBase):
         # for example: video transformers
         if self._reset_fn is not None:
             self._reset_fn(self._model, env_ids)
+    
+    def _init_pcd_buffers(self, H: int, W: int, device: torch.device):
+        """Cache meshgrid (u,v) and fixed extrinsics (R,t) on GPU to avoid per-step rebuild."""
+        if getattr(self, "_pc_cache_hw", None) == (H, W) and self._pc_u is not None:
+            return
 
-    def depth_to_pointcloud(self,depth_image, fx, fy, cx, cy, rgb_image=None, output_path="pointcloud.ply"):
+        v_coords = torch.arange(H, device=device, dtype=torch.float32)
+        u_coords = torch.arange(W, device=device, dtype=torch.float32)
+        v, u = torch.meshgrid(v_coords, u_coords, indexing="ij")
+
+        # flatten to (1, HW) so we can expand(B, -1) cheaply
+        self._pc_u = u.reshape(1, -1)
+        self._pc_v = v.reshape(1, -1)
+        self._pc_cache_hw = (H, W)
+
+        def deg2rad(x: float):
+            return torch.tensor(x, device=device, dtype=torch.float32) * torch.pi / 180.0
+
+        roll  = deg2rad(90.0)
+        pitch = deg2rad(0.0)
+        yaw   = deg2rad(90.0)
+
+        c1, s1 = torch.cos(roll), torch.sin(roll)
+        c2, s2 = torch.cos(pitch), torch.sin(pitch)
+        c3, s3 = torch.cos(yaw), torch.sin(yaw)
+
+        Rx = torch.tensor([[1, 0, 0],
+                        [0, c1, -s1],
+                        [0, s1,  c1]], device=device, dtype=torch.float32)
+        Ry = torch.tensor([[ c2, 0, s2],
+                        [  0, 1,  0],
+                        [-s2, 0, c2]], device=device, dtype=torch.float32)
+        Rz = torch.tensor([[c3, -s3, 0],
+                        [s3,  c3, 0],
+                        [ 0,   0, 1]], device=device, dtype=torch.float32)
+
+        x1 = deg2rad(0.011)
+        c, s = torch.cos(x1), torch.sin(x1)
+        Rx1 = torch.tensor([[1., 0., 0.],
+                            [0.,  c, -s],
+                            [0.,  s,  c]], device=device, dtype=torch.float32)
+
+        self._pc_R = (Rx1 @ Rz @ Ry @ Rx)  # (3,3)
+        self._pc_t = torch.tensor([0.1654, 0.0, 0.0494], device=device, dtype=torch.float32)  # (3,)
+
+    def depth_to_pointcloud(self, depth_image, fx, fy, cx, cy, rgb_image=None, output_path="pointcloud.ply"):
         """
         将深度图转换为点云（可选带颜色）
         
@@ -574,9 +622,97 @@ class image_features(ManagerTermBase):
         # save_ply(points, colors=None, output_path=output_path.replace(".ply","_downsampled8.ply"))
         return points
     
+    def depth_to_pointcloud_batch_gpu(self, depth_batch, fx, fy, cx, cy, num_points=1024, **kwargs):
+        B, H, W = depth_batch.shape
+        device = depth_batch.device
+        dtype = torch.float32  # 建议强制 float32，避免奇怪 half 的 NaN 传播
+
+        self._init_pcd_buffers(H, W, device)
+
+        # (B, HW)
+        u = self._pc_u.expand(B, -1)
+        v = self._pc_v.expand(B, -1)
+
+        # ---- sanitize intrinsics ----
+        fx_t = torch.as_tensor(fx, device=device, dtype=dtype)
+        fy_t = torch.as_tensor(fy, device=device, dtype=dtype)
+        cx_t = torch.as_tensor(cx, device=device, dtype=dtype)
+        cy_t = torch.as_tensor(cy, device=device, dtype=dtype)
+
+        # 防 0 / NaN
+        fx_t = torch.nan_to_num(fx_t, nan=0.0, posinf=0.0, neginf=0.0).clamp(min=1e-6)
+        fy_t = torch.nan_to_num(fy_t, nan=0.0, posinf=0.0, neginf=0.0).clamp(min=1e-6)
+
+        # ---- sanitize depth ----
+        Z = depth_batch.reshape(B, -1).to(dtype)
+        Z = torch.nan_to_num(Z, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # 可选：限制深度范围（按你相机量程改）
+        max_depth = kwargs.get("max_depth", 2.5)
+        valid_z = (Z > 1e-6) & (Z < max_depth)
+
+        X = (u.to(dtype) - cx_t) * Z / fx_t
+        Y = (v.to(dtype) - cy_t) * Z / fy_t
+
+        points = torch.stack([X, -Y, Z], dim=-1)  # (B, HW, 3)
+
+        # 任何 NaN/Inf 直接视为无效点（否则会污染 dist/weights）
+        finite_pts = torch.isfinite(points).all(dim=-1)
+        points = torch.nan_to_num(points, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # rotate + translate (cached)
+        points = points @ self._pc_R.T
+        points = points + self._pc_t
+
+        # --- mask logic ---
+        rand_thresh = (torch.rand((), device=device) * (0.002 - (-0.0003)) + (-0.0003))
+        mask2 = points[:, :, 0] <= 0.42
+        mask3 = points[:, :, 2] >= rand_thresh
+        mask = mask2 & mask3 & valid_z & finite_pts  # (B, HW)
+
+        # --- weights ---
+        # dist 里也可能出现 NaN（虽然 points 处理过了，但保险）
+        dist = torch.linalg.norm(points, dim=-1)  # (B, HW)
+        dist = torch.nan_to_num(dist, nan=1e6, posinf=1e6, neginf=1e6)
+
+        weights = torch.exp(-dist) * mask.float()
+        weights = torch.nan_to_num(weights, nan=0.0, posinf=0.0, neginf=0.0)
+        weights = torch.clamp(weights, min=0.0)
+
+        row_sum = weights.sum(dim=1)  # (B,)
+        bad = (~torch.isfinite(row_sum)) | (row_sum <= 1e-12)
+
+        # 关键：不要让 multinomial 看到 bad 行
+        idx = torch.empty((B, num_points), device=device, dtype=torch.long)
+
+        good = ~bad
+        if good.any():
+            w_good = weights[good]
+            # 不强制归一化也行，但归一化更稳一些
+            w_good = w_good / (w_good.sum(dim=1, keepdim=True) + 1e-12)
+            idx[good] = torch.multinomial(w_good, num_points, replacement=True)
+
+        if bad.any():
+            # bad 行：随便给 idx（后面会把 sampled 置 0）
+            idx[bad] = 0
+
+        sampled = points.gather(1, idx.unsqueeze(-1).expand(-1, -1, 3))  # (B, num_points, 3)
+
+        if bad.any():
+            sampled[bad] = 0.0
+
+        sampled = randomize_pointcloud_batch_torch(
+            sampled,
+            dropout_rate=0.02,
+            outlier_ratio=0.02,
+            outlier_max_offset=0.08,
+            surface_jitter=0.001,
+        )
+        return sampled
 
     # GPU-accelerated version for batch processing
-    def depth_to_pointcloud_batch_gpu(self, depth_batch, fx, fy, cx, cy, num_points=1024, 
+    # 速度更慢
+    def depth_to_pointcloud_batch_gpu1(self, depth_batch, fx, fy, cx, cy, num_points=1024, 
                                       save_ply_debug=False, env_id=0, frame_counter=None, save_dir="debug_pointclouds", env=None):
         """GPU-accelerated batch point cloud generation with systematic PLY saving."""
         import os
@@ -736,7 +872,7 @@ class image_features(ManagerTermBase):
         # if save_ply_debug:
         #     points_final = result[env_id].cpu().numpy()
         #     save_ply(points_final, "4_random")
-        
+
         return result
 
     def _apply_domain_randomization(
@@ -792,16 +928,15 @@ class image_features(ManagerTermBase):
         # Convert back to original format
         if was_channels_last:
             images = images.permute(0, 2, 3, 1)
-        
+
         if original_dtype == torch.uint8:
             images = (images * 255.0).byte()
-        
+
         return images
 
     def _save_images(self, images: torch.Tensor, step: int, prefix: str = "img"):
         """Save images to disk for debugging."""
         import os
-        import cv2
         import numpy as np
         
         save_dir = "debug_augmentation"
@@ -1217,34 +1352,19 @@ Actions.
 """
 
 
-def randomize_pointcloud_batch_torch(
-    pts, 
-    dropout_rate=0.02, 
-    outlier_ratio=0.015, 
-    outlier_max_offset=0.04, 
-    surface_jitter=0.0005
-):
+def randomize_pointcloud_batch_torch(pts, dropout_rate=0.02, outlier_ratio=0.02, outlier_max_offset=0.08, surface_jitter=0.001):
     B, N, _ = pts.shape
     device = pts.device
-
     pts = pts.clone()
 
-    # 1. Dropout
-    # dropout_mask = torch.rand(B, N, device=device) > dropout_rate
-    # pts = pts * dropout_mask.unsqueeze(-1)
-
-    # 2. Outliers（沿 X 轴正方向）
     num_outliers = max(1, int(outlier_ratio * N))
+    idx = torch.randint(0, N, (B, num_outliers), device=device)
 
-    for b in range(B):
-        idx = torch.randperm(N, device=device)[:num_outliers].long()  # 确保是 long
-        offset = torch.rand(num_outliers, device=device, dtype=pts.dtype) * outlier_max_offset
-        pts[b].index_add_(0, idx, torch.stack([offset, torch.zeros_like(offset), torch.zeros_like(offset)], dim=1))
+    offset = torch.rand(B, num_outliers, device=device, dtype=pts.dtype) * outlier_max_offset
+    b_ids = torch.arange(B, device=device).unsqueeze(1).expand_as(idx)
 
-
-    jitter = torch.randn_like(pts) * surface_jitter
-    pts = pts + jitter
-
+    pts[b_ids, idx, 0] += offset
+    pts += torch.randn_like(pts) * surface_jitter
     return pts
 
 

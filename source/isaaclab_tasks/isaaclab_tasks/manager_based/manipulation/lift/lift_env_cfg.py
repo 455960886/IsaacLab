@@ -153,7 +153,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         width=200,
         height=150,
         debug_vis=False,
-        # update_period=0.2,
+        update_period=0.2,
     )
 
     gripper_camera: TiledCameraCfg = TiledCameraCfg(
@@ -399,6 +399,22 @@ class TerminationsCfg:
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
+    # 先学会抓：y 小范围；再逐步扩展到最终范围
+    widen_reset_y = CurrTerm(
+        func=mdp.widen_reset_y,
+        params={"axis": "y", "start": 0.00, "end": 0.10, "duration_steps": 200_000},
+    )
+    # （可选）如果你也想 x 做 curriculum（比如前后也随机得很大）
+    # widen_reset_x = CurrTerm(
+    #     func=mdp.curriculum_reset_pose_range,
+    #     params={
+    #         "axis": "x",
+    #         "start": (-0.005, 0.02),
+    #         "end":   (-0.01, 0.07),
+    #         "duration_steps": 6_000_000,
+    #     },
+    # )
+
 
 ##
 # Environment configuration

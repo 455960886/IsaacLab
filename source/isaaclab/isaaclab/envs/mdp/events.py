@@ -1073,9 +1073,6 @@ def reset_root_state_uniform(
     asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
 
 
-
-
-
 def reset_object_pool_state_uniform(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
@@ -1089,51 +1086,52 @@ def reset_object_pool_state_uniform(
 
     # Extract object collection
     object_collection: RigidObjectCollection = env.scene[asset_cfg.name]
+    device = object_collection.device
 
     # Get active object indices
     if not hasattr(env, 'active_object_indices'):
         raise RuntimeError("active_object_indices not found")
+    # --- Curriculum override: merge pose_range with env cache (if exists) ---
+    pose_range_eff = dict(pose_range)  # copy to avoid in-place side effects
 
-    # Prepare pose ranges (same as original)
-    pose_range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
-    pose_ranges = torch.tensor(pose_range_list, device=object_collection.device)
+    override = getattr(env, "_curriculum_reset_pose_range", None)
+    if override is not None:
+        # 只覆盖 override 里提供的维度，比如 {"y": (-0.02, 0.02)}
+        pose_range_eff.update(override)
+    
+    pose_range_list = [pose_range_eff.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    pose_ranges = torch.tensor(pose_range_list, device=device)
     pose_rand_samples = math_utils.sample_uniform(
-        pose_ranges[:, 0], pose_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
+        pose_ranges[:, 0], pose_ranges[:, 1], (len(env_ids), 6), device=device
     )
 
     # Prepare velocity ranges (same as original)
     vel_range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
-    vel_ranges = torch.tensor(vel_range_list, device=object_collection.device)
+    vel_ranges = torch.tensor(vel_range_list, device=device)
     vel_rand_samples = math_utils.sample_uniform(
-        vel_ranges[:, 0], vel_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
+        vel_ranges[:, 0], vel_ranges[:, 1], (len(env_ids), 6), device=device
     )
 
-    # Reset each environment's active object
-    for idx, env_idx in enumerate(env_ids):
-        active_obj_idx = env.active_object_indices[env_idx].item()
+    # Vectorized reset (重要：显著减少 Python for-loop，reset 会更快，整体 fps 更高)
+    env_ids = env_ids.to(device=device)
+    active_obj_ids = env.active_object_indices[env_ids].to(device=device)  # (E,)
 
-        # Get default state for active object
-        root_state = object_collection.data.default_object_state[env_idx, active_obj_idx].clone()
+    root_state = object_collection.data.default_object_state[env_ids, active_obj_ids].clone()  # (E, 13)
 
-        # Apply pose randomization (same logic as original)
-        position = root_state[0:3] + env.scene.env_origins[env_idx] + pose_rand_samples[idx, 0:3]
-        orientation_delta = math_utils.quat_from_euler_xyz(
-            pose_rand_samples[idx, 3], pose_rand_samples[idx, 4], pose_rand_samples[idx, 5]
-        )
-        orientation = math_utils.quat_mul(root_state[3:7], orientation_delta)
+    position = root_state[:, 0:3] + env.scene.env_origins[env_ids] + pose_rand_samples[:, 0:3]
+    orientation_delta = math_utils.quat_from_euler_xyz(
+        pose_rand_samples[:, 3], pose_rand_samples[:, 4], pose_rand_samples[:, 5]
+    )
+    orientation = math_utils.quat_mul(root_state[:, 3:7], orientation_delta)
 
-        # Apply velocity randomization (same logic as original)
-        velocity = root_state[7:13] + vel_rand_samples[idx]
+    velocity = root_state[:, 7:13] + vel_rand_samples
+    new_state = torch.cat([position, orientation, velocity], dim=-1)  # (E, 13)
 
-        # Combine and write (adapted for object collection)
-        new_state = torch.cat([position, orientation, velocity], dim=-1)
-        object_collection.write_object_state_to_sim(
-            new_state.unsqueeze(0),
-            env_ids=torch.tensor([env_idx], device=object_collection.device),
-            object_ids=torch.tensor([active_obj_idx], device=object_collection.device)
-        )
-
-
+    object_collection.write_object_state_to_sim(
+        new_state,
+        env_ids=env_ids,
+        object_ids=active_obj_ids,
+    )
 
 
 def reset_root_state_with_random_orientation(
