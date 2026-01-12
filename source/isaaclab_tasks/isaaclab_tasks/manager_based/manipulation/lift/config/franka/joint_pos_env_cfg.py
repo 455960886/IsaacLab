@@ -4,17 +4,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import isaaclab.sim as sim_utils
-import numpy as np
 from isaaclab.assets import RigidObjectCfg
 from isaaclab.sensors import FrameTransformerCfg
-from isaaclab.sensors import CameraCfg
-from isaaclab.sensors import TiledCameraCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
-from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
-from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
-from isaaclab.sim import RigidBodyMaterialCfg
 
 from isaaclab_tasks.manager_based.manipulation.lift import mdp
 from isaaclab_tasks.manager_based.manipulation.lift.lift_env_cfg import LiftEnvCfg
@@ -23,12 +16,9 @@ from isaaclab_tasks.manager_based.manipulation.lift.lift_env_cfg import LiftEnvC
 # Pre-defined configs
 ##
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
-from isaaclab_assets.robots.franka import FRANKA_PANDA_CFG  # isort: skip
 
-import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
-from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 
 
 MY_ROBOT_CFG = ArticulationCfg(
@@ -154,7 +144,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                             articulation_enabled=False,  # CRITICAL: Disable articulation
                         ),
                     ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.005, 0.0], rot=[0.5, 0.5, 0.5, 0.5]),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.0), rot=(0.5, 0.5, 0.5, 0.5)),
                 ),
                 # "paperball": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/paperball",
@@ -229,7 +219,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/M5_wrist_link",
                     name="end_effector",
                     offset=OffsetCfg(
-                        pos=[0.1008, 0.003, 0.01],
+                        pos=(0.1008, 0.003, 0.01),
                     ),
                 ),
             ],
@@ -243,7 +233,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/M6_1_leftfinger_link",
                     name="end_effector_1",
                     offset=OffsetCfg(
-                        pos=[0.028, -0.001, 0.0],
+                        pos=(0.028, -0.001, 0.0),
                     ),
                 ),
             ],
@@ -258,7 +248,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/M6_2_rightfinger_link",
                     name="end_effector_2",
                     offset=OffsetCfg(
-                        pos=[0.028, 0.003, 0.0],
+                        pos=(0.028, 0.003, 0.0),
                     ),
                 ),
             ],
@@ -273,7 +263,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/M5_wrist_link",
                     name="ee_probe_tip",
                     offset=OffsetCfg(
-                        pos=[0.11, 0.0, -0.0015],
+                        pos=(0.11, 0.0, -0.0015),
                     ),
                 ),
             ],
@@ -288,7 +278,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Robot/M6_1_leftfinger_link",
                     name="gripper_peak",
                     offset=OffsetCfg(
-                        pos=[0.02349, -0.00603, 0.0027],
+                        pos=(0.02349, -0.00603, 0.0027),
                     ),
                 ),
             ],

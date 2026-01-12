@@ -292,7 +292,7 @@ def image(
     # os.makedirs("IMAGES2", exist_ok=True)
     # # os.makedirs("IMAGES17", exist_ok=True)
     step = 0
-    step +=1
+    step += 1
     # # cv2.imwrite(f"./IMAGES16/observation_{time1}.png", obs_image)
     # cv2.imwrite(f"/home/roborock/下载/{step}.png", images)
     # import pdb
@@ -332,7 +332,7 @@ def image(
             images = images.float() / 255.0
             mean_tensor = torch.mean(images, dim=(1, 2), keepdim=True)
             images -= mean_tensor
-            
+
             # images = images.float()
 
             # obs_np2 = images.squeeze(0).cpu().numpy() 
@@ -346,7 +346,7 @@ def image(
             # obs_bgr2 = cv2.cvtColor(obs_np2, cv2.COLOR_RGB2BGR)
             # os.makedirs("IMAGES13", exist_ok=True)
             # cv2.imwrite(f"./IMAGES13/observation_{time.time()}.png", obs_np2)
-            
+
             pass
         elif "distance_to" in data_type or "depth" in data_type:
             images[images == float("inf")] = 0
@@ -485,29 +485,29 @@ class image_features(ManagerTermBase):
         def deg2rad(x: float):
             return torch.tensor(x, device=device, dtype=torch.float32) * torch.pi / 180.0
 
-        roll  = deg2rad(90.0)
+        roll = deg2rad(90.0)
         pitch = deg2rad(0.0)
-        yaw   = deg2rad(90.0)
+        yaw = deg2rad(90.0)
 
         c1, s1 = torch.cos(roll), torch.sin(roll)
         c2, s2 = torch.cos(pitch), torch.sin(pitch)
         c3, s3 = torch.cos(yaw), torch.sin(yaw)
 
         Rx = torch.tensor([[1, 0, 0],
-                        [0, c1, -s1],
-                        [0, s1,  c1]], device=device, dtype=torch.float32)
-        Ry = torch.tensor([[ c2, 0, s2],
-                        [  0, 1,  0],
-                        [-s2, 0, c2]], device=device, dtype=torch.float32)
+                           [0, c1, -s1],
+                           [0, s1, c1]], device=device, dtype=torch.float32)
+        Ry = torch.tensor([[c2, 0, s2],
+                           [0, 1, 0],
+                           [-s2, 0, c2]], device=device, dtype=torch.float32)
         Rz = torch.tensor([[c3, -s3, 0],
-                        [s3,  c3, 0],
-                        [ 0,   0, 1]], device=device, dtype=torch.float32)
+                           [s3, c3, 0],
+                           [0, 0, 1]], device=device, dtype=torch.float32)
 
         x1 = deg2rad(0.011)
         c, s = torch.cos(x1), torch.sin(x1)
         Rx1 = torch.tensor([[1., 0., 0.],
-                            [0.,  c, -s],
-                            [0.,  s,  c]], device=device, dtype=torch.float32)
+                            [0., c, -s],
+                            [0., s, c]], device=device, dtype=torch.float32)
 
         self._pc_R = (Rx1 @ Rz @ Ry @ Rx)  # (3,3)
         self._pc_t = torch.tensor([0.1654, 0.0, 0.0494], device=device, dtype=torch.float32)  # (3,)
@@ -577,8 +577,8 @@ class image_features(ManagerTermBase):
         # save_ply(rotated_points, colors=None, output_path=output_path.replace(".ply","_1.ply"))
         # save_ply(points, colors=None, output_path=output_path)
         # ===== 距离筛选部分 =====
-        points = rotated_points[rotated_points[:,2]<0.16]
-        points = points[points[:,1]>-0.05]
+        points = rotated_points[rotated_points[:, 2] < 0.16]
+        points = points[points[:, 1] > -0.05]
 
         def voxel_down_sample_fixed(points, voxel_size=2.0, num_points=1024, seed=None):
             """
@@ -712,8 +712,8 @@ class image_features(ManagerTermBase):
 
     # GPU-accelerated version for batch processing
     # 速度更慢
-    def depth_to_pointcloud_batch_gpu1(self, depth_batch, fx, fy, cx, cy, num_points=1024, 
-                                      save_ply_debug=False, env_id=0, frame_counter=None, save_dir="debug_pointclouds", env=None):
+    def depth_to_pointcloud_batch_gpu1(self, depth_batch, fx, fy, cx, cy, num_points=1024,
+                                       save_ply_debug=False, env_id=0, frame_counter=None, save_dir="debug_pointclouds", env=None):
         """GPU-accelerated batch point cloud generation with systematic PLY saving."""
         import os
         B, H, W = depth_batch.shape
@@ -728,7 +728,6 @@ class image_features(ManagerTermBase):
             if frame_counter is not None:
                 prefix = f"frame_{frame_counter:06d}"
             else:
-                import time
                 prefix = f"time_{int(time.time() * 1000)}"
 
         # Helper function to save PLY files
@@ -752,7 +751,7 @@ class image_features(ManagerTermBase):
 
         # Back-project to 3D
         Z = depth_batch
-        X = (u - cx) * Z / fx
+        X = -(u - cx) * Z / fx
         Y = (v - cy) * Z / fy
         points = torch.stack([X, -Y, Z], dim=-1)
 
@@ -766,29 +765,29 @@ class image_features(ManagerTermBase):
         def deg2rad(v, device):
             return torch.tensor(v, device=device) * torch.pi / 180.0
 
-        roll  = deg2rad(90.0, device)
-        pitch = deg2rad(0.0,  device)
-        yaw   = deg2rad(90.0, device)
+        roll = deg2rad(90.0, device)
+        pitch = deg2rad(0.0, device)
+        yaw = deg2rad(90.0, device)
         c1, s1 = torch.cos(roll), torch.sin(roll)
         c2, s2 = torch.cos(pitch), torch.sin(pitch)
         c3, s3 = torch.cos(yaw), torch.sin(yaw)
 
         Rx = torch.tensor([
             [1, 0, 0],
-            [0,  c1, -s1],
-            [0,  s1,  c1]
+            [0, c1, -s1],
+            [0, s1, c1]
         ], device=device, dtype=torch.float32)
 
         Ry = torch.tensor([
-            [ c2, 0, s2],
-            [  0, 1, 0],
+            [c2, 0, s2],
+            [0, 1, 0],
             [-s2, 0, c2]
         ], device=device, dtype=torch.float32)
 
         Rz = torch.tensor([
             [c3, -s3, 0],
-            [s3,  c3, 0],
-            [ 0,   0, 1]
+            [s3, c3, 0],
+            [0, 0, 1]
         ], device=device, dtype=torch.float32)
         # -----------------------------
         # 构造 4x4 transformation 矩阵 T
@@ -800,18 +799,18 @@ class image_features(ManagerTermBase):
 
         Rx1 = torch.tensor([
             [1., 0., 0.],
-            [0.,     c,    -s],
-            [0.,     s,     c],
+            [0., c, -s],
+            [0., s, c],
         ], device=device)
 
-        R = Rx1@ Rz @ Ry @ Rx 
+        R = Rx1 @ Rz @ Ry @ Rx
         # print(R)
         # import pdb
         # pdb.set_trace()
         points_flat = points.reshape(B, H * W, 3)
         rotated_points = torch.matmul(points_flat, R.T)
         translation = torch.tensor([0.1654, 0.0, 0.0494], device=device)
-        trans_points = rotated_points +translation
+        trans_points = rotated_points + translation
         # Save Stage 1: After rotation
         if save_ply_debug:
             points_trans = trans_points[env_id].cpu().numpy()
@@ -822,9 +821,9 @@ class image_features(ManagerTermBase):
         # mask2 = rotated_points[:, :, 1] > -0.0628
         # mask3 = rotated_points[:, :, 1] < 0.0428
         rand_thresh = np.random.uniform(-0.0003, 0.002)
-        mask2 = trans_points[:,:, 0] <=0.42
+        mask2 = trans_points[:, :, 0] <= 0.42
         # mask3 = trans_points[:,:, 2] >= -0.0003
-        mask3 = trans_points[:,:, 2] >= rand_thresh
+        mask3 = trans_points[:, :, 2] >= rand_thresh
 
         # mask4 = trans_points[:,:, 1] <=0.20
         # mask5 = trans_points[:,:, 1] >=-0.20
@@ -857,18 +856,18 @@ class image_features(ManagerTermBase):
         if save_ply_debug:
             points_final = result[env_id].cpu().numpy()
             save_ply(points_final, "3_downsampled")
-        
+
         # from .pointcloud_noise import add_noise
 
         # for b in range(B):
         #     result[b] = add_noise(result[b])
         #         # Save Stage 3: Final downsampled
-        
+
         # if save_ply_debug:
         #     points_final = result[env_id].cpu().numpy()
         #     save_ply(points_final, "4_noised")
-        result = randomize_pointcloud_batch_torch(result,dropout_rate=0.02,outlier_ratio=0.02,outlier_max_offset=0.08,surface_jitter=0.001)
-        
+        result = randomize_pointcloud_batch_torch(result, dropout_rate=0.02, outlier_ratio=0.02, outlier_max_offset=0.08, surface_jitter=0.001)
+
         # if save_ply_debug:
         #     points_final = result[env_id].cpu().numpy()
         #     save_ply(points_final, "4_random")
@@ -876,7 +875,7 @@ class image_features(ManagerTermBase):
         return result
 
     def _apply_domain_randomization(
-        self, 
+        self,
         images: torch.Tensor, 
         save_debug: bool = False,
         step_counter: int = 0
@@ -1103,42 +1102,42 @@ class image_features(ManagerTermBase):
         """
         B, N, _ = points.shape
         device = points.device
-        
+
         # Unpack bounds
         x_min, x_max = x_range
         y_min, y_max = y_range
         z_min, z_max = z_range
-        
+
         # Normalize points to [0, grid_size] coordinates
         x_normalized = (points[:, :, 0] - x_min) / (x_max - x_min) * grid_size
         y_normalized = (points[:, :, 1] - y_min) / (y_max - y_min) * grid_size
         z_normalized = (points[:, :, 2] - z_min) / (z_max - z_min) * grid_size
-        
+
         # Convert to integer indices and clamp
         x_idx = torch.clamp(x_normalized.long(), 0, grid_size - 1)
         y_idx = torch.clamp(y_normalized.long(), 0, grid_size - 1)
         z_idx = torch.clamp(z_normalized.long(), 0, grid_size - 1)
-        
+
         # Create occupancy grid
         voxels = torch.zeros(B, grid_size, grid_size, grid_size, device=device)
-        
+
         # Fill occupancy (batch-wise)
         for b in range(B):
             voxels[b, x_idx[b], y_idx[b], z_idx[b]] = 1.0
-        
+
         # Debug visualization
         if save_debug:
             self._save_voxel_visualization(voxels[0], grid_size, frame_counter)
             occupied_count = (voxels[0] > 0).sum().item()
             print(f"Voxel occupancy: {occupied_count}/{grid_size**3} ({occupied_count/(grid_size**3)*100:.1f}%)")
-        
+
         # Flatten spatial dimensions [B, D, H, W] -> [B, D*H*W]
         return voxels.flatten(start_dim=1)
 
     def _save_voxel_visualization(self, voxels: torch.Tensor, grid_size: int, frame_counter: int):
         """
         Save voxel grid visualization.
-        
+
         Args:
             voxels: [D, H, W] single voxel grid
             grid_size: Grid resolution
@@ -1147,26 +1146,25 @@ class image_features(ManagerTermBase):
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D
         import numpy as np
-        
+
         save_dir = "voxel_viz"
         os.makedirs(save_dir, exist_ok=True)
-        
+
         voxels_np = voxels.cpu().numpy()
         occupied = np.argwhere(voxels_np > 0.1)
-        
+
         if len(occupied) == 0:
             print(f"Warning: No occupied voxels to visualize")
             return
-        
+
         fig = plt.figure(figsize=(15, 5))
-        
+
         # 3D scatter plot
         ax1 = fig.add_subplot(131, projection='3d')
         ax1.scatter(occupied[:, 0], occupied[:, 1], occupied[:, 2],
-                c=voxels_np[occupied[:, 0], occupied[:, 1], occupied[:, 2]],
-                cmap='viridis', marker='s', s=50, alpha=0.6)
+                    c=voxels_np[occupied[:, 0], occupied[:, 1], occupied[:, 2]],
+                    cmap='viridis', marker='s', s=50, alpha=0.6)
         ax1.set_xlabel('X')
         ax1.set_ylabel('Y')
         ax1.set_zlabel('Z')
@@ -1174,27 +1172,27 @@ class image_features(ManagerTermBase):
         ax1.set_xlim([0, grid_size])
         ax1.set_ylim([0, grid_size])
         ax1.set_zlim([0, grid_size])
-        
+
         # Top-down view
         ax2 = fig.add_subplot(132)
         z_slice = voxels_np[:, :, grid_size // 2]
-        im2 = ax2.imshow(z_slice.T, origin='lower', cmap='viridis', 
+        im2 = ax2.imshow(z_slice.T, origin='lower', cmap='viridis',
                         interpolation='nearest', vmin=0, vmax=1)
         ax2.set_title(f'Top View (Z={grid_size//2})')
         ax2.set_xlabel('X')
         ax2.set_ylabel('Y')
         plt.colorbar(im2, ax=ax2)
-        
+
         # Side view
         ax3 = fig.add_subplot(133)
         y_slice = voxels_np[:, grid_size // 2, :]
         im3 = ax3.imshow(y_slice.T, origin='lower', cmap='viridis',
-                        interpolation='nearest', vmin=0, vmax=1)
+                         interpolation='nearest', vmin=0, vmax=1)
         ax3.set_title(f'Side View (Y={grid_size//2})')
         ax3.set_xlabel('X')
         ax3.set_ylabel('Z')
         plt.colorbar(im3, ax=ax3)
-        
+
         plt.tight_layout()
         save_path = os.path.join(save_dir, f"voxels_{frame_counter:06d}.png")
         plt.savefig(save_path, dpi=100, bbox_inches='tight')
@@ -1244,7 +1242,6 @@ class image_features(ManagerTermBase):
         # return the model, preprocess and inference functions
         return {"model": _load_model, "inference": _inference}
 
-
     def _prepare_resnet_model(self, model_name: str, model_device: str) -> dict:
         """Prepare the ResNet model for inference.
 
@@ -1282,7 +1279,7 @@ class image_features(ManagerTermBase):
             Returns:
                 The extracted features tensor. Shape is (num_envs, feature_dim).
             """
-  
+
             # move the image to the model device
             image_proc = images.to(model_device)
             # permute the image to (num_envs, channel, height, width)
@@ -1301,29 +1298,17 @@ class image_features(ManagerTermBase):
         return {"model": _load_model, "inference": _inference}
 
     def _prepare_pointnet_model(self) :
-        
+
         import torch.nn as nn
 
         experiment_dir = '/home/robo/code/IsaacLab'
         ckpt_path = f"{experiment_dir}/best_model.pth"
-
-        # ✅ 模型输入通道：原模型是 normal_channel=True（6 通道）
         classifier = PointNet2ClsMsg(num_class=40, normal_channel=False).cuda()  
-
-        # ✅ 加载 checkpoint
         checkpoint = torch.load(ckpt_path, map_location='cuda', weights_only=False)
-
-        # 拿出权重字典
         state_dict = checkpoint['model_state_dict']
-
-        # ✅ 加载修正后的权重
         classifier.load_state_dict(state_dict, strict=False)
-        # print("[INFO] Missing keys:", missing)
-        # print("[INFO] Unexpected keys:", unexpected)
-
         classifier.eval()
 
-        # ✅ 仅保留特征提取部分（encoder）
         class PointNet2Encoder(nn.Module):
             def __init__(self, base_model):
                 super().__init__()
@@ -1344,7 +1329,6 @@ class image_features(ManagerTermBase):
                 return features
 
         self._point_encoder = PointNet2Encoder(classifier).cuda().eval()
-            
 
 
 """

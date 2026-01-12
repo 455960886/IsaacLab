@@ -23,7 +23,7 @@ import os
 import omni.physics.tensors.impl.api as physx
 import omni.usd
 from isaacsim.core.utils.extensions import enable_extension
-from pxr import Gf, Sdf, UsdGeom, Vt, UsdShade, Usd
+from pxr import Gf, Sdf, UsdGeom, Vt, UsdShade
 
 import isaaclab.sim as sim_utils
 import isaaclab.utils.math as math_utils
@@ -33,10 +33,6 @@ from isaaclab.actuators import ImplicitActuator
 from isaaclab.assets import Articulation, DeformableObject, RigidObject
 from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
 from isaaclab.terrains import TerrainImporter
-from isaaclab.assets import RigidObjectCfg
-from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
-from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -531,7 +527,6 @@ def randomize_actuator_gains(
                 asset.write_joint_damping_to_sim(damping, joint_ids=actuator.joint_indices, env_ids=env_ids)
 
 
-
 def randomize_sphere_light_intensity(
     env: "ManagerBasedEnv",
     env_ids: torch.Tensor,
@@ -611,28 +606,8 @@ def randomize_light_color_temperature(
             sphere_light.GetColorTemperatureAttr().Set(float(temperature[i].item()))
             # print(f"sphere light {i} temperature set to {temperature[i]}")
 
-
     except Exception as e:
         print(f"Warning: Sphere light intensity randomization failed: {e}")
-
-
-def randomize_lighting_combined(
-    env: "ManagerBasedEnv",
-    env_ids: torch.Tensor,
-    intensity_range: tuple[float, float] = (500.0, 2000.0),
-    temperature_range: tuple[float, float] = (3000.0, 6500.0),
-) -> None:
-    """Combined lighting randomization function.
-
-    Args:
-        env: The environment instance.
-        env_ids: Environment indices to randomize.
-        intensity_range: Range for light intensity.
-        temperature_range: Range for color temperature.
-    """
-    randomize_dome_light_intensity(env, env_ids, intensity_range)
-    randomize_light_color_temperature(env, env_ids, temperature_range)
-
 
 
 def randomize_object_size(
@@ -702,7 +677,7 @@ def set_camera_rt_subframes(
     """Set RT subframes for camera to reduce ghosting."""
     try:
         import omni.usd
-        from pxr import Sdf, UsdGeom
+        from pxr import Sdf
         
         stage = omni.usd.get_context().get_stage()
         
@@ -1083,55 +1058,91 @@ def reset_object_pool_state_uniform(
     """Reset active objects in object pool to random position and velocity uniformly within given ranges."""
     from isaaclab.assets import RigidObjectCollection
     import isaaclab.utils.math as math_utils
+    # --- Curriculum override: merge pose_range with env cache (if exists) ---
+    pose_range_eff = dict(pose_range)  # copy to avoid in-place side effects
+    override = getattr(env, "_curriculum_reset_pose_range_override", None)
+    if isinstance(override, dict) and len(override) > 0:
+        # Only override keys that exist in override, e.g. {"y": (...)}
+        for k, v in override.items():
+            pose_range_eff[k] = v
+    pose_range = pose_range_eff
 
     # Extract object collection
     object_collection: RigidObjectCollection = env.scene[asset_cfg.name]
-    device = object_collection.device
 
     # Get active object indices
     if not hasattr(env, 'active_object_indices'):
         raise RuntimeError("active_object_indices not found")
-    # --- Curriculum override: merge pose_range with env cache (if exists) ---
-    pose_range_eff = dict(pose_range)  # copy to avoid in-place side effects
 
-    override = getattr(env, "_curriculum_reset_pose_range", None)
-    if override is not None:
-        # 只覆盖 override 里提供的维度，比如 {"y": (-0.02, 0.02)}
-        pose_range_eff.update(override)
-    
-    pose_range_list = [pose_range_eff.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
-    pose_ranges = torch.tensor(pose_range_list, device=device)
+    # Prepare pose ranges (same as original)
+    pose_range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    pose_ranges = torch.tensor(pose_range_list, device=object_collection.device)
     pose_rand_samples = math_utils.sample_uniform(
-        pose_ranges[:, 0], pose_ranges[:, 1], (len(env_ids), 6), device=device
+        pose_ranges[:, 0], pose_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
     )
 
     # Prepare velocity ranges (same as original)
     vel_range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
-    vel_ranges = torch.tensor(vel_range_list, device=device)
+    vel_ranges = torch.tensor(vel_range_list, device=object_collection.device)
     vel_rand_samples = math_utils.sample_uniform(
-        vel_ranges[:, 0], vel_ranges[:, 1], (len(env_ids), 6), device=device
+        vel_ranges[:, 0], vel_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
     )
+    # DEBUG 缓存：本次 reset 生成的 active object world y（直接用 position，避免依赖 root_pos_w 同步时序）
+    y_world_buf = torch.empty((len(env_ids),), device=object_collection.device, dtype=torch.float32)
 
-    # Vectorized reset (重要：显著减少 Python for-loop，reset 会更快，整体 fps 更高)
-    env_ids = env_ids.to(device=device)
-    active_obj_ids = env.active_object_indices[env_ids].to(device=device)  # (E,)
+    # Reset each environment's active object
+    for idx, env_idx in enumerate(env_ids):
+        active_obj_idx = env.active_object_indices[env_idx].item()
 
-    root_state = object_collection.data.default_object_state[env_ids, active_obj_ids].clone()  # (E, 13)
+        # Get default state for active object
+        root_state = object_collection.data.default_object_state[env_idx, active_obj_idx].clone()
 
-    position = root_state[:, 0:3] + env.scene.env_origins[env_ids] + pose_rand_samples[:, 0:3]
-    orientation_delta = math_utils.quat_from_euler_xyz(
-        pose_rand_samples[:, 3], pose_rand_samples[:, 4], pose_rand_samples[:, 5]
-    )
-    orientation = math_utils.quat_mul(root_state[:, 3:7], orientation_delta)
+        # Apply pose randomization (same logic as original)
+        position = root_state[0:3] + env.scene.env_origins[env_idx] + pose_rand_samples[idx, 0:3]
+        orientation_delta = math_utils.quat_from_euler_xyz(
+            pose_rand_samples[idx, 3], pose_rand_samples[idx, 4], pose_rand_samples[idx, 5]
+        )
+        orientation = math_utils.quat_mul(root_state[3:7], orientation_delta)
 
-    velocity = root_state[:, 7:13] + vel_rand_samples
-    new_state = torch.cat([position, orientation, velocity], dim=-1)  # (E, 13)
+        # Apply velocity randomization (same logic as original)
+        velocity = root_state[7:13] + vel_rand_samples[idx]
 
-    object_collection.write_object_state_to_sim(
-        new_state,
-        env_ids=env_ids,
-        object_ids=active_obj_ids,
-    )
+        # 记录 reset 当下生成的 world y（你真正想看的分布）
+        y_world_buf[idx] = position[1]
+
+        # Combine and write (adapted for object collection)
+        new_state = torch.cat([position, orientation, velocity], dim=-1)
+        object_collection.write_object_state_to_sim(
+            new_state.unsqueeze(0),
+            env_ids=torch.tensor([env_idx], device=object_collection.device),
+            object_ids=torch.tensor([active_obj_idx], device=object_collection.device)
+        )
+
+    # ------------------- DEBUG: cache reset-spawn distribution (y) -------------------
+    # 目标：记录“这次 reset 生成的 active object 的 y_delta = y_world - env_origin_y”
+    try:
+        step = int(getattr(env, "common_step_counter", -1))
+
+        env_ids_l = env_ids.to(dtype=torch.long)
+        origins_y = env.scene.env_origins[env_ids_l, 1]  # (N_reset,)
+        y_world = y_world_buf  # (N_reset,)
+        y_delta = y_world - origins_y
+
+        # 缓存到 env 上（会被下一次 reset 覆盖，所以 runner 要“每 step 及时收集”）
+        env._reset_spawn_debug_last = {
+            "step": step,
+            "env_ids": env_ids_l.detach(),               # tensor
+            "y_world": y_world.detach(),                 # tensor
+            "y_delta": y_delta.detach(),                 # tensor
+            "y_range_eff": tuple(pose_range_eff.get("y", (float("nan"), float("nan")))),
+        }
+    except Exception as e:
+        # 不要让 debug 影响训练
+        env._reset_spawn_debug_last = {"error": str(e)}
+
+    if getattr(env, "_dbg_last_pose_range_print_step", -10**9) < getattr(env, "common_step_counter", 0) - 2000:
+        env._dbg_last_pose_range_print_step = getattr(env, "common_step_counter", 0)
+        print(f"[RESET][object_pool] step={env.common_step_counter} pose_range(y)={pose_range.get('y', None)}", flush=True)
 
 
 def reset_root_state_with_random_orientation(
@@ -1390,57 +1401,6 @@ def reset_scene_to_default(env: ManagerBasedEnv, env_ids: torch.Tensor):
         # obtain default and set into the physics simulation
         nodal_state = deformable_object.data.default_nodal_state_w[env_ids].clone()
         deformable_object.write_nodal_state_to_sim(nodal_state, env_ids=env_ids)
-
-
-def force_clear_object_visuals(
-    env: "ManagerBasedEnv",
-    env_ids: torch.Tensor,
-    pose_range: dict[str, tuple[float, float]],
-    velocity_range: dict[str, tuple[float, float]],
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-) -> None:
-    """Force clear object visuals and reset to avoid ghost images.
-
-    This function uses USD visibility controls to force refresh the object visuals.
-    """
-    if env_ids is None:
-        env_ids = torch.arange(env.scene.num_envs, device=env.device)
-
-    try:
-        import omni.usd
-        from pxr import UsdGeom
-
-        asset = env.scene[asset_cfg.name]
-        stage = omni.usd.get_context().get_stage()
-
-        # First make objects invisible, then visible again to clear ghost images
-        for env_id in env_ids:
-            object_prim_path = asset.cfg.prim_path.replace("{ENV_REGEX_NS}", f"/World/envs/env_{env_id}")
-            object_prim = stage.GetPrimAtPath(object_prim_path)
-
-            if object_prim.IsValid():
-                # Method 1: Use visibility attribute
-                imageable = UsdGeom.Imageable(object_prim)
-                if imageable:
-                    # Make invisible
-                    imageable.MakeInvisible()
-                    # Immediately make visible again
-                    imageable.MakeVisible()
-
-                # Method 2: Force geometry refresh by toggling purpose
-                geom_prim = UsdGeom.Gprim(object_prim)
-                if geom_prim:
-                    current_purpose = geom_prim.GetPurposeAttr().Get()
-                    # Toggle purpose to force refresh
-                    geom_prim.GetPurposeAttr().Set("proxy")
-                    geom_prim.GetPurposeAttr().Set(current_purpose or "default")
-
-        # Now do normal position reset
-        reset_root_state_uniform(env, env_ids, pose_range, velocity_range, asset_cfg)
-
-    except Exception as e:
-        print(f"Warning: Visual clearing failed, using normal reset: {e}")
-        reset_root_state_uniform(env, env_ids, pose_range, velocity_range, asset_cfg)
 
 
 class randomize_visual_texture_material(ManagerTermBase):
@@ -1762,7 +1722,7 @@ def initialize_point_cloud_cache(
 def randomize_floor_texture(
     env: "ManagerBasedEnv",
     env_ids: torch.Tensor,
-    texture_txt_path:str,
+    texture_txt_path: str,
 ) -> None:
     """Randomize floor texture on reset."""
     if env_ids is None:
@@ -1878,7 +1838,6 @@ def randomize_bus_texture_event(
         env._bus_tex_randomizer_initialized = True
 
     # 3) 每次 reset：只给这次 reset 的 env_ids 触发对应事件
-    step = getattr(env, "common_step_counter", None)
     ids = env_ids.tolist() if hasattr(env_ids, "tolist") else list(env_ids)
 
     for eid in ids:
@@ -1919,9 +1878,9 @@ def randomize_multiple_sphere_lights(
             if light_prim.IsValid():
                 # 随机位置
                 pos = (
-                    np.random.uniform(-0.5,0.2 ),
+                    np.random.uniform(-0.5, 0.2),
                     np.random.uniform(-0.5, 0.5),
-                    np.random.uniform(0.5,1.5),
+                    np.random.uniform(0.5, 1.5),
                 )
                 light_prim.GetAttribute("xformOp:translate").Set(pos)
                 # 随机缩放
@@ -1942,30 +1901,3 @@ def randomize_multiple_sphere_lights(
                 light_prim.GetAttribute("inputs:color").Set(color)
             else:
                 print(f"[Warning] SphereLight_{i} not found for env {env_id}")
-
-
-def log_object_distribution(
-    env: ManagerBasedEnv,
-    env_ids: torch.Tensor | None,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-):
-    """Log the distribution of objects across environments at startup."""
-    if not hasattr(env, 'active_object_indices'):
-        print("⚠️  Warning: active_object_indices not found!")
-        return
-
-    object_collection = env.scene[asset_cfg.name]
-    object_names = object_collection.object_names
-    num_objects = len(object_names)
-
-    print("\n" + "="*60)
-    print("🎯 Object Distribution Across Environments:")
-    print("="*60)
-
-    for obj_idx in range(num_objects):
-        count = (env.active_object_indices == obj_idx).sum().item()
-        percentage = (count / env.num_envs) * 100
-        obj_name = object_names[obj_idx]
-        print(f"  {obj_name:20s}: {count:3d} envs ({percentage:5.1f}%)")
-
-    print("="*60 + "\n")

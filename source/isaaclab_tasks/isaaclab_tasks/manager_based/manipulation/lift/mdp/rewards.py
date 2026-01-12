@@ -9,12 +9,9 @@ import numpy as np
 import torch
 from typing import TYPE_CHECKING
 
-import math
-
 from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import FrameTransformer
-from isaaclab.utils.math import combine_frame_transforms, matrix_from_quat
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -24,7 +21,7 @@ if TYPE_CHECKING:
 def get_active_object_states(env: ManagerBasedRLEnv, object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")):
     """
     Helper function to get states of active objects from object pool.
-    
+
     Returns:
         pos_w: (num_envs, 3) - World positions of active objects
         quat_w: (num_envs, 4) - World orientations of active objects [w, x, y, z]
@@ -72,7 +69,7 @@ def object_is_lifted_linear(
     minimal_height: float, 
     max_height: float,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")
-    ):
+):
     """Linearly reward the agent for lifting the active object above the minimal height."""
     # Get active object positions
     active_pos_w, _ = get_active_object_states(env, object_cfg)
@@ -802,12 +799,6 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
             left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
             right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
 
-            # Transform to camera frame
-            camera = env.scene.sensors["depth_camera"]
-            camera_pos_w = camera.data.pos_w
-            camera_quat_w = camera.data.quat_w_ros
-            camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
-
             left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, "depth_camera")
             right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, "depth_camera")
 
@@ -832,7 +823,7 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Save point cloud visualization with sphere region highlighted."""
-    from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
+    from .gripper_transform import transform_world_to_camera
     import os
 
     if env.common_step_counter % 1 == 0:
@@ -842,12 +833,6 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
             left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
             right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
             active_pos_w, _ = get_active_object_states(env)
-
-            # Transform to camera frame
-            camera = env.scene.sensors["depth_camera"]
-            camera_pos_w = camera.data.pos_w
-            camera_quat_w = camera.data.quat_w_ros
-            camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
 
             left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, "depth_camera")
             right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, "depth_camera")

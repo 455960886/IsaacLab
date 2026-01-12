@@ -19,17 +19,10 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransformerCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
-from isaaclab.sensors import TiledCameraCfg,CameraCfg, ContactSensorCfg
+from isaaclab.sensors import TiledCameraCfg, ContactSensorCfg
 
-from isaaclab.sensors.ray_caster import RayCasterCfg, patterns
-
-from isaaclab.sensors.camera.utils import create_pointcloud_from_depth
 # from isaaclab.sensors.ray_caster.patterns.patterns_cfg import LidarPatternCfg
 
-import torch
-import math
-import torch.nn as nn
 # from .custom_ray_caster import FixedRayCaster
 
 from . import mdp
@@ -69,8 +62,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     FloorWithPanels = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/FloorwithPanels",
         init_state=AssetBaseCfg.InitialStateCfg(
-            pos=[0.0, 0.0, 0.0],
-            rot=[0, 0, 0, 1],
+            pos=(0.0, 0.0, 0.0),
+            rot=(0, 0, 0, 1),
         ),
         spawn=UsdFileCfg(usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/FloorWithPanels.usd"),
     )
@@ -80,8 +73,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     sphere_light_0 = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/SphereLight_0",
         init_state=AssetBaseCfg.InitialStateCfg(
-            pos=[2.5, 0.0, 4.5],
-            rot=[0, 0, 0, 1],
+            pos=(2.5, 0.0, 4.5),
+            rot=(0, 0, 0, 1),
         ),
         spawn=sim_utils.SphereLightCfg(
             color=(1.0, 1.0, 1.0),
@@ -95,8 +88,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     sphere_light_1 = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/SphereLight_1",
         init_state=AssetBaseCfg.InitialStateCfg(
-            pos=[5.0, 0.0, 4.5],
-            rot=[0, 0, 0, 1],
+            pos=(5.0, 0.0, 4.5),
+            rot=(0, 0, 0, 1),
         ),
         spawn=sim_utils.SphereLightCfg(
             color=(1.0, 1.0, 1.0),
@@ -115,8 +108,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     sphere_light_0 = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/SphereLight_0",
         init_state=AssetBaseCfg.InitialStateCfg(
-            pos=[2.5, 0.0, 4.5],
-            rot=[0, 0, 0, 1],
+            pos=(2.5, 0.0, 4.5),
+            rot=(0, 0, 0, 1),
         ),
         spawn=sim_utils.SphereLightCfg(
             color=(1.0, 1.0, 1.0),
@@ -130,8 +123,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     sphere_light_1 = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/SphereLight_1",
         init_state=AssetBaseCfg.InitialStateCfg(
-            pos=[5.0, 0.0, 4.5],
-            rot=[0, 0, 0, 1],
+            pos=(5.0, 0.0, 4.5),
+            rot=(0, 0, 0, 1),
         ),
         spawn=sim_utils.SphereLightCfg(
             color=(1.0, 1.0, 1.0),
@@ -145,12 +138,12 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     depth_camera: TiledCameraCfg = TiledCameraCfg(
         # prim_path="{ENV_REGEX_NS}/depth_camera",
         prim_path="{ENV_REGEX_NS}/Robot/M0_chassis_link/tof_link/depth_camera",
-        offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.0, -1.0, 0.0, 0.0)), convention="opengl"),
+        offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.01309, -0.99991, 0.0, 0.0)), convention="opengl"),
         data_types=["distance_to_image_plane"],  # Key change to depth
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=40, focus_distance=400.0, horizontal_aperture=36, vertical_aperture=25.45,
+            focal_length=40, focus_distance=400.0, horizontal_aperture=80, vertical_aperture=31.512,
         ),
-        width=200,
+        width=314,
         height=150,
         debug_vis=False,
         update_period=0.2,
@@ -299,7 +292,7 @@ class EventCfg:
         params={
             "pose_range": {
                 "x": (-0.01, 0.07),
-                "y": (-0.1, 0.1),
+                "y": (-0.07, 0.07),
                 # "y": (0.0, 0.0),
                 "z": (0.0, 0.0),
                 # "roll": (-0.1, 0.1),
@@ -390,30 +383,32 @@ class TerminationsCfg:
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
-    # object_dropping = DoneTerm(
-    #     func=mdp.root_height_below_minimum,
-    #     params={"minimum_height": 0.0},
-    # )
+    object_pushed = DoneTerm(
+        func=mdp.object_pushed_away,
+        params={
+            "x_limits": (0.15, 0.6),
+            "y_tolerance": 0.08,
+            "object_cfg": SceneEntityCfg("object_pool"),
+            "robot_cfg": SceneEntityCfg("robot")
+        },
+    )
 
 
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
-    # 先学会抓：y 小范围；再逐步扩展到最终范围
-    widen_reset_y = CurrTerm(
-        func=mdp.widen_reset_y,
-        params={"axis": "y", "start": 0.00, "end": 0.10, "duration_steps": 200_000},
+    expand_object_y = CurrTerm(
+        func=mdp.curriculum_expand_object_spawn_y_range_linear,
+        params={
+            "y_range_start": (-0.01, 0.01),
+            "y_range_end": (-0.10, 0.10),
+            "start_step": 0,
+            "end_step": 32000,
+            "update_every_steps": 200,
+            "debug": True,
+            "debug_every_steps": 2000,
+        },
     )
-    # （可选）如果你也想 x 做 curriculum（比如前后也随机得很大）
-    # widen_reset_x = CurrTerm(
-    #     func=mdp.curriculum_reset_pose_range,
-    #     params={
-    #         "axis": "x",
-    #         "start": (-0.005, 0.02),
-    #         "end":   (-0.01, 0.07),
-    #         "duration_steps": 6_000_000,
-    #     },
-    # )
 
 
 ##

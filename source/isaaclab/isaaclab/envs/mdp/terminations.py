@@ -60,7 +60,6 @@ def bad_orientation(
     return torch.acos(-asset.data.projected_gravity_b[:, 2]).abs() > limit_angle
 
 
-
 def object_pushed_away(
     env: ManagerBasedRLEnv, 
     x_limits: tuple[float, float] = (0.22, 0.42),
@@ -103,9 +102,8 @@ def object_pushed_away(
     return outside_x | outside_y
 
 
-
 def bad_object_orientation(
-    env: ManagerBasedRLEnv, 
+    env: ManagerBasedRLEnv,
     limit_angle: float,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")
 ) -> torch.Tensor:
