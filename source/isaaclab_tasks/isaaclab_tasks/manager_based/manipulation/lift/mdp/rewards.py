@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 import torch
+import math
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import RigidObject
@@ -15,6 +16,101 @@ from isaaclab.sensors import FrameTransformer
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
+
+
+def m0_turn_toward_object(
+    env,
+    std: float = 0.35,                       # 越小越“严格”
+    in_range_deg: float | None = 20.0,       # 只奖励“转到范围内”；None 表示用连续高斯奖励
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    center_from_robot: bool = True,
+    debug: bool = False,
+    debug_every_steps: int = 1,
+    debug_env: int = 0,
+):
+    """
+    让 M0 朝向物体所在方向：
+    - target_yaw = atan2(obj_y - center_y, obj_x - center_x)
+    - err = wrap_to_pi(target_yaw - m0_yaw)
+    - reward: 1) 如果 in_range_deg 不为 None：在范围内给 1，否则给 0（容易学“转到位”）
+              2) 如果 in_range_deg 为 None：用 exp(-0.5*(err/std)^2)（更平滑）
+    """
+    robot = env.scene[robot_cfg.name]
+
+    # Get M0 关节索引作为缓存
+    if not hasattr(env, '_m0_joint_id'):
+        # find_joints 返回 (list[int], list[str])
+        joint_ids, joint_names = robot.find_joints("^M0$", preserve_order=True)
+        if len(joint_ids) == 0:
+            # 容错：如果你的关节命名不是严格 M0，可以先用 "M0" 模糊匹配一次
+            joint_ids, joint_names = robot.find_joints("M0", preserve_order=True)
+        if len(joint_ids) == 0:
+            raise RuntimeError(
+                f"Cannot resolve M0 joint id. Available joints: {robot.joint_names}"
+            )
+        if len(joint_ids) > 1:
+            # 一般不会发生，但如果发生，打印一下你匹配到了哪些
+            raise RuntimeError(f"Multiple joints matched M0: {list(zip(joint_ids, joint_names))}")
+        env._m0_joint_id = int(joint_ids[0])
+
+    m0_id = env._m0_joint_id
+    m0_yaw = robot.data.joint_pos[:, m0_id]  # (num_envs,)
+
+    # --- active object world position（你原来 rewards.py 里已经有 helper 就用它；没有就按下面方式取）---
+    if "get_active_object_states" in globals():
+        obj_pos_w, _ = get_active_object_states(env, object_cfg)
+    else:
+        # fallback: 尽量从 RigidObjectCollection 里取（不同版本字段名可能不同）
+        obj_asset = env.scene[object_cfg.name]
+        if hasattr(obj_asset.data, "root_pos_w"):
+            # (num_envs, num_objects, 3) + active index
+            active = env.active_object_indices.to(dtype=torch.long)
+            obj_pos_w = obj_asset.data.root_pos_w[torch.arange(active.shape[0], device=active.device), active]
+        elif hasattr(obj_asset.data, "object_pos_w"):
+            active = env.active_object_indices.to(dtype=torch.long)
+            obj_pos_w = obj_asset.data.object_pos_w[torch.arange(active.shape[0], device=active.device), active]
+        else:
+            raise RuntimeError("Cannot access active object position. Please ensure get_active_object_states exists.")
+
+    # 圆心：用 robot root 或者 env_origin
+    if center_from_robot:
+        center_w = robot.data.root_pos_w  # (num_envs, 3)
+    else:
+        center_w = env.scene.env_origins  # (num_envs, 3)
+
+    d = obj_pos_w - center_w
+    target_yaw = torch.atan2(d[:, 1], d[:, 0])  # (num_envs,)
+
+    # 封装到 [-pi, pi]
+    err = torch.atan2(torch.sin(target_yaw - m0_yaw), torch.cos(target_yaw - m0_yaw))
+
+    # ===== debug 打印：每步输出 target_yaw / m0_yaw / err(deg) =====
+    if debug:
+        step = int(getattr(env, "common_step_counter", -1))
+        last = int(getattr(env, "_dbg_m0_turn_last_print_step", -10**9))
+        every = max(int(debug_every_steps), 1)
+        if step - last >= every:
+            setattr(env, "_dbg_m0_turn_last_print_step", step)
+            e = int(debug_env)
+            if 0 <= e < err.shape[0]:
+                rad2deg = 180.0 / math.pi
+                t_deg = float(target_yaw[e].item() * rad2deg)
+                m_deg = float(m0_yaw[e].item() * rad2deg)
+                err_deg = float(err[e].item() * rad2deg)
+                print(
+                    f"[m0_turn_dbg] step={step} env={e} "
+                    f"target_yaw={t_deg:+.2f}deg  m0_yaw={m_deg:+.2f}deg  err={err_deg:+.2f}deg",
+                    flush=True,
+                )
+
+    if in_range_deg is not None:
+        thr = float(in_range_deg) * math.pi / 180.0
+        return (err.abs() <= thr).to(dtype=torch.float32)
+    else:
+        # smooth gaussian shaping
+        std = max(float(std), 1e-6)
+        return torch.exp(-0.5 * (err / std) ** 2)
 
 
 # Help Function to get the states of active object from the object pool
@@ -170,21 +266,21 @@ def object_ee_distance(
     """Reward the agent for reaching the active object using tanh-kernel."""
     # Get active object positions
     active_pos_w, _ = get_active_object_states(env, object_cfg)
-    
+
     # Extract the end-effector frame
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
     ee_w = ee_frame.data.target_pos_w[..., 0, :]
 
     # Calculate distance between EE and active object
     object_ee_distance = torch.norm(active_pos_w - ee_w, dim=1)
-    
+
     # joint_pos = env.scene["robot"].data.joint_pos  # (envs, joints)
     # gripper_status = torch.abs(joint_pos[:, -1])
     # gripper_open = gripper_status >0.4
     # mask = 0.2 + 0.8*gripper_open
     # # print(object_ee_distance)
     # return (1 - torch.tanh(object_ee_distance/std)) *mask
-    
+
     return 1 - torch.tanh(object_ee_distance/std)
 
 
@@ -306,7 +402,7 @@ def penalize_m0_after_lift(
     """
     # Get active object positions
     active_pos_w, _ = get_active_object_states(env, object_cfg)
-    
+
     # Get robot
     robot: RigidObject = env.scene[robot_cfg.name]
 
@@ -314,7 +410,7 @@ def penalize_m0_after_lift(
     object_lifted = active_pos_w[:, 2] > minimal_height
 
     # Get current M0 joint position (first joint, index 0)
-    current_m0_pos = robot.data.joint_pos[:, 1]
+    current_m0_pos = robot.data.joint_pos[:, 0]
 
     # Initialize previous M0 position storage if it doesn't exist
     if not hasattr(env, '_prev_m0_pos'):

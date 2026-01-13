@@ -112,7 +112,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         )
 
         self.commands.object_pose.body_name = "M6_1_leftfinger_link"
-        
+
         # Create dummy object to satisfy parent class validation
         self.scene.object = RigidObjectCfg(
             prim_path="/World/envs/env_.*/Object_Dummy",
@@ -133,8 +133,8 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 "lego": RigidObjectCfg(
                     prim_path="/World/envs/env_.*/lego",
                     spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/lego_1.usd",
-                        scale=(1.0, 2.0, 1.0),
+                        usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/lego_gongzixing.usdc",
+                        scale=(4.0, 4.0, 8.0),
                         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                             solver_position_iteration_count=64,
                             solver_velocity_iteration_count=32,
@@ -144,7 +144,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                             articulation_enabled=False,  # CRITICAL: Disable articulation
                         ),
                     ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.0), rot=(0.5, 0.5, 0.5, 0.5)),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.0), rot=(1, 0, 0, 0)),
                 ),
                 # "paperball": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/paperball",
@@ -166,21 +166,21 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.01, 0.0]),
                 # ),
 
-                "bus": RigidObjectCfg(
-                    prim_path="/World/envs/env_.*/bus",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/bus_2.usd",
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=128,
-                            solver_velocity_iteration_count=64,
-                            disable_gravity=False,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.00, 0.02), rot=(0.7071, 0.0, 0.0, 0.7071)),
-                ),
+                # "bus": RigidObjectCfg(
+                #     prim_path="/World/envs/env_.*/bus",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/bus_2.usd",
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=128,
+                #             solver_velocity_iteration_count=64,
+                #             disable_gravity=False,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.00, 0.02), rot=(0.7071, 0.0, 0.0, 0.7071)),
+                # ),
 
                 # "eye_drops": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/eye_drops",
@@ -198,7 +198,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     ),
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.012, 0.00)),
                 # ),
-        
+
             },
         )
 

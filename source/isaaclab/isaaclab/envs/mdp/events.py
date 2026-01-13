@@ -1054,95 +1054,161 @@ def reset_object_pool_state_uniform(
     pose_range: dict[str, tuple[float, float]],
     velocity_range: dict[str, tuple[float, float]],
     asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    spawn_mode: str = "cartesian",           # "cartesian" | "arc_angle"
+    angle_range_deg: tuple[float, float] = (-40.0, 40.0),
+    radius_range: tuple[float, float] | None = None,
+    center_from_robot: bool = False,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    align_yaw_to_center: bool = False,
+    eps: float = 1e-4,
 ):
-    """Reset active objects in object pool to random position and velocity uniformly within given ranges."""
     from isaaclab.assets import RigidObjectCollection
     import isaaclab.utils.math as math_utils
-    # --- Curriculum override: merge pose_range with env cache (if exists) ---
-    pose_range_eff = dict(pose_range)  # copy to avoid in-place side effects
+
+    # -------- curriculum 覆盖 pose_range（原逻辑） --------
+    pose_range_eff = dict(pose_range)
     override = getattr(env, "_curriculum_reset_pose_range_override", None)
     if isinstance(override, dict) and len(override) > 0:
-        # Only override keys that exist in override, e.g. {"y": (...)}
         for k, v in override.items():
             pose_range_eff[k] = v
     pose_range = pose_range_eff
 
-    # Extract object collection
     object_collection: RigidObjectCollection = env.scene[asset_cfg.name]
 
-    # Get active object indices
-    if not hasattr(env, 'active_object_indices'):
+    if not hasattr(env, "active_object_indices"):
         raise RuntimeError("active_object_indices not found")
 
-    # Prepare pose ranges (same as original)
-    pose_range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    # ⭐ 初始化 debug list（只在第一次建一个）
+    if not hasattr(env, "_spawn_debug_xy"):
+        env._spawn_debug_xy = []   # 每个元素是 (x_world, y_world)
+
+    # 采样姿态偏移
+    pose_range_list = [pose_range.get(k, (0.0, 0.0)) for k in ["x", "y", "z", "roll", "pitch", "yaw"]]
     pose_ranges = torch.tensor(pose_range_list, device=object_collection.device)
     pose_rand_samples = math_utils.sample_uniform(
         pose_ranges[:, 0], pose_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
     )
 
-    # Prepare velocity ranges (same as original)
-    vel_range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    # 采样速度偏移
+    vel_range_list = [velocity_range.get(k, (0.0, 0.0)) for k in ["x", "y", "z", "roll", "pitch", "yaw"]]
     vel_ranges = torch.tensor(vel_range_list, device=object_collection.device)
     vel_rand_samples = math_utils.sample_uniform(
         vel_ranges[:, 0], vel_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
     )
-    # DEBUG 缓存：本次 reset 生成的 active object world y（直接用 position，避免依赖 root_pos_w 同步时序）
+
     y_world_buf = torch.empty((len(env_ids),), device=object_collection.device, dtype=torch.float32)
+    env_ids_l = env_ids.to(dtype=torch.long)
 
-    # Reset each environment's active object
-    for idx, env_idx in enumerate(env_ids):
+    # 圆心：env_origin 或 robot root
+    if center_from_robot:
+        robot = env.scene[robot_cfg.name]
+        centers_w = robot.data.root_pos_w[env_ids_l]
+    else:
+        centers_w = env.scene.env_origins[env_ids_l]
+
+    use_default_radius = radius_range is None
+
+    for idx, env_idx in enumerate(env_ids_l):
         active_obj_idx = env.active_object_indices[env_idx].item()
-
-        # Get default state for active object
         root_state = object_collection.data.default_object_state[env_idx, active_obj_idx].clone()
+        center_w = centers_w[idx]
 
-        # Apply pose randomization (same logic as original)
-        position = root_state[0:3] + env.scene.env_origins[env_idx] + pose_rand_samples[idx, 0:3]
-        orientation_delta = math_utils.quat_from_euler_xyz(
-            pose_rand_samples[idx, 3], pose_rand_samples[idx, 4], pose_rand_samples[idx, 5]
-        )
-        orientation = math_utils.quat_mul(root_state[3:7], orientation_delta)
+        # ===== 位置 =====
+        if spawn_mode == "cartesian":
+            position = root_state[0:3] + center_w + pose_rand_samples[idx, 0:3]
 
-        # Apply velocity randomization (same logic as original)
+        elif spawn_mode == "arc_angle":
+            # 半径
+            if use_default_radius:
+                r0 = torch.linalg.norm(root_state[0:2]).clamp(min=eps)
+                r_min = r_max = r0
+            else:
+                r_min, r_max = radius_range
+            r = math_utils.sample_uniform(r_min, r_max, (1,), device=object_collection.device)[0].clamp(min=eps)
+            # 角度
+            ang_min, ang_max = angle_range_deg
+            ang_deg = math_utils.sample_uniform(ang_min, ang_max, (1,), device=object_collection.device)[0]
+            ang_rad = ang_deg * math.pi / 180.0
+            # 极坐标 -> xy
+            x_rel = r * torch.cos(ang_rad)
+            y_rel = r * torch.sin(ang_rad)
+            z_rel = root_state[2] + pose_rand_samples[idx, 2]
+            position = center_w + torch.stack([x_rel, y_rel, z_rel], dim=0)
+        else:
+            raise ValueError(f"Unknown spawn_mode: {spawn_mode}")
+
+        # ===== 姿态 & 速度 =====
+        #
+        # 目标：在 arc_angle 模式下（扇形采样），让物体的“正面”朝向圆心（M0 所在的圆心）。
+        # 假设物体的前进方向是自身坐标系的 +X 轴，这里让 +X 指向圆心。
+        default_quat = root_state[3:7]
+
+        if spawn_mode == "arc_angle" and align_yaw_to_center:
+            # ---------- 1. 计算“朝向圆心”的 yaw ----------
+            # 向量：从物体位置指向圆心
+            vec_to_center = center_w - position      # [3]
+            # 只看平面 (x, y)，求方位角
+            yaw = torch.atan2(vec_to_center[1], vec_to_center[0])  # 弧度
+
+            # ---------- 2. 可选：加入一点随机 roll/pitch（保持 yaw 对齐） ----------
+            roll = pose_rand_samples[idx, 3]
+            pitch = pose_rand_samples[idx, 4]
+            zero = torch.zeros((), device=object_collection.device)
+
+            # 先随机一个“俯仰 / 翻滚”
+            q_rp = math_utils.quat_from_euler_xyz(roll, pitch, zero)
+            # 再根据 yaw 让 +X 朝向圆心
+            q_yaw = math_utils.quat_from_euler_xyz(zero, zero, yaw)
+
+            orientation = math_utils.quat_mul(q_yaw, q_rp)
+        else:
+            # 原来的逻辑：默认姿态 + 随机欧拉角（全 xyz）
+            orientation_delta = math_utils.quat_from_euler_xyz(
+                pose_rand_samples[idx, 3], pose_rand_samples[idx, 4], pose_rand_samples[idx, 5]
+            )
+            orientation = math_utils.quat_mul(default_quat, orientation_delta)
+        
         velocity = root_state[7:13] + vel_rand_samples[idx]
 
-        # 记录 reset 当下生成的 world y（你真正想看的分布）
+        x_world = float(position[0].item())
+        y_world = float(position[1].item())
+        env._spawn_debug_xy.append((x_world, y_world))
+
         y_world_buf[idx] = position[1]
 
-        # Combine and write (adapted for object collection)
         new_state = torch.cat([position, orientation, velocity], dim=-1)
         object_collection.write_object_state_to_sim(
             new_state.unsqueeze(0),
             env_ids=torch.tensor([env_idx], device=object_collection.device),
-            object_ids=torch.tensor([active_obj_idx], device=object_collection.device)
+            object_ids=torch.tensor([active_obj_idx], device=object_collection.device),
         )
 
-    # ------------------- DEBUG: cache reset-spawn distribution (y) -------------------
-    # 目标：记录“这次 reset 生成的 active object 的 y_delta = y_world - env_origin_y”
+    # ===== 下面是原来的 debug 逻辑（略微扩展）=====
     try:
         step = int(getattr(env, "common_step_counter", -1))
-
-        env_ids_l = env_ids.to(dtype=torch.long)
-        origins_y = env.scene.env_origins[env_ids_l, 1]  # (N_reset,)
-        y_world = y_world_buf  # (N_reset,)
+        origins_y = env.scene.env_origins[env_ids_l, 1]
+        y_world = y_world_buf
         y_delta = y_world - origins_y
-
-        # 缓存到 env 上（会被下一次 reset 覆盖，所以 runner 要“每 step 及时收集”）
         env._reset_spawn_debug_last = {
             "step": step,
-            "env_ids": env_ids_l.detach(),               # tensor
-            "y_world": y_world.detach(),                 # tensor
-            "y_delta": y_delta.detach(),                 # tensor
-            "y_range_eff": tuple(pose_range_eff.get("y", (float("nan"), float("nan")))),
+            "env_ids": env_ids_l.detach(),
+            "y_world": y_world.detach(),
+            "y_delta": y_delta.detach(),
+            "y_range_eff": tuple(pose_range_eff.get("y", (float('nan'), float('nan')))),
+            "spawn_mode": spawn_mode,
+            "angle_range_deg": angle_range_deg,
+            "radius_range": radius_range if radius_range is not None else "default_root_radius",
         }
     except Exception as e:
-        # 不要让 debug 影响训练
         env._reset_spawn_debug_last = {"error": str(e)}
 
     if getattr(env, "_dbg_last_pose_range_print_step", -10**9) < getattr(env, "common_step_counter", 0) - 2000:
         env._dbg_last_pose_range_print_step = getattr(env, "common_step_counter", 0)
-        print(f"[RESET][object_pool] step={env.common_step_counter} pose_range(y)={pose_range.get('y', None)}", flush=True)
+        print(
+            f"[RESET][object_pool] step={env.common_step_counter} "
+            f"spawn_mode={spawn_mode} angle_deg={angle_range_deg} radius_range={radius_range}",
+            flush=True,
+        )
 
 
 def reset_root_state_with_random_orientation(

@@ -4,6 +4,10 @@ import argparse
 import torch
 import numpy as np
 import weakref
+import os
+import matplotlib
+matplotlib.use("Agg")  # 非交互式后端，适合在 Isaac 里跑
+import matplotlib.pyplot as plt
 
 from isaaclab.app import AppLauncher
 
@@ -24,7 +28,104 @@ import gymnasium as gym
 import carb
 import omni.appwindow
 
-from isaaclab_tasks.manager_based.manipulation.lift.lift_env_cfg import LiftEnvCfg
+
+def try_extract_m0_pos_from_obs(obs):
+    """
+    尝试从 env.reset()/env.step() 返回的 obs 里取出 m0_pos。
+    兼容两种形式：
+      1) obs 是 dict，且 obs["policy"] 是拼接后的 tensor -> 默认最后一维是 m0_pos
+      2) obs 是 dict，且 obs["policy"] 是 dict -> 直接找 key "m0_pos"
+      3) obs 直接就是 tensor -> 默认最后一维是 m0_pos（不常见，但顺手兼容）
+    取第 0 个 env 的值（多 env 时也能跑）。
+    """
+    try:
+        # case A: dict obs
+        if isinstance(obs, dict):
+            pol = obs.get("policy", None)
+            if pol is None:
+                return None
+
+            # A1: policy 是 dict（未 concatenate_terms）
+            if isinstance(pol, dict):
+                if "m0_pos" not in pol:
+                    return None
+                t = pol["m0_pos"]
+                if torch.is_tensor(t):
+                    if t.numel() == 0:
+                        return None
+                    return float(t.reshape(-1)[0].item())
+                # numpy / list fallback
+                arr = np.array(t).reshape(-1)
+                return float(arr[0])
+
+            # A2: policy 是 tensor（concatenate_terms=True）
+            if torch.is_tensor(pol):
+                if pol.numel() == 0:
+                    return None
+                # 默认最后一维就是 m0_pos（因为你在 cfg 里把 m0_pos 放在 image 后面）
+                return float(pol[0, -1].item())
+
+        # case B: obs 直接是 tensor
+        if torch.is_tensor(obs):
+            if obs.numel() == 0:
+                return None
+            return float(obs[0, -1].item())
+
+    except Exception as e:
+        print(f"[m0_debug] extract m0_pos failed: {e}")
+        return None
+
+    return None
+
+
+def print_m0_pos_from_obs(obs, prefix="[m0_debug]"):
+    """打印 m0_pos（rad 和 deg），用于确认 M0 角度进了观测。"""
+    m0 = try_extract_m0_pos_from_obs(obs)
+    if m0 is None:
+        print(f"{prefix} 没有在 obs 里找到 m0_pos（可能 cfg 没生效，或 policy 观测不是 dict/tensor 预期结构）")
+        return
+    m0_deg = m0 * 180.0 / np.pi
+    print(f"{prefix} m0_pos = {m0:+.6f} rad  ({m0_deg:+.2f} deg)")
+
+
+def plot_spawn_distribution(env, out_dir="spawn_debug"):
+    """
+    在当前目录下的 spawn_debug/ 里保存一次散点图。
+    点来自 env.unwrapped._spawn_debug_xy（在 reset_object_pool_state_uniform 里记录）。
+    - 如果没记录到任何点，就什么也不画，只打印一句提示。
+    - 每次调用都会生成一个新文件 spawn_xy_0000.png, spawn_xy_0001.png, ...
+    """
+    # 保护：没有这个属性或者为空就直接返回
+    base_env = env.unwrapped
+    if not hasattr(base_env, "_spawn_debug_xy") or len(base_env._spawn_debug_xy) == 0:
+        print("[spawn_debug] 暂无记录的 spawn 点（先多 reset 几次再尝试画图）")
+        return
+
+    pts = np.array(base_env._spawn_debug_xy, dtype=np.float32)  # [N, 2]，每一行是 (x_world, y_world)
+    xs = pts[:, 0]
+    ys = pts[:, 1]
+
+    os.makedirs(out_dir, exist_ok=True)
+    # 简单的计数器：每次调用 +1，文件名自增
+    if not hasattr(base_env, "_spawn_plot_counter"):
+        base_env._spawn_plot_counter = 0
+    idx = base_env._spawn_plot_counter
+    base_env._spawn_plot_counter += 1
+
+    fname = os.path.join(out_dir, f"spawn_xy_{idx:04d}.png")
+
+    plt.figure(figsize=(6, 6))
+    plt.scatter(xs, ys, s=6, alpha=0.5)
+    plt.axhline(0.0, linestyle="--")
+    plt.axvline(0.0, linestyle="--")
+    plt.gca().set_aspect("equal", "box")
+    plt.xlabel("X (world)")
+    plt.ylabel("Y (world)")
+    plt.title("Object spawn distribution (world XY)")
+    plt.tight_layout()
+    plt.savefig(fname, dpi=200)
+    plt.close()
+    print(f"[spawn_debug] 保存散点图到: {fname}")
 
 
 class KeyboardController:
@@ -142,6 +243,7 @@ def main():
 
     obs, _ = env.reset()
     print("[INFO] Environment reset complete")
+    print_m0_pos_from_obs(obs, prefix="[m0_debug][startup]")
 
     if hasattr(env.unwrapped, 'reward_manager'):
         available_terms = env.unwrapped.reward_manager.active_terms
@@ -170,9 +272,14 @@ def main():
     try:
         while simulation_app.is_running():
             if controller.should_reset():
+                # 每次手动按 R reset 之后，画一张当前所有 spawn 点的散点图
+                # 注意：reset() 里会调用 reset_object_pool_state_uniform 并往 _spawn_debug_xy 里追加一个点
+                # 所以这里的图包含“到目前为止所有 reset 的分布”
                 obs, _ = env.reset()
                 total_reward = 0.0
                 step_count = 0
+                print_m0_pos_from_obs(obs, prefix="[m0_debug][after_reset_R]")
+                plot_spawn_distribution(env)
                 print("Robot reset complete\n")
                 continue
 
@@ -186,7 +293,7 @@ def main():
             # Step environment
             obs, reward, terminated, truncated, info = env.step(action)
 
-            #reward information
+            # reward information
             step_count += 1
             reward_value = reward[0].item()  # Get reward from first environment
             total_reward += reward_value
@@ -239,8 +346,12 @@ def main():
                 print(f"Average reward: {total_reward/step_count:.4f}")
                 print(f"{'='*60}\n")
 
-                # Reset
+                # Episode 结束时也顺便画一张当前 spawn 分布
+                plot_spawn_distribution(env)
+
+                # Reset（同样会在 reset 中记录新的 spawn 点）
                 obs, _ = env.reset()
+                print_m0_pos_from_obs(obs, prefix="[m0_debug][after_episode_reset]")
                 total_reward = 0.0
                 step_count = 0
 

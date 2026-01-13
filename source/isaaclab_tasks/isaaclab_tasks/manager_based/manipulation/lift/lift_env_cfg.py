@@ -6,6 +6,7 @@
 from dataclasses import MISSING
 
 import isaaclab.sim as sim_utils
+import math
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, DeformableObjectCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
@@ -54,7 +55,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     # plane
     plane = AssetBaseCfg(
         prim_path="/World/GroundPlane",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=[0, 0, -1.05]),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0, 0, -1.05)),
         spawn=GroundPlaneCfg(),
     )
 
@@ -196,16 +197,16 @@ class CommandsCfg:
 
     object_pose = mdp.UniformPoseCommandCfg(
         asset_name="robot",
-        body_name=MISSING,  # will be set by agent env cfg
+        body_name=MISSING,
         resampling_time_range=(5.0, 5.0),
         debug_vis=False,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.3, 0.3),
-            pos_y=(-0.01, 0.01),
-            pos_z=(0.1, 0.3),
-            roll=(0.0, 0.0),
-            pitch=(0.0, 0.0),
-            yaw=(0.0, 0.0),
+            pos_x=(0.25, 0.45),          # 机器人前方一点点
+            pos_y=(-0.20, 0.20),         # 左右 20cm
+            pos_z=(0.08, 0.18),          # 桌面稍微上方
+            roll=(-math.radians(5), math.radians(5)),
+            pitch=(-math.radians(5), math.radians(5)),
+            yaw=(-math.radians(30), math.radians(30)),
         ),
     )
 
@@ -237,9 +238,15 @@ class ResNet18ObservationCfg:
                     "depth_cfg": SceneEntityCfg("depth_camera")},
         )
 
-        # def __post_init__(self):
-        #     self.enable_corruption = True
-        #     self.concatenate_terms = True
+        # -------------------- NEW: add M0 joint position --------------------
+        # 输出 shape: (num_envs, 1)
+        m0_pos = ObsTerm(
+            func=mdp.joint_pos_rel,  # joint_pos_rel | joint_pos
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=["M0"])},
+        )
+
+        def __post_init__(self):
+            self.concatenate_terms = True
 
     policy: ObsGroup = ResNet18FeaturesCameraPolicyCfg()
 
@@ -290,20 +297,25 @@ class EventCfg:
         func=mdp.reset_object_pool_state_uniform,
         mode="reset",
         params={
+            "asset_cfg": SceneEntityCfg("object_pool"),
             "pose_range": {
-                "x": (-0.01, 0.07),
-                "y": (-0.07, 0.07),
-                # "y": (0.0, 0.0),
+                "z": (0.01, 0.01),
+                "x": (0.0, 0.0),
+                "y": (0.0, 0.0),
+            },
+            "velocity_range": {
+                "x": (0.0, 0.0),
+                "y": (0.0, 0.0),
                 "z": (0.0, 0.0),
-                # "roll": (-0.1, 0.1),
-                # "pitch": (-0.1, 0.1),
-                # "yaw": (-0.3, 0.3),
                 "roll": (0.0, 0.0),
                 "pitch": (0.0, 0.0),
                 "yaw": (0.0, 0.0),
             },
-            "velocity_range": {},
-            "asset_cfg": SceneEntityCfg("object_pool"),
+            "spawn_mode": "arc_angle",
+            "angle_range_deg": (-40.0, 40.0),   # 只在 -40°~+40° 这个扇形里
+            "radius_range": (0.28, 0.30),       # 物体距离圆心 0.25~0.35m
+            "center_from_robot": True,         # 如果 env_origin 就在 M0 下面，就用 False
+            "align_yaw_to_center": True,        # 让物体朝向圆心（M0）
         },
     )
 
@@ -376,6 +388,22 @@ class RewardsCfg:
         weight=30.0,  # 2.0
     )
 
+    # NEW: encourage M0 to face object direction (turn base toward object)
+    m0_turn_toward_object = RewTerm(
+        func=mdp.m0_turn_toward_object,
+        params={
+            "in_range_deg": 15,        # 转到 ±20° 内就给奖励（想更严格就改小）
+            "std": 0.35,                 # 只有 in_range_deg=None 时才用
+            "center_from_robot": True,
+            "robot_cfg": SceneEntityCfg("robot"),
+            "object_cfg": SceneEntityCfg("object_pool"),
+            "debug": False,
+            "debug_every_steps": 10,
+            "debug_env": 0,
+        },
+        weight=5.0,                   # 先小一点，避免模型只顾着转不去抓
+    )
+
 
 @configclass
 class TerminationsCfg:
@@ -386,8 +414,8 @@ class TerminationsCfg:
     object_pushed = DoneTerm(
         func=mdp.object_pushed_away,
         params={
-            "x_limits": (0.15, 0.6),
-            "y_tolerance": 0.08,
+            "x_limits": (0, 1.5),
+            "y_tolerance": 1,
             "object_cfg": SceneEntityCfg("object_pool"),
             "robot_cfg": SceneEntityCfg("robot")
         },
@@ -397,18 +425,18 @@ class TerminationsCfg:
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
-    expand_object_y = CurrTerm(
-        func=mdp.curriculum_expand_object_spawn_y_range_linear,
-        params={
-            "y_range_start": (-0.01, 0.01),
-            "y_range_end": (-0.10, 0.10),
-            "start_step": 0,
-            "end_step": 32000,
-            "update_every_steps": 200,
-            "debug": True,
-            "debug_every_steps": 2000,
-        },
-    )
+    # expand_object_y = CurrTerm(
+    #     func=mdp.curriculum_expand_object_spawn_y_range_linear,
+    #     params={
+    #         "y_range_start": (-0.01, 0.01),
+    #         "y_range_end": (-0.10, 0.10),
+    #         "start_step": 0,
+    #         "end_step": 32000,
+    #         "update_every_steps": 200,
+    #         "debug": True,
+    #         "debug_every_steps": 2000,
+    #     },
+    # )
 
 
 ##
