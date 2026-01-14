@@ -313,7 +313,7 @@ class EventCfg:
             },
             "spawn_mode": "arc_angle",
             "angle_range_deg": (-40.0, 40.0),   # 只在 -40°~+40° 这个扇形里
-            "radius_range": (0.28, 0.30),       # 物体距离圆心 0.25~0.35m
+            "radius_range": (0.35, 0.35),       # 物体距离圆心 0.25~0.35m
             "center_from_robot": True,         # 如果 env_origin 就在 M0 下面，就用 False
             "align_yaw_to_center": True,        # 让物体朝向圆心（M0）
         },
@@ -398,7 +398,7 @@ class RewardsCfg:
             "robot_cfg": SceneEntityCfg("robot"),
             "object_cfg": SceneEntityCfg("object_pool"),
             "debug": False,
-            "debug_every_steps": 10,
+            "debug_every_steps": 1,
             "debug_env": 0,
         },
         weight=5.0,                   # 先小一点，避免模型只顾着转不去抓

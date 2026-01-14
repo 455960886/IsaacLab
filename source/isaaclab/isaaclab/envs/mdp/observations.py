@@ -251,6 +251,113 @@ def imu_lin_acc(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg
     return asset.data.lin_acc_b
 
 
+def image(
+    env: ManagerBasedEnv,
+    # cnt: int = 0,
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("tiled_camera"),
+    data_type: str = "rgb",
+    convert_perspective_to_orthogonal: bool = False,
+    normalize: bool = True,
+    depth_cfg : SceneEntityCfg = SceneEntityCfg("tiled_camera2"),
+) -> torch.Tensor:
+    """Images of a specific datatype from the camera sensor.
+
+    If the flag :attr:`normalize` is True, post-processing of the images are performed based on their
+    data-types:
+
+    - "rgb": Scales the image to (0, 1) and subtracts with the mean of the current image batch.
+    - "depth" or "distance_to_camera" or "distance_to_plane": Replaces infinity values with zero.
+
+    Args:
+        env: The environment the cameras are placed within.
+        sensor_cfg: The desired sensor to read from. Defaults to SceneEntityCfg("tiled_camera").
+        data_type: The data type to pull from the desired camera. Defaults to "rgb".
+        convert_perspective_to_orthogonal: Whether to orthogonalize perspective depth images.
+            This is used only when the data type is "distance_to_camera". Defaults to False.
+        normalize: Whether to normalize the images. This depends on the selected data type.
+            Defaults to True.
+
+    Returns:
+        The images produced at the last time-step
+    """
+    # extract the used quantities (to enable type-hinting)
+    sensor: TiledCamera | Camera | RayCasterCamera = env.scene.sensors[sensor_cfg.name]
+
+    # obtain the input image
+    images = sensor.data.output[data_type]
+    # depth image conversion
+    # images = images[:, :, images.shape[2] // 2:, :]
+
+    # obs_image = torch.tensor(images).float().squeeze(0).cpu().numpy()  # Convert to tensor and float type
+    # obs_bgr = cv2.cvtColor(obs_image, cv2.COLOR_RGB2BGR)
+    # os.makedirs("IMAGES2", exist_ok=True)
+    # # os.makedirs("IMAGES17", exist_ok=True)
+    step = 0
+    step += 1
+    # # cv2.imwrite(f"./IMAGES16/observation_{time1}.png", obs_image)
+    # cv2.imwrite(f"/home/roborock/下载/{step}.png", images)
+    # import pdb
+    # pdb.set_trace()
+    # with open('output_formres9.txt', 'a') as f:
+    #     f.write(f"observation_{time1}.png\n")
+    # print(f"./IMAGES2/observation_{time1}.png")
+    depth = env.scene.sensors[depth_cfg.name].data.output["distance_to_image_plane"]
+    # print("depth shape:",depth.shape)
+    # depth_np = depth.squeeze(0).squeeze(-1).cpu().numpy()  # shape [H, W]
+
+    # # 归一化到 0~255
+    # depth_norm = (depth_np - depth_np.min()) / (depth_np.max() - depth_np.min())
+    # depth_uint8 = (depth_norm * 255).astype(np.uint8)
+
+    # os.makedirs("depth_images", exist_ok=True)
+    # timestamp = time.time()
+    # cv2.imwrite(f"depth_images/depth_{timestamp}.png", depth_uint8)
+    if (data_type == "distance_to_camera") and convert_perspective_to_orthogonal:
+        images = math_utils.orthogonalize_perspective_depth(images, sensor.data.intrinsic_matrices)
+    # obs_np = rgb_image_tensor.squeeze(0).cpu().numpy() 
+    # # act_np = actions.cpu().numpy() 
+    # # os.makedirs(act_log_dir, exist_ok=True)
+    # # np.save(os.path.join(act_log_dir, f"act_step_{t}.npy"), act_np)
+    # if obs_np.dtype == np.float32 or obs_np.max() <= 1.0:
+    #     obs_np = (obs_np * 255).astype(np.uint8)
+
+    # # RGB 转 BGR 再保存
+    # obs_bgr = cv2.cvtColor(obs_np, cv2.COLOR_RGB2BGR)
+    # os.makedirs("IMAGES1", exist_ok=True)
+    # cv2.imwrite(f"./IMAGES1/observation_{cnt}.png", obs_bgr)
+    # print(f"./IMAGES1/observation_{cnt}.png")
+    # rgb/depth image normalization
+    if normalize:
+        # print(f"Normalizing images of type: {data_type}")
+        if data_type == "rgb":
+            images = images.float() / 255.0
+            mean_tensor = torch.mean(images, dim=(1, 2), keepdim=True)
+            images -= mean_tensor
+
+            # images = images.float()
+
+            # obs_np2 = images.squeeze(0).cpu().numpy() 
+            # # act_np = actions.cpu().numpy() 
+            # # os.makedirs(act_log_dir, exist_ok=True)
+            # # np.save(os.path.join(act_log_dir, f"act_step_{t}.npy"), act_np)
+            # if obs_np2.dtype == np.float32 or obs_np2.max() <= 1.0:
+            #     obs_np2 = (obs_np2 * 255).astype(np.uint8)
+
+            # # RGB 转 BGR 再保存
+            # obs_bgr2 = cv2.cvtColor(obs_np2, cv2.COLOR_RGB2BGR)
+            # os.makedirs("IMAGES13", exist_ok=True)
+            # cv2.imwrite(f"./IMAGES13/observation_{time.time()}.png", obs_np2)
+
+            pass
+        elif "distance_to" in data_type or "depth" in data_type:
+            images[images == float("inf")] = 0
+    # print("image shape11:",images.shape)
+    # 深度图与RGB图拼接
+    images = torch.cat((images, depth), dim=-1)
+    # print("image shape22:",images.shape)
+    return images.clone()
+
+
 class image_features(ManagerTermBase):
     """Extracted image features from a pre-trained frozen encoder.
 
@@ -516,97 +623,8 @@ class image_features(ManagerTermBase):
         # save_ply(points, colors=None, output_path=output_path.replace(".ply","_downsampled8.ply"))
         return points
     
-    def depth_to_pointcloud_batch_gpu(self, depth_batch, fx, fy, cx, cy, num_points=1024, **kwargs):
-        B, H, W = depth_batch.shape
-        device = depth_batch.device
-        dtype = torch.float32  # 建议强制 float32，避免奇怪 half 的 NaN 传播
-
-        self._init_pcd_buffers(H, W, device)
-
-        # (B, HW)
-        u = self._pc_u.expand(B, -1)
-        v = self._pc_v.expand(B, -1)
-
-        # ---- sanitize intrinsics ----
-        fx_t = torch.as_tensor(fx, device=device, dtype=dtype)
-        fy_t = torch.as_tensor(fy, device=device, dtype=dtype)
-        cx_t = torch.as_tensor(cx, device=device, dtype=dtype)
-        cy_t = torch.as_tensor(cy, device=device, dtype=dtype)
-
-        # 防 0 / NaN
-        fx_t = torch.nan_to_num(fx_t, nan=0.0, posinf=0.0, neginf=0.0).clamp(min=1e-6)
-        fy_t = torch.nan_to_num(fy_t, nan=0.0, posinf=0.0, neginf=0.0).clamp(min=1e-6)
-
-        # ---- sanitize depth ----
-        Z = depth_batch.reshape(B, -1).to(dtype)
-        Z = torch.nan_to_num(Z, nan=0.0, posinf=0.0, neginf=0.0)
-
-        # 可选：限制深度范围（按你相机量程改）
-        max_depth = kwargs.get("max_depth", 2.5)
-        valid_z = (Z > 1e-6) & (Z < max_depth)
-
-        X = (u.to(dtype) - cx_t) * Z / fx_t
-        Y = (v.to(dtype) - cy_t) * Z / fy_t
-
-        points = torch.stack([X, -Y, Z], dim=-1)  # (B, HW, 3)
-
-        # 任何 NaN/Inf 直接视为无效点（否则会污染 dist/weights）
-        finite_pts = torch.isfinite(points).all(dim=-1)
-        points = torch.nan_to_num(points, nan=0.0, posinf=0.0, neginf=0.0)
-
-        # rotate + translate (cached)
-        points = points @ self._pc_R.T
-        points = points + self._pc_t
-
-        # --- mask logic ---
-        rand_thresh = (torch.rand((), device=device) * (0.002 - (-0.0003)) + (-0.0003))
-        mask2 = points[:, :, 0] <= 0.42
-        mask3 = points[:, :, 2] >= rand_thresh
-        mask = mask2 & mask3 & valid_z & finite_pts  # (B, HW)
-
-        # --- weights ---
-        # dist 里也可能出现 NaN（虽然 points 处理过了，但保险）
-        dist = torch.linalg.norm(points, dim=-1)  # (B, HW)
-        dist = torch.nan_to_num(dist, nan=1e6, posinf=1e6, neginf=1e6)
-
-        weights = torch.exp(-dist) * mask.float()
-        weights = torch.nan_to_num(weights, nan=0.0, posinf=0.0, neginf=0.0)
-        weights = torch.clamp(weights, min=0.0)
-
-        row_sum = weights.sum(dim=1)  # (B,)
-        bad = (~torch.isfinite(row_sum)) | (row_sum <= 1e-12)
-
-        # 关键：不要让 multinomial 看到 bad 行
-        idx = torch.empty((B, num_points), device=device, dtype=torch.long)
-
-        good = ~bad
-        if good.any():
-            w_good = weights[good]
-            # 不强制归一化也行，但归一化更稳一些
-            w_good = w_good / (w_good.sum(dim=1, keepdim=True) + 1e-12)
-            idx[good] = torch.multinomial(w_good, num_points, replacement=True)
-
-        if bad.any():
-            # bad 行：随便给 idx（后面会把 sampled 置 0）
-            idx[bad] = 0
-
-        sampled = points.gather(1, idx.unsqueeze(-1).expand(-1, -1, 3))  # (B, num_points, 3)
-
-        if bad.any():
-            sampled[bad] = 0.0
-
-        sampled = randomize_pointcloud_batch_torch(
-            sampled,
-            dropout_rate=0.02,
-            outlier_ratio=0.02,
-            outlier_max_offset=0.08,
-            surface_jitter=0.001,
-        )
-        return sampled
-
-    # GPU-accelerated version for batch processing
     # 速度更慢
-    def depth_to_pointcloud_batch_gpu1(self, depth_batch, fx, fy, cx, cy, num_points=1024,
+    def depth_to_pointcloud_batch_gpu(self, depth_batch, fx, fy, cx, cy, num_points=1024,
                                        save_ply_debug=False, env_id=0, frame_counter=None, save_dir="debug_pointclouds", env=None):
         """GPU-accelerated batch point cloud generation with systematic PLY saving."""
         import os
@@ -930,7 +948,7 @@ class image_features(ManagerTermBase):
             cx,
             cy,
             num_points=1024,
-            save_ply_debug=True,
+            save_ply_debug=False,
             env_id=0,
             frame_counter=self._frame_counter,
             save_dir="debug_pointclouds",
