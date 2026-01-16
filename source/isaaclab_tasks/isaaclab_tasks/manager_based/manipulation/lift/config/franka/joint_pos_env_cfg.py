@@ -23,7 +23,7 @@ from isaaclab.assets.articulation import ArticulationCfg
 
 MY_ROBOT_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/r50_v6_rev/r50_v6_rev.usd",
+        usd_path=f"/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/r50_v6_rev_finger/r50_v6_rev_flat_finger.usd",
         # usd_path=f"/home/xuyang/xuyang_ws/DRL/isaac/IsaacLab-2.0.0/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/marm_backup/marm_backup.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -62,24 +62,24 @@ MY_ROBOT_CFG = ArticulationCfg(
             joint_names_expr=["M[1-4]"],
             effort_limit=87.0,
             velocity_limit=2.175,  # 2.175  0.17  0.5
-            stiffness=60,
+            stiffness=100,
             damping=4,
         ),
 
         "forearm": ImplicitActuatorCfg(
             joint_names_expr=["M5"],
-            effort_limit=12.0,
-            velocity_limit=0.5,  # 2.61  0.17  0.5
-            stiffness=80.0,
-            damping=4.0,
+            effort_limit=100.0,
+            velocity_limit=2.175,  # 2.61  0.17  0.5
+            stiffness=200.0,
+            damping=5.0,
         ),
 
         "hand": ImplicitActuatorCfg(
             joint_names_expr=["M6_.*"],
-            effort_limit=0.5,
-            velocity_limit=15,
-            stiffness=80,
-            damping=4,
+            effort_limit=50,      # Reduced to prevent excessive force
+            velocity_limit=4.0,     # Keep same
+            stiffness=30,          # Increased from 15 to reduce penetration
+            damping=0.001, 
         ),
     },
     soft_joint_pos_limit_factor=1.0,
@@ -97,18 +97,27 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         self.scene.robot = MY_ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         # self.actions.arm_action = mdp.RelativeJointPositionActionCfg(
-        #     asset_name="robot", joint_names=["M[0345]"]
+        #     #asset_name="robot", joint_names=["panda_joint.*"], scale=0.5, use_default_offset=True
+        #     asset_name = "robot", 
+        #     joint_names = ["M[0345]"],
+        #     scale={
+        #         "M0": 2,
+        #         "M3": 0.3,
+        #         "M4": 0.3,
+        #         # "M5": 0.08
+        #     }
         # )
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
             joint_names=["M[034]"],
             use_default_offset=True,
         )
+
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
             joint_names=["M6_.*"],
             open_command_expr={"M6_1": 0.65, "M6_2": -0.65},
-            close_command_expr={"M6_1": 0.03, "M6_2": -0.03},
+            close_command_expr={"M6_1": 0.02, "M6_2": -0.02},
         )
 
         self.commands.object_pose.body_name = "M6_1_leftfinger_link"
@@ -169,7 +178,8 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "bus": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/bus",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/bus_2.usd",
+                #         usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/bus_new2.usdc",
+                #         # scale=(1000.0, 1000.0, 1000.0),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=128,
                 #             solver_velocity_iteration_count=64,
@@ -179,7 +189,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #             articulation_enabled=False,  # CRITICAL: Disable articulation
                 #         ),
                 #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.00, 0.02), rot=(0.7071, 0.0, 0.0, 0.7071)),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.00, 0.03)),
                 # ),
 
                 # "eye_drops": RigidObjectCfg(

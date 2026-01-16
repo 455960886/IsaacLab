@@ -240,13 +240,13 @@ class ResNet18ObservationCfg:
 
         # -------------------- NEW: add M0 joint position --------------------
         # 输出 shape: (num_envs, 1)
-        m0_pos = ObsTerm(
-            func=mdp.joint_pos_rel,  # joint_pos_rel | joint_pos
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=["M0"])},
-        )
+        # m0_pos = ObsTerm(
+        #     func=mdp.joint_pos_rel,  # joint_pos_rel | joint_pos
+        #     params={"asset_cfg": SceneEntityCfg("robot", joint_names=["M0"])},
+        # )
 
-        def __post_init__(self):
-            self.concatenate_terms = True
+        # def __post_init__(self):
+        #     self.concatenate_terms = True
 
     policy: ObsGroup = ResNet18FeaturesCameraPolicyCfg()
 
@@ -312,7 +312,7 @@ class EventCfg:
                 "yaw": (0.0, 0.0),
             },
             "spawn_mode": "arc_angle",
-            "angle_range_deg": (-40.0, 40.0),   # 只在 -40°~+40° 这个扇形里
+            "angle_range_deg": (-25.0, 25.0),   # 只在 -40°~+40° 这个扇形里
             "radius_range": (0.35, 0.35),       # 物体距离圆心 0.25~0.35m
             "center_from_robot": True,         # 如果 env_origin 就在 M0 下面，就用 False
             "align_yaw_to_center": True,        # 让物体朝向圆心（M0）
@@ -330,7 +330,7 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-500.0)
+    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-20.0)
     # debug_contact = RewTerm(func=mdp.debug_contact_forces, weight=0.01)
 
     reaching_object = RewTerm(
@@ -404,6 +404,18 @@ class RewardsCfg:
         weight=5.0,                   # 先小一点，避免模型只顾着转不去抓
     )
 
+    # Base movement penalties - prevent tilting from arm impacts
+    # base_ang_vel_penalty = RewTerm(
+    #     func=mdp.ang_vel_xy_l2,
+    #     weight=-15.0,
+    # )
+
+    base_orientation_penalty = RewTerm(
+        func=mdp.base_orientation_penalty_exp,
+        params={"std": 0.1},  # Adjust: 0.05 (very sensitive) to 0.2 (less sensitive)
+        weight=-10.0,  # Higher weight since exp kernel returns 0-1 range
+    )
+
 
 @configclass
 class TerminationsCfg:
@@ -418,6 +430,14 @@ class TerminationsCfg:
             "y_tolerance": 1,
             "object_cfg": SceneEntityCfg("object_pool"),
             "robot_cfg": SceneEntityCfg("robot")
+        },
+    )
+
+    robot_base_orientation = DoneTerm(
+        func=mdp.bad_orientation,
+        params={
+            "limit_angle": 0.1,  # 0.5 rad ≈ 28.6° tilt limit
+            "asset_cfg": SceneEntityCfg("robot"),
         },
     )
 

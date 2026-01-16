@@ -87,6 +87,24 @@ def ang_vel_xy_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntit
     return torch.sum(torch.square(asset.data.root_ang_vel_b[:, :2]), dim=1)
 
 
+def base_orientation_penalty_exp(
+    env: ManagerBasedRLEnv,
+    std: float = 0.1,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize non-flat base orientation using exponential kernel for better sensitivity.
+    """
+    asset: RigidObject = env.scene[asset_cfg.name]
+
+    projected_gravity = asset.data.projected_gravity_b[:, :2]  # (num_envs, 2)
+
+    tilt_magnitude = torch.sum(torch.square(projected_gravity), dim=1)  # (num_envs,)
+
+    penalty = 1.0 - torch.exp(-tilt_magnitude / (std ** 2))
+
+    return penalty
+
+
 def flat_orientation_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Penalize non-flat base orientation using L2 squared kernel.
 
