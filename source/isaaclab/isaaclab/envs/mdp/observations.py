@@ -721,7 +721,7 @@ class image_features(ManagerTermBase):
         # pdb.set_trace()
         points_flat = points.reshape(B, H * W, 3)
         rotated_points = torch.matmul(points_flat, R.T)
-        translation = torch.tensor([0.1654, 0.0, 0.0494], device=device)
+        translation = torch.tensor([0.1654, 0.0, 0.0491], device=device)
         trans_points = rotated_points + translation
         # Save Stage 1: After rotation
         if save_ply_debug:

@@ -139,16 +139,16 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     depth_camera: TiledCameraCfg = TiledCameraCfg(
         # prim_path="{ENV_REGEX_NS}/depth_camera",
         prim_path="{ENV_REGEX_NS}/Robot/M0_chassis_link/tof_link/depth_camera",
-        offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.01309, -0.99991, 0.0, 0.0)), convention="opengl"),
+        offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.0, -1.0, 0.0, 0.0)), convention="opengl"),
         data_types=["distance_to_image_plane"],  # Key change to depth
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=40, focus_distance=400.0, horizontal_aperture=80, vertical_aperture=31.512,
+            focal_length=40, focus_distance=400.0, horizontal_aperture=80, vertical_aperture=25.45,
         ),
-        width=314,
+        width=400,
         height=150,
         debug_vis=False,
-        update_period=0.2,
-    )
+        # update_period=0.2,
+    ) 
 
     gripper_camera: TiledCameraCfg = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/M5_wrist_link/camera_Link/gripper_camera",
@@ -312,7 +312,7 @@ class EventCfg:
                 "yaw": (0.0, 0.0),
             },
             "spawn_mode": "arc_angle",
-            "angle_range_deg": (-25.0, 25.0),   # 只在 -40°~+40° 这个扇形里
+            "angle_range_deg": (-40.0, 40.0),   # 只在 -40°~+40° 这个扇形里
             "radius_range": (0.35, 0.35),       # 物体距离圆心 0.25~0.35m
             "center_from_robot": True,         # 如果 env_origin 就在 M0 下面，就用 False
             "align_yaw_to_center": True,        # 让物体朝向圆心（M0）
