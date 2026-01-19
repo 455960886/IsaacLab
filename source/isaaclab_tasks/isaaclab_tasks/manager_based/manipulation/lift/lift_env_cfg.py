@@ -312,8 +312,8 @@ class EventCfg:
                 "yaw": (0.0, 0.0),
             },
             "spawn_mode": "arc_angle",
-            "angle_range_deg": (-40.0, 40.0),   # 只在 -40°~+40° 这个扇形里
-            "radius_range": (0.35, 0.35),       # 物体距离圆心 0.25~0.35m
+            "angle_range_deg": (-25.0, 25.0),   # 只在 -40°~+40° 这个扇形里
+            "radius_range": (0.31, 0.35),       # 物体距离圆心 0.25~0.35m
             "center_from_robot": True,         # 如果 env_origin 就在 M0 下面，就用 False
             "align_yaw_to_center": True,        # 让物体朝向圆心（M0）
         },
@@ -330,7 +330,7 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-20.0)
+    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-400.0)
     # debug_contact = RewTerm(func=mdp.debug_contact_forces, weight=0.01)
 
     reaching_object = RewTerm(
@@ -413,7 +413,7 @@ class RewardsCfg:
     base_orientation_penalty = RewTerm(
         func=mdp.base_orientation_penalty_exp,
         params={"std": 0.1},  # Adjust: 0.05 (very sensitive) to 0.2 (less sensitive)
-        weight=-10.0,  # Higher weight since exp kernel returns 0-1 range
+        weight=-100.0,  # Higher weight since exp kernel returns 0-1 range
     )
 
 
@@ -489,8 +489,8 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         self.episode_length_s = 6 * self.decimation * self.sim.dt
         # self.decimation = 1
         # self.episode_length_s = 10
-        self.sim.render_interval = self.decimation
-        # self.sim.render_interval = 1
+        # self.sim.render_interval = self.decimation
+        self.sim.render_interval = 1
 
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4

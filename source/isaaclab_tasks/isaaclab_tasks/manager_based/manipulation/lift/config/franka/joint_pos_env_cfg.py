@@ -175,22 +175,22 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.01, 0.0]),
                 # ),
 
-                # "bus": RigidObjectCfg(
-                #     prim_path="/World/envs/env_.*/bus",
-                #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/bus_new2.usdc",
-                #         # scale=(1000.0, 1000.0, 1000.0),
-                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                #             solver_position_iteration_count=128,
-                #             solver_velocity_iteration_count=64,
-                #             disable_gravity=False,
-                #         ),
-                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                #             articulation_enabled=False,  # CRITICAL: Disable articulation
-                #         ),
-                #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.00, 0.03)),
-                # ),
+                "bus": RigidObjectCfg(
+                    prim_path="/World/envs/env_.*/bus",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/bus_new2.usdc",
+                        # scale=(1000.0, 1000.0, 1000.0),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=128,
+                            solver_velocity_iteration_count=64,
+                            disable_gravity=False,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.00, 0.03)),
+                ),
 
                 # "eye_drops": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/eye_drops",
