@@ -330,7 +330,7 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-400.0)
+    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-20.0)
     # debug_contact = RewTerm(func=mdp.debug_contact_forces, weight=0.01)
 
     reaching_object = RewTerm(
@@ -413,7 +413,7 @@ class RewardsCfg:
     base_orientation_penalty = RewTerm(
         func=mdp.base_orientation_penalty_exp,
         params={"std": 0.1},  # Adjust: 0.05 (very sensitive) to 0.2 (less sensitive)
-        weight=-100.0,  # Higher weight since exp kernel returns 0-1 range
+        weight=-10.0,  # Higher weight since exp kernel returns 0-1 range
     )
 
 
