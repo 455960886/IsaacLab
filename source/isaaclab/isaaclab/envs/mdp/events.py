@@ -1078,7 +1078,7 @@ def reset_object_pool_state_uniform(
     if not hasattr(env, "active_object_indices"):
         raise RuntimeError("active_object_indices not found")
 
-    # ⭐ 初始化 debug list（只在第一次建一个）
+    # 初始化 debug list（只在第一次建一个）
     if not hasattr(env, "_spawn_debug_xy"):
         env._spawn_debug_xy = []   # 每个元素是 (x_world, y_world)
 

@@ -101,7 +101,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         #     asset_name = "robot", 
         #     joint_names = ["M[0345]"],
         #     scale={
-        #         "M0": 2,
+        #         "M0": 0.3,
         #         "M3": 0.3,
         #         "M4": 0.3,
         #         # "M5": 0.08
