@@ -1146,9 +1146,10 @@ def reset_object_pool_state_uniform(
         if spawn_mode == "arc_angle" and align_yaw_to_center:
             # ---------- 1. 计算“朝向圆心”的 yaw ----------
             # 向量：从物体位置指向圆心
-            vec_to_center = center_w - position      # [3]
+            vec_to_center = - (center_w - position)      # [3]
             # 只看平面 (x, y)，求方位角
             yaw = torch.atan2(vec_to_center[1], vec_to_center[0])  # 弧度
+            yaw = yaw + pose_rand_samples[idx, 5]
 
             # ---------- 2. 可选：加入一点随机 roll/pitch（保持 yaw 对齐） ----------
             roll = pose_rand_samples[idx, 3]
@@ -1167,7 +1168,7 @@ def reset_object_pool_state_uniform(
                 pose_rand_samples[idx, 3], pose_rand_samples[idx, 4], pose_rand_samples[idx, 5]
             )
             orientation = math_utils.quat_mul(default_quat, orientation_delta)
-        
+
         velocity = root_state[7:13] + vel_rand_samples[idx]
 
         x_world = float(position[0].item())

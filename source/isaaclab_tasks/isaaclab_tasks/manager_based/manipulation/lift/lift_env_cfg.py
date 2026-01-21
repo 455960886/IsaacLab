@@ -299,8 +299,11 @@ class EventCfg:
         params={
             "asset_cfg": SceneEntityCfg("object_pool"),
             "pose_range": {
-                "z": (0.01, 0.01),
-                "x": (0.0, 0.0),
+                "z": (0.00, 0.00),
+                "yaw": (-0.3491, 0.3491),
+                "roll": (0.0, 0.0),
+                "pitch": (0.0, 0.0),
+                "x": (0.02, 0.08),
                 "y": (0.0, 0.0),
             },
             "velocity_range": {
@@ -313,7 +316,7 @@ class EventCfg:
             },
             "spawn_mode": "arc_angle",
             "angle_range_deg": (-25.0, 25.0),   # 只在 -40°~+40° 这个扇形里
-            "radius_range": (0.31, 0.35),       # 物体距离圆心 0.25~0.35m
+            "radius_range": (0.30, 0.36),       # 物体距离圆心 0.25~0.35m
             "center_from_robot": True,         # 如果 env_origin 就在 M0 下面，就用 False
             "align_yaw_to_center": True,        # 让物体朝向圆心（M0）
         },
@@ -341,7 +344,7 @@ class RewardsCfg:
 
     lifting_object_linear = RewTerm(
         func=mdp.object_is_lifted_linear,
-        params={"minimal_height": 0.025, "max_height": 0.1},
+        params={"minimal_height": 0.025, "max_height": 0.15},
         weight=100.0,   # 1500  150
     )
 
@@ -350,7 +353,7 @@ class RewardsCfg:
         func=mdp.object_is_lifted_with_contact,
         params={
             "minimal_height": 0.025,
-            "max_height": 0.1,
+            "max_height": 0.15,
             "contact_force_threshold": 1.5,  # 1.5N on Y-axis (based on your data)
             "require_both_contacts": True,  # Both fingers must contact
         },
@@ -380,7 +383,21 @@ class RewardsCfg:
     )
 
     # action penalty
-    # action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.001)
+    action_rate = RewTerm(
+        func=mdp.action_rate_l2,
+        weight=-0.001,  # 先从 -1e-4 ~ -1e-3 扫
+        params={
+            "only_after_grasp": True,
+            "post_grasp_scale": 1.0,
+            "deadzone": 0.01,  # 如果发现压得太死，可设 0.01/0.02（看你 action 的量纲）
+            "contact_force_threshold": 1.5,
+            "require_both_contacts": True,
+            "stable_steps": 8,
+            "release_steps": 2,
+            "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
+            "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
+        },
+    )
 
     contain_object = RewTerm(
         func=mdp.contain_object,
@@ -388,21 +405,21 @@ class RewardsCfg:
         weight=30.0,  # 2.0
     )
 
-    # NEW: encourage M0 to face object direction (turn base toward object)
-    m0_turn_toward_object = RewTerm(
-        func=mdp.m0_turn_toward_object,
-        params={
-            "in_range_deg": 15,        # 转到 ±20° 内就给奖励（想更严格就改小）
-            "std": 0.35,                 # 只有 in_range_deg=None 时才用
-            "center_from_robot": True,
-            "robot_cfg": SceneEntityCfg("robot"),
-            "object_cfg": SceneEntityCfg("object_pool"),
-            "debug": False,
-            "debug_every_steps": 1,
-            "debug_env": 0,
-        },
-        weight=5.0,                   # 先小一点，避免模型只顾着转不去抓
-    )
+    # old：为了防止夹取物体之后 M0 乱转，加入朝向物体的奖励 m0_turn_toward_object_until_grasp
+    # m0_turn_toward_object = RewTerm(
+    #     func=mdp.m0_turn_toward_object,
+    #     params={
+    #         "in_range_deg": 15,        # 转到 ±20° 内就给奖励（想更严格就改小）
+    #         "std": 0.35,                 # 只有 in_range_deg=None 时才用
+    #         "center_from_robot": True,
+    #         "robot_cfg": SceneEntityCfg("robot"),
+    #         "object_cfg": SceneEntityCfg("object_pool"),
+    #         "debug": False,
+    #         "debug_every_steps": 1,
+    #         "debug_env": 0,
+    #     },
+    #     weight=5.0,                   # 先小一点，避免模型只顾着转不去抓
+    # )
     m0_turn_toward_object = RewTerm(
         func=mdp.m0_turn_toward_object_until_grasp,
         params={
