@@ -403,29 +403,29 @@ class RewardsCfg:
         },
         weight=5.0,                   # 先小一点，避免模型只顾着转不去抓
     )
-    # m0_turn_toward_object = RewTerm(
-    #     func=mdp.m0_turn_toward_object_until_grasp,
-    #     params={
-    #         "post_grasp_scale": 0.0,
-    #         "contact_force_threshold": 1.5,
-    #         "require_both_contacts": True,
-    #         "stable_steps": 8,
-    #         "release_steps": 2,
-    #         "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
-    #         "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
+    m0_turn_toward_object = RewTerm(
+        func=mdp.m0_turn_toward_object_until_grasp,
+        params={
+            "post_grasp_scale": 0.0,
+            "contact_force_threshold": 1.5,
+            "require_both_contacts": True,
+            "stable_steps": 8,
+            "release_steps": 2,
+            "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
+            "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
 
-    #         # 下面这些是原 m0_turn_toward_object 的参数
-    #         "in_range_deg": 15,        # 转到 ±20° 内就给奖励（想更严格就改小）
-    #         "std": 0.35,                 # 只有 in_range_deg=None 时才用
-    #         "center_from_robot": True,
-    #         "robot_cfg": SceneEntityCfg("robot"),
-    #         "object_cfg": SceneEntityCfg("object_pool"),
-    #         "debug": False,
-    #         "debug_every_steps": 1,
-    #         "debug_env": 0,
-    #     },
-    #     weight=10,
-    # )
+            # 下面这些是原 m0_turn_toward_object 的参数
+            "in_range_deg": 15,        # 转到 ±20° 内就给奖励（想更严格就改小）
+            "std": 0.35,                 # 只有 in_range_deg=None 时才用
+            "center_from_robot": True,
+            "robot_cfg": SceneEntityCfg("robot"),
+            "object_cfg": SceneEntityCfg("object_pool"),
+            "debug": False,
+            "debug_every_steps": 1,
+            "debug_env": 0,
+        },
+        weight=10,
+    )
 
     # Base movement penalties - prevent tilting from arm impacts
     # base_ang_vel_penalty = RewTerm(
@@ -440,22 +440,22 @@ class RewardsCfg:
     )
 
     # 物体被夹住后，禁止沿切向被拖着跑（抑制 M0 乱转造成的晃动）
-    # penalize_obj_vt = RewTerm(
-    #     func=mdp.penalize_active_object_tangential_speed,
-    #     weight=-50,  # 先从 -0.05 ~ -0.2 试，后面再加大
-    #     params={
-    #         "penalty_scale": 1.0,
-    #         "v_deadzone": 0.1,  # 0.005~0.02 都可以扫一下
-    #         "center_from_robot": True,
-    #         "contact_force_threshold": 1.5,
-    #         "require_both_contacts": True,
-    #         "stable_steps": 3,  # 建议 3 或 5；不需要就设 0
-    #         "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
-    #         "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
-    #         "robot_cfg": SceneEntityCfg("robot"),
-    #         "object_cfg": SceneEntityCfg("object_pool"),
-    #     },
-    # )
+    penalize_obj_vt = RewTerm(
+        func=mdp.penalize_active_object_tangential_speed,
+        weight=-50,  # 先从 -0.05 ~ -0.2 试，后面再加大
+        params={
+            "penalty_scale": 1.0,
+            "v_deadzone": 0.1,  # 0.005~0.02 都可以扫一下
+            "center_from_robot": True,
+            "contact_force_threshold": 1.5,
+            "require_both_contacts": True,
+            "stable_steps": 3,  # 建议 3 或 5；不需要就设 0
+            "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
+            "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
+            "robot_cfg": SceneEntityCfg("robot"),
+            "object_cfg": SceneEntityCfg("object_pool"),
+        },
+    )
 
 
 @configclass
@@ -526,10 +526,10 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
 
         """Post initialization."""
         self.sim.dt = 0.01  # 100Hz
-        self.decimation = 20  # 2 20 48
-        self.episode_length_s = 6 * self.decimation * self.sim.dt
-        # self.decimation = 1
-        # self.episode_length_s = 10
+        # self.decimation = 20  # 2 20 48
+        # self.episode_length_s = 6 * self.decimation * self.sim.dt
+        self.decimation = 1
+        self.episode_length_s = 10
         self.sim.render_interval = self.decimation
         # self.sim.render_interval = 1
 
@@ -545,4 +545,3 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.gpu_max_rigid_patch_count = 1_000_000          # 接触 patch 上限
 
         self.sim.physx.gpu_collision_stack_size = 96 * 1024 * 1024    # ≈ 100 MB
-
