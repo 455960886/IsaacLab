@@ -158,7 +158,9 @@ class KeyboardController:
             "UP": (1, -1),     
             "DOWN": (1, 1),    
             "F": (2, 1),       
-            "V": (2, -1),     
+            "V": (2, -1),
+            "Q": (3, 1),
+            "E": (3, -1),
         }
 
         print("\n" + "="*60)
@@ -168,6 +170,7 @@ class KeyboardController:
         print("  LEFT/RIGHT: Joint M0 (Base)")
         print("  UP/DOWN: Joint M3")
         print("  F/V: Joint M4")
+        print("  Q/E: Joint M5 (Wrist)")
         print("\nGripper Controls:")
         print("  SPACE: Toggle Gripper (Open/Close)")
         print("\nOther:")

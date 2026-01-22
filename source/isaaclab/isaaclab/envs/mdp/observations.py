@@ -913,11 +913,11 @@ class image_features(ManagerTermBase):
         images = images[:, 120:, :, :]
 
         # Apply domain randomization
-        # images = self._apply_domain_randomization(
-        #     images, 
-        #     save_debug=save_augmentation_debug,
-        #     step_counter=self._frame_counter
-        # )
+        images = self._apply_domain_randomization(
+            images, 
+            save_debug=save_augmentation_debug,
+            step_counter=self._frame_counter
+        )
 
         # import pdb
         # pdb.set_trace()

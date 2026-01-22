@@ -136,6 +136,20 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         )
     )
 
+    # depth_camera: TiledCameraCfg = TiledCameraCfg(
+    #     # prim_path="{ENV_REGEX_NS}/depth_camera",
+    #     prim_path="{ENV_REGEX_NS}/Robot/M0_chassis_link/tof_link/depth_camera",
+    #     offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.0, -1.0, 0.0, 0.0)), convention="opengl"),
+    #     data_types=["distance_to_image_plane"],  # Key change to depth
+    #     spawn=sim_utils.PinholeCameraCfg(
+    #         focal_length=40, focus_distance=400.0, horizontal_aperture=36, vertical_aperture=25.45,
+    #     ),
+    #     width=200,
+    #     height=150,
+    #     debug_vis=False,
+    #     # update_period=0.2,
+    # )
+
     depth_camera: TiledCameraCfg = TiledCameraCfg(
         # prim_path="{ENV_REGEX_NS}/depth_camera",
         prim_path="{ENV_REGEX_NS}/Robot/M0_chassis_link/tof_link/depth_camera",
@@ -148,7 +162,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         height=150,
         debug_vis=False,
         # update_period=0.2,
-    ) 
+    )
 
     gripper_camera: TiledCameraCfg = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/M5_wrist_link/camera_Link/gripper_camera",
@@ -315,7 +329,7 @@ class EventCfg:
                 "yaw": (0.0, 0.0),
             },
             "spawn_mode": "arc_angle",
-            "angle_range_deg": (-25.0, 25.0),   # 只在 -40°~+40° 这个扇形里
+            "angle_range_deg": (-0.5, 0.5),   # 只在 -40°~+40° 这个扇形里
             "radius_range": (0.30, 0.36),       # 物体距离圆心 0.25~0.35m
             "center_from_robot": True,         # 如果 env_origin 就在 M0 下面，就用 False
             "align_yaw_to_center": True,        # 让物体朝向圆心（M0）
@@ -333,31 +347,33 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-20.0)
+    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-10.0)
     # debug_contact = RewTerm(func=mdp.debug_contact_forces, weight=0.01)
 
     reaching_object = RewTerm(
         func=mdp.object_ee_distance,
         params={"std": 0.1},
-        weight=5.0,
+        # weight=20.0,
+        weight=1.0,
     )
 
     lifting_object_linear = RewTerm(
         func=mdp.object_is_lifted_linear,
-        params={"minimal_height": 0.025, "max_height": 0.15},
-        weight=100.0,   # 1500  150
+        params={"minimal_height": 0.01, "max_height": 0.1},
+        weight=5.0,   # 1500  150
+        # weight=100.0,   # 1500  150
     )
 
     # NEW: Lifting with contact verification
     lifting_object_linear_contact = RewTerm(
         func=mdp.object_is_lifted_with_contact,
         params={
-            "minimal_height": 0.025,
-            "max_height": 0.15,
+            "minimal_height": 0.01,
+            "max_height": 0.1,
             "contact_force_threshold": 1.5,  # 1.5N on Y-axis (based on your data)
             "require_both_contacts": True,  # Both fingers must contact
         },
-        weight=1000.0,
+        weight=15.0,
     )
 
     # NEW: Point cloud density reward
@@ -369,7 +385,7 @@ class RewardsCfg:
             "min_ee_robot_distance": 0.26,
             "max_ee_height": 0.06,
         },
-        weight=10.0,  # Tune this: 5.0-20.0 depending on importance
+        weight=2.0,
     )
 
     clamp_object_contact = RewTerm(
@@ -379,25 +395,11 @@ class RewardsCfg:
             "reward_value": 1.0,
             "gripper_closed_threshold": 0.2,
         },
-        weight=300.0,
+        weight=10.0,
     )
 
     # action penalty
-    action_rate = RewTerm(
-        func=mdp.action_rate_l2,
-        weight=-0.001,  # 先从 -1e-4 ~ -1e-3 扫
-        params={
-            "only_after_grasp": True,
-            "post_grasp_scale": 1.0,
-            "deadzone": 0.01,  # 如果发现压得太死，可设 0.01/0.02（看你 action 的量纲）
-            "contact_force_threshold": 1.5,
-            "require_both_contacts": True,
-            "stable_steps": 8,
-            "release_steps": 2,
-            "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
-            "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
-        },
-    )
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
 
     contain_object = RewTerm(
         func=mdp.contain_object,
@@ -405,6 +407,19 @@ class RewardsCfg:
         weight=30.0,  # 2.0
     )
 
+    # 戳地相关
+    # Base movement penalties - prevent tilting from arm impacts
+    # base_ang_vel_penalty = RewTerm(
+    #     func=mdp.ang_vel_xy_l2,
+    #     weight=-15.0,
+    # )
+    base_orientation_penalty = RewTerm(
+        func=mdp.base_orientation_penalty_exp,
+        params={"std": 0.1},  # Adjust: 0.05 (very sensitive) to 0.2 (less sensitive)
+        weight=-10.0,  # Higher weight since exp kernel returns 0-1 range
+    )
+
+    # M0 相关
     # old：为了防止夹取物体之后 M0 乱转，加入朝向物体的奖励 m0_turn_toward_object_until_grasp
     # m0_turn_toward_object = RewTerm(
     #     func=mdp.m0_turn_toward_object,
@@ -420,59 +435,46 @@ class RewardsCfg:
     #     },
     #     weight=5.0,                   # 先小一点，避免模型只顾着转不去抓
     # )
-    m0_turn_toward_object = RewTerm(
-        func=mdp.m0_turn_toward_object_until_grasp,
-        params={
-            "post_grasp_scale": 0.0,
-            "contact_force_threshold": 1.5,
-            "require_both_contacts": True,
-            "stable_steps": 8,
-            "release_steps": 2,
-            "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
-            "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
+    # m0_turn_toward_object = RewTerm(
+    #     func=mdp.m0_turn_toward_object_until_grasp,
+    #     params={
+    #         "post_grasp_scale": 0.0,
+    #         "contact_force_threshold": 1.5,
+    #         "require_both_contacts": True,
+    #         "stable_steps": 8,
+    #         "release_steps": 2,
+    #         "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
+    #         "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
 
-            # 下面这些是原 m0_turn_toward_object 的参数
-            "in_range_deg": 15,        # 转到 ±20° 内就给奖励（想更严格就改小）
-            "std": 0.35,                 # 只有 in_range_deg=None 时才用
-            "center_from_robot": True,
-            "robot_cfg": SceneEntityCfg("robot"),
-            "object_cfg": SceneEntityCfg("object_pool"),
-            "debug": False,
-            "debug_every_steps": 1,
-            "debug_env": 0,
-        },
-        weight=10,
-    )
-
-    # Base movement penalties - prevent tilting from arm impacts
-    # base_ang_vel_penalty = RewTerm(
-    #     func=mdp.ang_vel_xy_l2,
-    #     weight=-15.0,
+    #         # 下面这些是原 m0_turn_toward_object 的参数
+    #         "in_range_deg": 15,        # 转到 ±20° 内就给奖励（想更严格就改小）
+    #         "std": 0.35,                 # 只有 in_range_deg=None 时才用
+    #         "center_from_robot": True,
+    #         "robot_cfg": SceneEntityCfg("robot"),
+    #         "object_cfg": SceneEntityCfg("object_pool"),
+    #         "debug": False,
+    #         "debug_every_steps": 1,
+    #         "debug_env": 0,
+    #     },
+    #     weight=10,
     # )
-
-    base_orientation_penalty = RewTerm(
-        func=mdp.base_orientation_penalty_exp,
-        params={"std": 0.1},  # Adjust: 0.05 (very sensitive) to 0.2 (less sensitive)
-        weight=-10.0,  # Higher weight since exp kernel returns 0-1 range
-    )
-
     # 物体被夹住后，禁止沿切向被拖着跑（抑制 M0 乱转造成的晃动）
-    penalize_obj_vt = RewTerm(
-        func=mdp.penalize_active_object_tangential_speed,
-        weight=-50,  # 先从 -0.05 ~ -0.2 试，后面再加大
-        params={
-            "penalty_scale": 1.0,
-            "v_deadzone": 0.1,  # 0.005~0.02 都可以扫一下
-            "center_from_robot": True,
-            "contact_force_threshold": 1.5,
-            "require_both_contacts": True,
-            "stable_steps": 3,  # 建议 3 或 5；不需要就设 0
-            "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
-            "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
-            "robot_cfg": SceneEntityCfg("robot"),
-            "object_cfg": SceneEntityCfg("object_pool"),
-        },
-    )
+    # penalize_obj_vt = RewTerm(
+    #     func=mdp.penalize_active_object_tangential_speed,
+    #     weight=-50,  # 先从 -0.05 ~ -0.2 试，后面再加大
+    #     params={
+    #         "penalty_scale": 1.0,
+    #         "v_deadzone": 0.1,  # 0.005~0.02 都可以扫一下
+    #         "center_from_robot": True,
+    #         "contact_force_threshold": 1.5,
+    #         "require_both_contacts": True,
+    #         "stable_steps": 3,  # 建议 3 或 5；不需要就设 0
+    #         "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
+    #         "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
+    #         "robot_cfg": SceneEntityCfg("robot"),
+    #         "object_cfg": SceneEntityCfg("object_pool"),
+    #     },
+    # )
 
 
 @configclass
@@ -484,8 +486,8 @@ class TerminationsCfg:
     object_pushed = DoneTerm(
         func=mdp.object_pushed_away,
         params={
-            "x_limits": (0, 1.5),
-            "y_tolerance": 1,
+            "x_limits": (0.15, 0.6),
+            "y_tolerance": 0.08,
             "object_cfg": SceneEntityCfg("object_pool"),
             "robot_cfg": SceneEntityCfg("robot")
         },

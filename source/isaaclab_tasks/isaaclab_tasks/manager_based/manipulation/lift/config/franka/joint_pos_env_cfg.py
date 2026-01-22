@@ -23,8 +23,7 @@ from isaaclab.assets.articulation import ArticulationCfg
 
 MY_ROBOT_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/r50_v6_rev_finger/r50_v6_rev_flat_finger.usd",
-        # usd_path=f"/home/xuyang/xuyang_ws/DRL/isaac/IsaacLab-2.0.0/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/marm_backup/marm_backup.usd",
+        usd_path=f"/home/robo/code/IsaacLab/assets/r50_v6_rev/r50_v6_rev_flat_finger.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
@@ -104,12 +103,12 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 "M0": 0.3,
                 "M3": 0.3,
                 "M4": 0.3,
-                # "M5": 0.08
+                "M5": 0.3
             }
         )
         # self.actions.arm_action = mdp.JointPositionActionCfg(
         #     asset_name="robot",
-        #     joint_names=["M[034]"],
+        #     joint_names=["M[34]"],
         #     use_default_offset=True,
         # )
 
@@ -139,22 +138,22 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
 
         self.scene.object_pool = RigidObjectCollectionCfg(
             rigid_objects={
-                "lego": RigidObjectCfg(
-                    prim_path="/World/envs/env_.*/lego",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets1/3D_assets_usd_new/lego_gongzixing.usdc",
-                        scale=(4.0, 4.0, 8.0),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.0), rot=(1, 0, 0, 0)),
-                ),
+                # "lego": RigidObjectCfg(
+                #     prim_path="/World/envs/env_.*/lego",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/assets/lego_gongzixing.usdc",
+                #         scale=(4.0, 4.0, 8.0),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=32,
+                #             disable_gravity=False,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.0), rot=(1, 0, 0, 0)),
+                # ),
                 # "paperball": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/paperball",
                 #     spawn=sim_utils.UsdFileCfg(
@@ -174,7 +173,6 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     ),
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.01, 0.0]),
                 # ),
-
                 # "bus": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/bus",
                 #     spawn=sim_utils.UsdFileCfg(
@@ -191,7 +189,6 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     ),
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.00, 0.03)),
                 # ),
-
                 # "eye_drops": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/eye_drops",
                 #     spawn=sim_utils.UsdFileCfg(
