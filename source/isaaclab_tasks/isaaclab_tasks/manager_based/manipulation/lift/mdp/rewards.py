@@ -653,6 +653,126 @@ def m0_turn_toward_object_until_grasp(
     return base * scale
 
 
+def _quat_conj_wxyz(q: torch.Tensor) -> torch.Tensor:
+    # q: (...,4) [w,x,y,z]
+    w, x, y, z = q.unbind(-1)
+    return torch.stack([w, -x, -y, -z], dim=-1)
+
+
+def _quat_mul_wxyz(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    # Hamilton product, both (...,4) [w,x,y,z]
+    aw, ax, ay, az = a.unbind(-1)
+    bw, bx, by, bz = b.unbind(-1)
+    w = aw*bw - ax*bx - ay*by - az*bz
+    x = aw*bx + ax*bw + ay*bz - az*by
+    y = aw*by - ax*bz + ay*bw + az*bx
+    z = aw*bz + ax*by - ay*bx + az*bw
+    return torch.stack([w, x, y, z], dim=-1)
+
+
+def _quat_rotate_wxyz(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
+    # q: (...,4) [w,x,y,z], v: (...,3) -> rotated v in world
+    zeros = torch.zeros_like(v[..., :1])
+    vq = torch.cat([zeros, v], dim=-1)                 # (...,4)
+    return _quat_mul_wxyz(_quat_mul_wxyz(q, vq), _quat_conj_wxyz(q))[..., 1:]  # (...,3)
+
+
+def fingerline_align_object_y(
+    env,
+    std: float = 0.25,
+    in_range_deg: float | None = None,  # None: 连续 exp shaping；否则阈值内=1
+    symmetry: bool = True,              # True: 连线方向正反等价，用 |dot|
+    project_to_xy: bool = True,         # True: 只对齐水平朝向（推荐，抗 roll/pitch 噪声）
+    eps: float = 1e-6,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
+    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
+) -> torch.Tensor:
+    """
+    Align: v_gripper = (finger2 - finger1)  with  v_obj_y = R(q_obj) * [0,1,0].
+    Reward ↑ when angle ↓.
+    """
+    # --- active object pose ---
+    _, obj_quat_w = get_active_object_states(env, object_cfg)   # (N,4) wxyz
+
+    # object y-axis in world
+    y_local = torch.tensor([0.0, 1.0, 0.0], device=env.device).expand(env.num_envs, 3)
+    obj_y_w = _quat_rotate_wxyz(obj_quat_w, y_local)            # (N,3)
+
+    # --- gripper "y-axis" as the line between finger frames ---
+    f1 = env.scene[finger_frame_1_cfg.name].data.target_pos_w[:, 0, :]  # (N,3)
+    f2 = env.scene[finger_frame_2_cfg.name].data.target_pos_w[:, 0, :]  # (N,3)
+    grip_v = f2 - f1                                                   # (N,3)
+
+    if project_to_xy:
+        obj_y_w = obj_y_w.clone()
+        grip_v = grip_v.clone()
+        obj_y_w[:, 2] = 0.0
+        grip_v[:, 2] = 0.0
+
+    # normalize
+    grip_n = torch.norm(grip_v, dim=1).clamp_min(eps)
+    obj_n = torch.norm(obj_y_w, dim=1).clamp_min(eps)
+    grip_hat = grip_v / grip_n.unsqueeze(1)
+    obj_hat = obj_y_w / obj_n.unsqueeze(1)
+
+    dot = torch.sum(grip_hat * obj_hat, dim=1).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+    if symmetry:
+        dot = dot.abs()
+
+    theta = torch.acos(dot)  # [0, pi] or [0, pi/2] if symmetry=True
+
+    if in_range_deg is not None:
+        thr = float(in_range_deg) * math.pi / 180.0
+        return (theta <= thr).to(dtype=torch.float32)
+
+    std = max(float(std), 1e-6)
+    return torch.exp(-0.5 * (theta / std) ** 2)
+
+
+def fingerline_align_object_y_until_grasp(
+    env,
+    post_grasp_scale: float = 0.0,  # 夹稳后把这项关掉；想“夹住后也保持对齐”可设 0.2~1.0
+    # ---- grasp gating ----
+    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
+    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
+    contact_force_threshold: float = 1.5,
+    require_both_contacts: bool = True,
+    stable_steps: int = 8,
+    release_steps: int = 2,
+    # ---- base reward params ----
+    std: float = 0.25,
+    in_range_deg: float | None = None,
+    symmetry: bool = True,
+    project_to_xy: bool = True,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
+    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
+) -> torch.Tensor:
+    base = fingerline_align_object_y(
+        env,
+        std=std,
+        in_range_deg=in_range_deg,
+        symmetry=symmetry,
+        project_to_xy=project_to_xy,
+        object_cfg=object_cfg,
+        finger_frame_1_cfg=finger_frame_1_cfg,
+        finger_frame_2_cfg=finger_frame_2_cfg,
+    )
+
+    stable = get_stable_grasp_mask(
+        env,
+        left_sensor_cfg=left_sensor_cfg,
+        right_sensor_cfg=right_sensor_cfg,
+        contact_force_threshold=contact_force_threshold,
+        require_both_contacts=require_both_contacts,
+        stable_steps=stable_steps,
+        release_steps=release_steps,
+    )
+    scale = torch.where(stable, torch.full_like(base, post_grasp_scale), torch.ones_like(base))
+    return base * scale
+
+
 #######################################################################
 # penalty function
 #######################################################################

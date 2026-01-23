@@ -66,7 +66,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
             pos=(0.0, 0.0, 0.0),
             rot=(0, 0, 0, 1),
         ),
-        spawn=UsdFileCfg(usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/FloorWithPanels.usd"),
+        spawn=UsdFileCfg(usd_path="/home/robo/code/IsaacLab/assets/Floor/FloorWithPanels.usd"),
     )
 
     # lights
@@ -288,7 +288,7 @@ class EventCfg:
         func=mdp.randomize_floor_texture,
         mode="reset",
         params={
-            "texture_txt_path": "/home/robo/code/IsaacLab/assets1/3D_assets_usd/floor.txt"
+            "texture_txt_path": "/home/robo/code/IsaacLab/assets/Floor/floor.txt"
         },
     )
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
@@ -314,10 +314,10 @@ class EventCfg:
             "asset_cfg": SceneEntityCfg("object_pool"),
             "pose_range": {
                 "z": (0.00, 0.00),
-                "yaw": (-0.3491, 0.3491),
+                "yaw": (-1.2, 0),  # [0°, +68.75°]
                 "roll": (0.0, 0.0),
                 "pitch": (0.0, 0.0),
-                "x": (0.02, 0.08),
+                "x": (0.02, 0.06),
                 "y": (0.0, 0.0),
             },
             "velocity_range": {
@@ -328,9 +328,9 @@ class EventCfg:
                 "pitch": (0.0, 0.0),
                 "yaw": (0.0, 0.0),
             },
-            "spawn_mode": "arc_angle",
-            "angle_range_deg": (-0.5, 0.5),   # 只在 -40°~+40° 这个扇形里
-            "radius_range": (0.30, 0.36),       # 物体距离圆心 0.25~0.35m
+            "spawn_mode": "cartesian",
+            "angle_range_deg": (-0, 0),   # 只在 -40°~+40° 这个扇形里
+            "radius_range": (0.32, 0.36),       # 物体距离圆心 0.25~0.35m
             "center_from_robot": True,         # 如果 env_origin 就在 M0 下面，就用 False
             "align_yaw_to_center": True,        # 让物体朝向圆心（M0）
         },
@@ -373,7 +373,7 @@ class RewardsCfg:
             "contact_force_threshold": 1.5,  # 1.5N on Y-axis (based on your data)
             "require_both_contacts": True,  # Both fingers must contact
         },
-        weight=15.0,
+        weight=35.0,
     )
 
     # NEW: Point cloud density reward
@@ -395,7 +395,7 @@ class RewardsCfg:
             "reward_value": 1.0,
             "gripper_closed_threshold": 0.2,
         },
-        weight=10.0,
+        weight=30.0,
     )
 
     # action penalty
@@ -404,7 +404,7 @@ class RewardsCfg:
     contain_object = RewTerm(
         func=mdp.contain_object,
         params={"std": 1},
-        weight=30.0,  # 2.0
+        weight=10.0,  # 2.0
     )
 
     # 戳地相关
@@ -475,6 +475,29 @@ class RewardsCfg:
     #         "object_cfg": SceneEntityCfg("object_pool"),
     #     },
     # )
+    wrist_align_by_fingerline = RewTerm(
+        func=mdp.fingerline_align_object_y_until_grasp,
+        params={
+            "post_grasp_scale": 0.0,
+
+            "contact_force_threshold": 1.5,
+            "require_both_contacts": True,
+            "stable_steps": 8,
+            "release_steps": 2,
+
+            "std": 0.25,            # 可扫：0.15~0.4（越小越“严格”）
+            "in_range_deg": None,   # 先用连续 shaping；想“对齐到位”再改 10~20
+            "symmetry": True,       # 连线方向正反等价（推荐 True）
+            "project_to_xy": True,  # 推荐 True：只对齐水平朝向
+
+            "object_cfg": SceneEntityCfg("object_pool"),
+            "finger_frame_1_cfg": SceneEntityCfg("finger_frame_1"),
+            "finger_frame_2_cfg": SceneEntityCfg("finger_frame_2"),
+            "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
+            "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
+        },
+        weight=2.0,  # 建议先 1~3；M5 还是不动就加到 4~6
+    )
 
 
 @configclass
@@ -529,7 +552,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=2.5)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=5.5)
 
     observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
 
@@ -545,10 +568,10 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
 
         """Post initialization."""
         self.sim.dt = 0.01  # 100Hz
-        # self.decimation = 20  # 2 20 48
-        # self.episode_length_s = 6 * self.decimation * self.sim.dt
-        self.decimation = 1
-        self.episode_length_s = 10
+        self.decimation = 20  # 2 20 48
+        self.episode_length_s = 6 * self.decimation * self.sim.dt
+        # self.decimation = 1
+        # self.episode_length_s = 10
         self.sim.render_interval = self.decimation
         # self.sim.render_interval = 1
 
