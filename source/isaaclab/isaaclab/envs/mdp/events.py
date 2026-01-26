@@ -1463,6 +1463,14 @@ def reset_scene_to_default(env: ManagerBasedEnv, env_ids: torch.Tensor):
         default_joint_vel = articulation_asset.data.default_joint_vel[env_ids].clone()
         # set into the physics simulation
         articulation_asset.write_joint_state_to_sim(default_joint_pos, default_joint_vel, env_ids=env_ids)
+        # ===============================                                                                                                                               
+        # Reset joint position targets to default (prevents moving to old targets)                                                                                                    
+        articulation_asset.data.joint_pos_target[env_ids] = default_joint_pos.clone()                                                                                                 
+        articulation_asset._joint_pos_target_sim[env_ids] = default_joint_pos.clone()                                                                                                 
+        # Reset velocity targets to zero                                                                                                                                              
+        articulation_asset.data.joint_vel_target[env_ids] = 0.0                                                                                                                       
+        articulation_asset._joint_vel_target_sim[env_ids] = 0.0                                                                                                                       
+        # =============================================          
     # deformable objects
     for deformable_object in env.scene.deformable_objects.values():
         # obtain default and set into the physics simulation

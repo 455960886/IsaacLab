@@ -347,19 +347,19 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-10.0)
+    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-50.0)
     # debug_contact = RewTerm(func=mdp.debug_contact_forces, weight=0.01)
 
     reaching_object = RewTerm(
         func=mdp.object_ee_distance,
         params={"std": 0.1},
         # weight=20.0,
-        weight=1.0,
+        weight=2.0,
     )
 
     lifting_object_linear = RewTerm(
         func=mdp.object_is_lifted_linear,
-        params={"minimal_height": 0.01, "max_height": 0.1},
+        params={"minimal_height": 0.01, "max_height": 0.3},
         weight=5.0,   # 1500  150
         # weight=100.0,   # 1500  150
     )
@@ -369,11 +369,11 @@ class RewardsCfg:
         func=mdp.object_is_lifted_with_contact,
         params={
             "minimal_height": 0.01,
-            "max_height": 0.1,
+            "max_height": 0.3,
             "contact_force_threshold": 1.5,  # 1.5N on Y-axis (based on your data)
             "require_both_contacts": True,  # Both fingers must contact
         },
-        weight=35.0,
+        weight=150.0,
     )
 
     # NEW: Point cloud density reward
@@ -385,6 +385,7 @@ class RewardsCfg:
             "min_ee_robot_distance": 0.26,
             "max_ee_height": 0.06,
         },
+        # weight=20.0,  # Tune this: 5.0-20.0 depending on importance
         weight=2.0,
     )
 
@@ -395,17 +396,12 @@ class RewardsCfg:
             "reward_value": 1.0,
             "gripper_closed_threshold": 0.2,
         },
-        weight=30.0,
+        # weight=300.0,
+        weight=10.0,
     )
 
     # action penalty
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
-
-    contain_object = RewTerm(
-        func=mdp.contain_object,
-        params={"std": 1},
-        weight=10.0,  # 2.0
-    )
 
     # 戳地相关
     # Base movement penalties - prevent tilting from arm impacts
@@ -416,7 +412,7 @@ class RewardsCfg:
     base_orientation_penalty = RewTerm(
         func=mdp.base_orientation_penalty_exp,
         params={"std": 0.1},  # Adjust: 0.05 (very sensitive) to 0.2 (less sensitive)
-        weight=-10.0,  # Higher weight since exp kernel returns 0-1 range
+        weight=-50.0,  # Higher weight since exp kernel returns 0-1 range
     )
 
     # M0 相关
@@ -519,7 +515,7 @@ class TerminationsCfg:
     robot_base_orientation = DoneTerm(
         func=mdp.bad_orientation,
         params={
-            "limit_angle": 0.1,  # 0.5 rad ≈ 28.6° tilt limit
+            "limit_angle": 0.06,  # 0.5 rad ≈ 28.6° tilt limit
             "asset_cfg": SceneEntityCfg("robot"),
         },
     )
@@ -552,7 +548,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=5.5)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=2)
 
     observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
 
@@ -572,8 +568,8 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         self.episode_length_s = 6 * self.decimation * self.sim.dt
         # self.decimation = 1
         # self.episode_length_s = 10
-        self.sim.render_interval = self.decimation
-        # self.sim.render_interval = 1
+        # self.sim.render_interval = self.decimation
+        self.sim.render_interval = 1
 
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
