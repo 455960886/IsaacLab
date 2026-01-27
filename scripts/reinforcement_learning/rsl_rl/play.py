@@ -26,6 +26,8 @@ parser.add_argument(
     action="store_true",
     help="Use the pre-trained checkpoint from Nucleus.",
 )
+parser.add_argument("--sleep", type=float, default=0.0,
+                    help="Extra sleep seconds after each step (e.g., 0.05 means 50ms).")
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -147,83 +149,50 @@ def main():
     save_dir = "/home/roborock/下载/"
     # reset environment
     obs, _ = env.get_observations()
-    timestep = 0
+    num_envs = env.unwrapped.num_envs  # 或者 env.num_envs（看 wrapper）
+    global_step = 0
+
+    # 每个环境各自的 episode 计数和 step 计数
+    ep_id = np.zeros(num_envs, dtype=np.int64)
+    ep_step = np.zeros(num_envs, dtype=np.int64)
+
     # simulate environment
     while simulation_app.is_running():
-        start_time = time.time()
         # run everything in inference mode
         with torch.inference_mode():
-            # agent stepping
-            
-            
-            # obs = obs.permute(0, 3, 1, 2)
             actions = policy(obs)
 
-            # actions = torch.zeros(1, 4)
-            # actions = actions.to(device)  # 明确发送到 GPU 上
+            # 你现在把 actions 当 numpy 用了（np.pi），建议用 torch.pi 或转 cpu
+            env0 = 0
 
-            # print(obs) #输入是RRRRGGGGGBBBBB
-            # print(f"step{timestep} , action {actions}")
-            print(f"step{timestep} , action {180*(actions/np.pi)}" )
-            #############################################################
-            # obs_to_save = obs.permute(0, 2, 3, 1)  # back to NHWC
-            # # print(f'obs_rgb{obs_to_save}')
-            # obs_np = obs_to_save[0].cpu().numpy()  # assume batch size = 1
-            # obs_np = np.clip(obs_np * 255.0 +127.5 , 0, 255).astype(np.uint8)  # float32 to uint8
-         
-            # img_bgr = cv2.cvtColor(obs_np, cv2.COLOR_BGR2RGB)
-            # # cv2.imwrite(os.path.join(save_dir, f"sim_{timestep:04d}.png"), img_bgr)
-            # cv2.imwrite(os.path.join(save_dir, f"sim20_{timestep}.png"), img_bgr)
-            ###################################################################
-            # print(f"step{timestep} , action {180*(actions/np.pi)}" )
-            # actions = torch.ones(1, 4)
-            # with open('output_formres8.txt', 'a') as f:
-            #     f.write(f"actions : {actions}\n")
-            # actions[:, -1] = 0.01
-            # env stepping
-            # obs_to_save = obs.permute(0, 2, 3, 1)  # back to NHWC
-            # obs_np = obs_to_save[0].cpu().numpy()  # assume batch size = 1
-            # obs_np = np.clip(obs_np * 255.0, 0, 255).astype(np.uint8)  # float32 to uint8
+            # 原始动作（rad/原始单位）
+            a0_rad = actions[env0].detach().cpu().numpy()
 
-            # img_bgr = cv2.cvtColor(obs_np, cv2.COLOR_RGB2BGR)
-            # cv2.imwrite(os.path.join(save_dir, f"step_{timestep:04d}.png"), img_bgr)
-            ##########################################################
-            # img_bgr = cv2.imread('/home/roborock/下载/real_2.png')                                               
-            # img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-            # img_tensor = torch.from_numpy(img_rgb).float() / 255.0
-            
-            # mean_tensor = torch.mean(img_tensor, dim=(0, 1), keepdim=True)
-            # img_tensor -= 0.5
-            # obs = img_tensor.unsqueeze(0)
-            
-            # obs = obs.permute(0, 3, 1, 2)
-            # obs = obs.to(device)
-            # # print(f"obs_shape::{obs.shape}")
-            # # print(f"obs::{obs}")
-            
-            # actions = policy(obs)
-            # # print(f"step{timestep} , action {actions}" )
-            # print(f"step{timestep} , action {180*(actions/np.pi)}" )
-            # ###################################################
-            obs, _,dones, _ = env.step(actions)
-            timestep += 1
-            
-            
-            
-            # if torch.any(dones):
-            #     done_ids = dones.nonzero(as_tuple=False).squeeze(-1).tolist()
-            #     print(f"[INFO] Episode(s) done at timestep {timestep}: env_ids={done_ids}")
-        
-        # if args_cli.video:
-        #     timestep += 1
-            # # Exit the play loop after recording one video
-            # if timestep == 30:#args_cli.video_length:
-            #     break
+            # 转换成 deg（如果你确定动作是 rad）
+            actions_deg = actions * (180.0 / torch.pi)
+            a0_deg = actions_deg[env0].detach().cpu().numpy()
+
+            print(
+                f"[PLAY] env={env0} ep={ep_id[env0]} ep_step={ep_step[env0]} global_step={global_step} | "
+                f"action(rad)={a0_rad} | action(deg)={a0_deg}"
+            )
+
+            obs, _, dones, infos = env.step(actions)
+
+            # step 计数更新：每一步所有 env 的 ep_step 都 +1
+            ep_step += 1
+            global_step += 1
+
+            # 如果某些 env done，打印并对这些 env 重置 ep_step，ep_id+1
+            if torch.any(dones):
+                done_ids = torch.nonzero(dones, as_tuple=False).squeeze(-1).cpu().numpy()
+                for eid in done_ids:
+                    print(f"[PLAY] ✅ env={eid} episode结束：ep={ep_id[eid]} 总步数={ep_step[eid]}")
+                    ep_id[eid] += 1
+                    ep_step[eid] = 0
 
         # # time delay for real-time evaluation
-        sleep_time = dt - (time.time() - start_time)
-        if args_cli.real_time and sleep_time > 0:
-            time.sleep(sleep_time)
+        time.sleep(0.6)
 
     # close the simulator
     env.close()
