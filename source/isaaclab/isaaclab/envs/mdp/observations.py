@@ -975,7 +975,7 @@ class image_features(ManagerTermBase):
         #     # save_debug=(self._frame_counter % 1 == 0),  # ← EVERY 10 STEPS
         #     frame_counter=self._frame_counter
         # )
-        
+
         # import pdb
         # pdb.set_trace()
 
