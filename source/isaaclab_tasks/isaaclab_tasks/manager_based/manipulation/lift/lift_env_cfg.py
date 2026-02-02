@@ -4,9 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from dataclasses import MISSING
-
 import isaaclab.sim as sim_utils
-import math
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, DeformableObjectCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -17,12 +15,10 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransformerCfg
-from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
+from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
 from isaaclab.utils import configclass
 from isaaclab.sensors import TiledCameraCfg, ContactSensorCfg
-
-# from isaaclab.sensors.ray_caster.patterns.patterns_cfg import LidarPatternCfg
-
+from isaaclab.assets import RigidObjectCollectionCfg
 # from .custom_ray_caster import FixedRayCaster
 
 from . import mdp
@@ -39,72 +35,27 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     which need to set the target object, robot and end-effector frames
     """
 
-    replicate_physics: bool = False
     # robots: will be populated by agent env cfg
     robot: ArticulationCfg = MISSING
     # end-effector sensor: will be populated by agent env cfg
     ee_frame: FrameTransformerCfg = MISSING
     finger_frame_1: FrameTransformerCfg = MISSING
     finger_frame_2: FrameTransformerCfg = MISSING
-    ee_tip_probe_frame: FrameTransformerCfg = MISSING
-    gripper_peak: FrameTransformerCfg = MISSING
     # target object: will be populated by agent env cfg
     object: RigidObjectCfg | DeformableObjectCfg = MISSING
+    object_pool: RigidObjectCollectionCfg = MISSING
 
-    # plane
-    plane = AssetBaseCfg(
-        prim_path="/World/GroundPlane",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0, 0, -1.05)),
-        spawn=GroundPlaneCfg(),
-    )
-
-    # FloorWithPanels
+    # room
     FloorWithPanels = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/FloorwithPanels",
         init_state=AssetBaseCfg.InitialStateCfg(
             pos=(0.0, 0.0, 0.0),
             rot=(0, 0, 0, 1),
         ),
-        spawn=UsdFileCfg(usd_path="/home/robo/code/IsaacLab/assets/Floor/FloorWithPanels.usd"),
+        spawn=UsdFileCfg(usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/FloorWithPanels.usd"),
     )
 
     # lights
-
-    sphere_light_0 = AssetBaseCfg(
-        prim_path="{ENV_REGEX_NS}/SphereLight_0",
-        init_state=AssetBaseCfg.InitialStateCfg(
-            pos=(2.5, 0.0, 4.5),
-            rot=(0, 0, 0, 1),
-        ),
-        spawn=sim_utils.SphereLightCfg(
-            color=(1.0, 1.0, 1.0),
-            intensity=30000.0,
-            radius=0.4,
-            enable_color_temperature=True,
-            color_temperature=5000.0
-        )
-    )
-
-    sphere_light_1 = AssetBaseCfg(
-        prim_path="{ENV_REGEX_NS}/SphereLight_1",
-        init_state=AssetBaseCfg.InitialStateCfg(
-            pos=(5.0, 0.0, 4.5),
-            rot=(0, 0, 0, 1),
-        ),
-        spawn=sim_utils.SphereLightCfg(
-            color=(1.0, 1.0, 1.0),
-            intensity=30000.0,
-            radius=0.4,
-            enable_color_temperature=True,
-            color_temperature=5000.0
-        )
-    )
-
-    light = AssetBaseCfg(
-        prim_path="/World/light",
-        spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3500.0),
-    )
-
     sphere_light_0 = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/SphereLight_0",
         init_state=AssetBaseCfg.InitialStateCfg(
@@ -138,6 +89,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     # depth_camera: TiledCameraCfg = TiledCameraCfg(
     #     # prim_path="{ENV_REGEX_NS}/depth_camera",
     #     prim_path="{ENV_REGEX_NS}/Robot/M0_chassis_link/tof_link/depth_camera",
+    #     # offset=TiledCameraCfg.OffsetCfg(pos=(0.162, -0.0293681, 0.075), rot=((0.4912, 0.50865, -0.50865, -0.4912)), convention="opengl"),
+    #     # offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((1.0, 0.0, 0.0, 0.0)), convention="opengl"),
     #     offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.0, -1.0, 0.0, 0.0)), convention="opengl"),
     #     data_types=["distance_to_image_plane"],  # Key change to depth
     #     spawn=sim_utils.PinholeCameraCfg(
@@ -149,18 +102,34 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     #     # update_period=0.2,
     # )
 
+    # depth_camera: TiledCameraCfg = TiledCameraCfg(
+    #     # prim_path="{ENV_REGEX_NS}/depth_camera",
+    #     prim_path="{ENV_REGEX_NS}/Robot/M0_chassis_link/tof_link/depth_camera",
+    #     # offset=TiledCameraCfg.OffsetCfg(pos=(0.162, -0.0293681, 0.075), rot=((0.4912, 0.50865, -0.50865, -0.4912)), convention="opengl"),
+    #     # offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((1.0, 0.0, 0.0, 0.0)), convention="opengl"),
+    #     offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.0, -1.0, 0.0, 0.0)), convention="opengl"),
+    #     # offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.01309, -0.99991, 0.0, 0.0)), convention="opengl"),
+    #     data_types=["distance_to_image_plane"],  # Key change to depth
+    #     spawn=sim_utils.PinholeCameraCfg(
+    #         focal_length=40, focus_distance=400.0, horizontal_aperture=80, vertical_aperture=25.45,
+    #     ),
+    #     width=400,
+    #     height=150,
+    #     debug_vis=False,
+    #     # update_period=0.2,
+    # )
+
     depth_camera: TiledCameraCfg = TiledCameraCfg(
         # prim_path="{ENV_REGEX_NS}/depth_camera",
         prim_path="{ENV_REGEX_NS}/Robot/M0_chassis_link/tof_link/depth_camera",
         offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.0, -1.0, 0.0, 0.0)), convention="opengl"),
         data_types=["distance_to_image_plane"],  # Key change to depth
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=40, focus_distance=400.0, horizontal_aperture=80, vertical_aperture=25.45,
+            focal_length=40, focus_distance=400.0, horizontal_aperture=93.5
         ),
-        width=400,
+        width=530,
         height=150,
         debug_vis=False,
-        # update_period=0.2,
     )
 
     gripper_camera: TiledCameraCfg = TiledCameraCfg(
@@ -180,13 +149,13 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         width=640,
         height=480,
         debug_vis=False,
-        update_period=0.2,
+        update_period=0.15,
     )
 
     contact_forces_left = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/M6_1_leftfinger_link",  # Left gripper finger link
         update_period=0.0,  # Update every step
-        history_length=5,
+        history_length=10,
         track_air_time=False,
         debug_vis=False,
     )
@@ -194,10 +163,11 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     contact_forces_right = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/M6_2_rightfinger_link",  # Right gripper finger link
         update_period=0.0,
-        history_length=5,
+        history_length=10,
         track_air_time=False,
         debug_vis=False,
     )
+
 
 ##
 # MDP settings
@@ -210,16 +180,16 @@ class CommandsCfg:
 
     object_pose = mdp.UniformPoseCommandCfg(
         asset_name="robot",
-        body_name=MISSING,
+        body_name=MISSING,  # will be set by agent env cfg
         resampling_time_range=(5.0, 5.0),
         debug_vis=False,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.25, 0.45),          # 机器人前方一点点
-            pos_y=(-0.20, 0.20),         # 左右 20cm
-            pos_z=(0.08, 0.18),          # 桌面稍微上方
-            roll=(-math.radians(5), math.radians(5)),
-            pitch=(-math.radians(5), math.radians(5)),
-            yaw=(-math.radians(30), math.radians(30)),
+            pos_x=(0.3, 0.3),
+            pos_y=(0.0, 0.0),
+            pos_z=(0.1, 0.3),
+            roll=(0.0, 0.0),
+            pitch=(0.0, 0.0),
+            yaw=(0.0, 0.0),
         ),
     )
 
@@ -227,10 +197,7 @@ class CommandsCfg:
 @configclass
 class ActionsCfg:
     """Action specifications for the MDP."""
-
-    # will be set by agent env cfg
-    arm_action: mdp.JointPositionActionCfg | mdp.DifferentialInverseKinematicsActionCfg = MISSING
-    # arm_action: mdp.RelativeJointPositionActionCfg | mdp.DifferentialInverseKinematicsActionCfg = MISSING
+    arm_action: mdp.RelativeJointPositionActionCfg | mdp.JointPositionActionCfg = MISSING
     gripper_action: mdp.BinaryJointPositionActionCfg = MISSING
 
 
@@ -241,26 +208,11 @@ class ResNet18ObservationCfg:
     @configclass
     class ResNet18FeaturesCameraPolicyCfg(ObsGroup):
         """Observations for policy group with features extracted from RGB images with a frozen ResNet18."""
-        # joint_pos = ObsTerm(func=mdp.joint_pos_rel)
-        # joint_vel = ObsTerm(func=mdp.joint_vel_rel)
+
         image = ObsTerm(
             func=mdp.image_features,
-            params={"sensor_cfg": SceneEntityCfg("gripper_camera"),
-                    "data_type": "rgb",
-                    "model_name": "resnet18",
-                    "depth_cfg": SceneEntityCfg("depth_camera")},
+            params={"sensor_cfg": SceneEntityCfg("gripper_camera"), "data_type": "rgb","model_name": "resnet18","depth_cfg":SceneEntityCfg("depth_camera")},
         )
-
-        # -------------------- NEW: add M0 joint position --------------------
-        # 输出 shape: (num_envs, 1)
-        # m0_pos = ObsTerm(
-        #     func=mdp.joint_pos_rel,  # joint_pos_rel | joint_pos
-        #     params={"asset_cfg": SceneEntityCfg("robot", joint_names=["M0"])},
-        # )
-
-        # def __post_init__(self):
-        #     self.concatenate_terms = True
-
     policy: ObsGroup = ResNet18FeaturesCameraPolicyCfg()
 
 
@@ -272,17 +224,7 @@ class EventCfg:
         func=mdp.initialize_point_cloud_cache,
         mode="startup"
     )
-    # randomize_bus_texture = EventTerm(
-    #     func=mdp.randomize_bus_texture_event,
-    #     mode="reset",
-    #     params={
-    #         "bus_name": "bus",
-    #         "body_name": "Xform",
-    #         "texture_paths": "/home/robo/code/IsaacLab/assets1/3D_assets_usd/car",
-    #         "event_name": "randomize_bus_texture",
-    #         "texture_rotation": (0.0, 2 * math.pi),
-    #     },
-    # )
+
     randomize_floor = EventTerm(
         func=mdp.randomize_floor_texture,
         mode="reset",
@@ -292,17 +234,9 @@ class EventCfg:
     )
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
 
-    # set_rt_subframes = EventTerm(
-    #     func=mdp.set_camera_rt_subframes,
-    #     mode="startup",
-    #     params={
-    #         "subframes": 4,
-    #     },
-    # )
-
     object_pool_spawn = EventTerm(
         func=mdp.randomize_object_pool_selection,
-        mode="reset",
+        mode="startup",
         params={"asset_cfg": SceneEntityCfg("object_pool")},
     )
 
@@ -310,28 +244,16 @@ class EventCfg:
         func=mdp.reset_object_pool_state_uniform,
         mode="reset",
         params={
-            "asset_cfg": SceneEntityCfg("object_pool"),
             "pose_range": {
-                "z": (0.00, 0.00),
-                "yaw": (-1.2, 0),  # [0°, +68.75°]
-                "roll": (0.0, 0.0),
-                "pitch": (0.0, 0.0),
-                "x": (0.02, 0.06),
-                "y": (0.0, 0.0),
-            },
-            "velocity_range": {
-                "x": (0.0, 0.0),
-                "y": (0.0, 0.0),
+                "x": (0.00, 0.04),
+                "y": (-0.002, 0.002),
                 "z": (0.0, 0.0),
                 "roll": (0.0, 0.0),
-                "pitch": (0.0, 0.0),
-                "yaw": (0.0, 0.0),
+                "pitch": (0, 0),
+                "yaw": (-1.2, 0.0),
             },
-            "spawn_mode": "cartesian",
-            "angle_range_deg": (-0, 0),   # 只在 -40°~+40° 这个扇形里
-            "radius_range": (0.32, 0.36),       # 物体距离圆心 0.25~0.35m
-            "center_from_robot": True,         # 如果 env_origin 就在 M0 下面，就用 False
-            "align_yaw_to_center": True,        # 让物体朝向圆心（M0）
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("object_pool"),
         },
     )
 
@@ -347,7 +269,6 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     termination_penalty = RewTerm(func=mdp.is_terminated, weight=-50.0)
-    # debug_contact = RewTerm(func=mdp.debug_contact_forces, weight=0.01)
 
     reaching_object = RewTerm(
         func=mdp.object_ee_distance,
@@ -360,32 +281,37 @@ class RewardsCfg:
         func=mdp.object_is_lifted_linear,
         params={"minimal_height": 0.01, "max_height": 0.3},
         weight=5.0,   # 1500  150
-        # weight=100.0,   # 1500  150
     )
 
     # NEW: Lifting with contact verification
     lifting_object_linear_contact = RewTerm(
         func=mdp.object_is_lifted_with_contact,
         params={
-            "minimal_height": 0.01,
+            "minimal_height": 0.005,
             "max_height": 0.3,
             "contact_force_threshold": 1.5,  # 1.5N on Y-axis (based on your data)
             "require_both_contacts": True,  # Both fingers must contact
         },
-        weight=150.0,
+        weight=200.0,
     )
 
     # NEW: Point cloud density reward
-    pcd_contain_object = RewTerm(
-        func=mdp.pcd_contain_object,
-        params={
-            "density_scale": 1.0,
-            "use_tanh": True,  # Set True for smoother gradients
-            "min_ee_robot_distance": 0.26,
-            "max_ee_height": 0.06,
-        },
-        # weight=20.0,  # Tune this: 5.0-20.0 depending on importance
-        weight=2.0,
+    # pcd_contain_object = RewTerm(
+    #     func=mdp.pcd_contain_object,
+    #     params={
+    #         "density_scale": 1.0,
+    #         "use_tanh": True,  # Set True for smoother gradients
+    #         "min_ee_robot_distance": 0.26,
+    #         "max_ee_height": 0.06,
+    #     },
+    #     # weight=20.0,  # Tune this: 5.0-20.0 depending on importance
+    #     weight=2.0,
+    # )
+
+    contain_object = RewTerm(
+        func=mdp.contain_object,
+        params={"std": 1},
+        weight=2.0,  # 2.0
     )
 
     clamp_object_contact = RewTerm(
@@ -402,74 +328,6 @@ class RewardsCfg:
     # action penalty
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
 
-    # 戳地相关
-    # Base movement penalties - prevent tilting from arm impacts
-    # base_ang_vel_penalty = RewTerm(
-    #     func=mdp.ang_vel_xy_l2,
-    #     weight=-15.0,
-    # )
-    base_orientation_penalty = RewTerm(
-        func=mdp.base_orientation_penalty_exp,
-        params={"std": 0.1},  # Adjust: 0.05 (very sensitive) to 0.2 (less sensitive)
-        weight=-50.0,  # Higher weight since exp kernel returns 0-1 range
-    )
-
-    # M0 相关
-    # old：为了防止夹取物体之后 M0 乱转，加入朝向物体的奖励 m0_turn_toward_object_until_grasp
-    # m0_turn_toward_object = RewTerm(
-    #     func=mdp.m0_turn_toward_object,
-    #     params={
-    #         "in_range_deg": 15,        # 转到 ±20° 内就给奖励（想更严格就改小）
-    #         "std": 0.35,                 # 只有 in_range_deg=None 时才用
-    #         "center_from_robot": True,
-    #         "robot_cfg": SceneEntityCfg("robot"),
-    #         "object_cfg": SceneEntityCfg("object_pool"),
-    #         "debug": False,
-    #         "debug_every_steps": 1,
-    #         "debug_env": 0,
-    #     },
-    #     weight=5.0,                   # 先小一点，避免模型只顾着转不去抓
-    # )
-    # m0_turn_toward_object = RewTerm(
-    #     func=mdp.m0_turn_toward_object_until_grasp,
-    #     params={
-    #         "post_grasp_scale": 0.0,
-    #         "contact_force_threshold": 1.5,
-    #         "require_both_contacts": True,
-    #         "stable_steps": 8,
-    #         "release_steps": 2,
-    #         "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
-    #         "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
-
-    #         # 下面这些是原 m0_turn_toward_object 的参数
-    #         "in_range_deg": 15,        # 转到 ±20° 内就给奖励（想更严格就改小）
-    #         "std": 0.35,                 # 只有 in_range_deg=None 时才用
-    #         "center_from_robot": True,
-    #         "robot_cfg": SceneEntityCfg("robot"),
-    #         "object_cfg": SceneEntityCfg("object_pool"),
-    #         "debug": False,
-    #         "debug_every_steps": 1,
-    #         "debug_env": 0,
-    #     },
-    #     weight=10,
-    # )
-    # 物体被夹住后，禁止沿切向被拖着跑（抑制 M0 乱转造成的晃动）
-    # penalize_obj_vt = RewTerm(
-    #     func=mdp.penalize_active_object_tangential_speed,
-    #     weight=-50,  # 先从 -0.05 ~ -0.2 试，后面再加大
-    #     params={
-    #         "penalty_scale": 1.0,
-    #         "v_deadzone": 0.1,  # 0.005~0.02 都可以扫一下
-    #         "center_from_robot": True,
-    #         "contact_force_threshold": 1.5,
-    #         "require_both_contacts": True,
-    #         "stable_steps": 3,  # 建议 3 或 5；不需要就设 0
-    #         "left_sensor_cfg": SceneEntityCfg("contact_forces_left"),
-    #         "right_sensor_cfg": SceneEntityCfg("contact_forces_right"),
-    #         "robot_cfg": SceneEntityCfg("robot"),
-    #         "object_cfg": SceneEntityCfg("object_pool"),
-    #     },
-    # )
     wrist_align_by_fingerline = RewTerm(
         func=mdp.fingerline_align_object_y_until_grasp,
         params={
@@ -494,12 +352,33 @@ class RewardsCfg:
         weight=2.0,  # 建议先 1~3；M5 还是不动就加到 4~6
     )
 
+    # Base movement penalties - prevent tilting from arm impacts
+    # base_ang_vel_penalty = RewTerm(
+    #     func=mdp.ang_vel_xy_l2,
+    #     weight=-15.0,
+    # )
+
+    base_orientation_penalty = RewTerm(
+        func=mdp.base_orientation_penalty_exp,
+        params={"std": 0.1},  # Adjust: 0.05 (very sensitive) to 0.2 (less sensitive)
+        weight=-50.0,  # Higher weight since exp kernel returns 0-1 range
+    )
+
 
 @configclass
 class TerminationsCfg:
     """Termination terms for the MDP."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
+
+    # Terminate if robot base orientation is tilted too much
+    robot_base_orientation = DoneTerm(
+        func=mdp.bad_orientation,
+        params={
+            "limit_angle": 0.09,  # 0.5 rad ≈ 28.6° tilt limit
+            "asset_cfg": SceneEntityCfg("robot"),
+        },
+    )
 
     object_pushed = DoneTerm(
         func=mdp.object_pushed_away,
@@ -511,30 +390,10 @@ class TerminationsCfg:
         },
     )
 
-    robot_base_orientation = DoneTerm(
-        func=mdp.bad_orientation,
-        params={
-            "limit_angle": 0.06,  # 0.5 rad ≈ 28.6° tilt limit
-            "asset_cfg": SceneEntityCfg("robot"),
-        },
-    )
-
 
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
-    # expand_object_y = CurrTerm(
-    #     func=mdp.curriculum_expand_object_spawn_y_range_linear,
-    #     params={
-    #         "y_range_start": (-0.01, 0.01),
-    #         "y_range_end": (-0.10, 0.10),
-    #         "start_step": 0,
-    #         "end_step": 32000,
-    #         "update_every_steps": 200,
-    #         "debug": True,
-    #         "debug_every_steps": 2000,
-    #     },
-    # )
 
 
 ##
@@ -547,10 +406,8 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=2)
-
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=96, env_spacing=3)
     observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
-
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()
     # MDP settings
@@ -560,15 +417,15 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
-
+        
         """Post initialization."""
         self.sim.dt = 0.01  # 100Hz
         self.decimation = 20  # 2 20 48
-        self.episode_length_s = 6 * self.decimation * self.sim.dt
+        self.episode_length_s = 10 * self.decimation * self.sim.dt
         # self.decimation = 1
         # self.episode_length_s = 10
-        # self.sim.render_interval = self.decimation
-        self.sim.render_interval = 1
+        self.sim.render_interval = self.decimation
+        # self.sim.render_interval = 1
 
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4

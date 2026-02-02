@@ -7,175 +7,64 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-import math
 from typing import TYPE_CHECKING
+
+import math
 
 from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import FrameTransformer
+from isaaclab.utils.math import combine_frame_transforms, matrix_from_quat
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-#######################################################################
-# Help Function to get the states of active object from the object pool
-#######################################################################
+## Help Function to get the states of active object from the object pool
 def get_active_object_states(env: ManagerBasedRLEnv, object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")):
     """
     Helper function to get states of active objects from object pool.
-
+    
     Returns:
         pos_w: (num_envs, 3) - World positions of active objects
         quat_w: (num_envs, 4) - World orientations of active objects [w, x, y, z]
     """
     from isaaclab.assets import RigidObjectCollection
-
+    
     object_collection: RigidObjectCollection = env.scene[object_cfg.name]
-
+    
     # Get active object indices for each environment
     if not hasattr(env, 'active_object_indices'):
         raise RuntimeError("active_object_indices not found. Ensure randomize_object_pool_selection has been called.")
-
+    
     active_indices = env.active_object_indices  # (num_envs,)
-
+    
     # Get all object states: (num_envs, num_objects, state_dim)
     all_pos_w = object_collection.data.object_pos_w  # (num_envs, num_objects, 3)
     all_quat_w = object_collection.data.object_quat_w  # (num_envs, num_objects, 4)
-
+    
     # Index to get only active objects
     # Use advanced indexing: env_indices = [0, 1, 2, ...], object_indices = active_indices
     env_indices = torch.arange(env.num_envs, device=env.device)
     active_pos_w = all_pos_w[env_indices, active_indices]  # (num_envs, 3)
     active_quat_w = all_quat_w[env_indices, active_indices]  # (num_envs, 4)
-
+    
     return active_pos_w, active_quat_w
 
 
-def get_active_object_lin_vel_w(env: ManagerBasedRLEnv, object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")):
-    """
-    Returns:
-        vel_w: (num_envs, 3) - World linear velocity of active objects
-    """
-    from isaaclab.assets import RigidObjectCollection
-
-    obj_col: RigidObjectCollection = env.scene[object_cfg.name]
-    if not hasattr(env, "active_object_indices"):
-        raise RuntimeError("active_object_indices not found")
-
-    active = env.active_object_indices.to(dtype=torch.long)
-    env_ids = torch.arange(env.num_envs, device=env.device)
-
-    # 1) best effort: read from sim buffers (name may differ by version)
-    for attr in ["object_lin_vel_w", "object_vel_w", "root_lin_vel_w"]:
-        if hasattr(obj_col.data, attr):
-            all_vel = getattr(obj_col.data, attr)  # expected (num_envs, num_objects, 3)
-            if all_vel is not None and all_vel.ndim == 3:
-                return all_vel[env_ids, active]
-
-    # 2) fallback: finite difference from position
-    pos_w, _ = get_active_object_states(env, object_cfg)
-
-    # dt ≈ sim_dt * decimation (best effort)
-    sim_dt = float(getattr(getattr(env, "sim", None), "cfg", None).dt) if hasattr(env, "sim") else 0.01
-    decim = int(getattr(getattr(env, "cfg", None), "decimation", 1))
-    dt = max(sim_dt * decim, 1e-6)
-
-    key = "_prev_active_obj_pos_w_for_vt"
-    if not hasattr(env, key):
-        setattr(env, key, pos_w.clone())
-        return torch.zeros((env.num_envs, 3), device=env.device)
-
-    prev = getattr(env, key)
-    vel = (pos_w - prev) / dt
-    setattr(env, key, pos_w.clone())
-    return vel
+def is_terminated(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Penalize terminated episodes that don't correspond to episodic timeouts."""
+    return env.termination_manager.terminated.float()
 
 
-def get_stable_grasp_mask(
-    env,
-    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
-    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
-    contact_force_threshold: float = 1.5,
-    require_both_contacts: bool = True,
-    stable_steps: int = 8,
-    release_steps: int = 2,
-) -> torch.Tensor:
-    """Return (num_envs,) bool: stable grasp detected, with hysteresis & per-step cache."""
-
-    step = int(getattr(env, "common_step_counter", 0))
-
-    # --- init buffers ---
-    if not hasattr(env, "_grasp_cache_step"):
-        env._grasp_cache_step = -1
-        env._grasp_cnt = torch.zeros(env.num_envs, device=env.device, dtype=torch.int32)
-        env._grasp_rel_cnt = torch.zeros(env.num_envs, device=env.device, dtype=torch.int32)
-        env._grasp_stable = torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
-
-    # --- cache: update only once per sim step ---
-    if env._grasp_cache_step == step:
-        return env._grasp_stable
-
-    env._grasp_cache_step = step
-
-    left = env.scene.sensors[left_sensor_cfg.name]
-    right = env.scene.sensors[right_sensor_cfg.name]
-
-    if left.data.net_forces_w is None or right.data.net_forces_w is None:
-        env._grasp_stable[:] = False
-        env._grasp_cnt[:] = 0
-        env._grasp_rel_cnt[:] = 0
-        return env._grasp_stable
-
-    left_y = torch.abs(left.data.net_forces_w[:, 0, 1])
-    right_y = torch.abs(right.data.net_forces_w[:, 0, 1])
-
-    if require_both_contacts:
-        contact = (left_y > contact_force_threshold) & (right_y > contact_force_threshold)
-    else:
-        contact = (left_y > contact_force_threshold) | (right_y > contact_force_threshold)
-
-    # update hold counter
-    env._grasp_cnt = torch.where(contact, env._grasp_cnt + 1, torch.zeros_like(env._grasp_cnt))
-    newly_stable = env._grasp_cnt >= int(stable_steps)
-
-    # hysteresis: once stable, only drop after release_steps of no-contact
-    env._grasp_rel_cnt = torch.where(~contact, env._grasp_rel_cnt + 1, torch.zeros_like(env._grasp_rel_cnt))
-    drop = env._grasp_rel_cnt >= int(release_steps)
-
-    env._grasp_stable = (env._grasp_stable | newly_stable) & (~drop)
-
-    return env._grasp_stable
-
-
-#######################################################################
-# reward function
-#######################################################################
-def object_ee_distance(
-    env: ManagerBasedRLEnv,
-    std: float,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),    
-    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
-) -> torch.Tensor:
-    """Reward the agent for reaching the active object using tanh-kernel."""
+def object_is_lifted(
+    env: ManagerBasedRLEnv, minimal_height: float, object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")):
+    """Reward the agent for lifting the active object above the minimal height."""
     # Get active object positions
     active_pos_w, _ = get_active_object_states(env, object_cfg)
-
-    # Extract the end-effector frame
-    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
-    ee_w = ee_frame.data.target_pos_w[..., 0, :]
-
-    # Calculate distance between EE and active object
-    object_ee_distance = torch.norm(active_pos_w - ee_w, dim=1)
-
-    # joint_pos = env.scene["robot"].data.joint_pos  # (envs, joints)
-    # gripper_status = torch.abs(joint_pos[:, -1])
-    # gripper_open = gripper_status >0.4
-    # mask = 0.2 + 0.8*gripper_open
-    # # print(object_ee_distance)
-    # return (1 - torch.tanh(object_ee_distance/std)) *mask
-
-    return 1 - torch.tanh(object_ee_distance/std)
+    
+    # Check if active objects are above minimal height
+    return torch.where(active_pos_w[:, 2] > minimal_height, 1.0, 0.0)
 
 
 def object_is_lifted_linear(
@@ -183,7 +72,7 @@ def object_is_lifted_linear(
     minimal_height: float, 
     max_height: float,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")
-):
+    ):
     """Linearly reward the agent for lifting the active object above the minimal height."""
     # Get active object positions
     active_pos_w, _ = get_active_object_states(env, object_cfg)
@@ -198,6 +87,7 @@ def object_is_lifted_linear(
     reward = torch.square(normalized)
     
     return reward
+
 
 
 def object_is_lifted_with_contact(
@@ -273,6 +163,238 @@ def object_is_lifted_with_contact(
     )
 
     return reward
+
+
+def object_ee_distance(
+    env: ManagerBasedRLEnv,
+    std: float,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),    
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
+    """Reward the agent for reaching the active object using tanh-kernel."""
+    # Get active object positions
+    active_pos_w, _ = get_active_object_states(env, object_cfg)
+    
+    # Extract the end-effector frame
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    ee_w = ee_frame.data.target_pos_w[..., 0, :]
+
+    # Calculate distance between EE and active object
+    object_ee_distance = torch.norm(active_pos_w - ee_w, dim=1)
+    # print(object_ee_distance)
+    
+    # joint_pos = env.scene["robot"].data.joint_pos  # (envs, joints)
+    # gripper_status = torch.abs(joint_pos[:, -1])
+    # gripper_open = gripper_status >0.4
+    # mask = 0.2 + 0.8*gripper_open
+    # # print(object_ee_distance)
+    # return (1 - torch.tanh(object_ee_distance/std)) *mask
+    
+    return 1 - torch.tanh(object_ee_distance/std)
+
+
+def contain_object(
+    env: ManagerBasedRLEnv,
+    std: float,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
+    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
+) -> torch.Tensor:
+    # Get active object positions
+    active_pos_w, _ = get_active_object_states(env, object_cfg)
+    
+    finger_frame_1: FrameTransformer = env.scene[finger_frame_1_cfg.name]
+    finger_frame_2: FrameTransformer = env.scene[finger_frame_2_cfg.name]
+
+    finger_w_1 = finger_frame_1.data.target_pos_w[..., 0, :]
+    finger_w_2 = finger_frame_2.data.target_pos_w[..., 0, :]
+    
+    vector_1 = finger_w_1 - active_pos_w
+    vector_2 = finger_w_2 - active_pos_w
+    dot_products = torch.sum(vector_1 * vector_2, dim=1)
+    norm_1 = torch.norm(vector_1, dim=1)
+    norm_2 = torch.norm(vector_2, dim=1)
+    cos_theta = dot_products / (norm_1 * norm_2 + 1e-8)
+    cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
+    
+    theta = torch.acos(cos_theta)
+    reward = theta / np.pi
+
+    return reward
+
+
+def clamp_object(
+    env: ManagerBasedRLEnv,
+    std: float,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
+    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
+) -> torch.Tensor:
+    # Get active object positions
+    active_pos_w, _ = get_active_object_states(env, object_cfg)
+    
+    finger_frame_1: FrameTransformer = env.scene[finger_frame_1_cfg.name]
+    finger_frame_2: FrameTransformer = env.scene[finger_frame_2_cfg.name]
+
+    finger_w_1 = finger_frame_1.data.target_pos_w[..., 0, :]
+    finger_w_2 = finger_frame_2.data.target_pos_w[..., 0, :]
+
+    vector_1 = finger_w_1 - active_pos_w
+    vector_2 = finger_w_2 - active_pos_w
+    dot_products = torch.sum(vector_1 * vector_2, dim=1)
+    norm_1 = torch.norm(vector_1, dim=1)
+    norm_2 = torch.norm(vector_2, dim=1)
+    cos_theta = dot_products / (norm_1 * norm_2 + 1e-8)
+    cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
+
+    theta = torch.acos(cos_theta)
+
+    # Get gripper joint positions - use correct indices (5 and 6)
+    joint_positions = env.scene['robot'].data.joint_pos_target
+    finger_joint_1 = joint_positions[:, 5]  # M6_1
+    finger_joint_2 = joint_positions[:, 6]  # M6_2
+    
+    # Closed state: both joints are near 0.0 (with tolerance)
+    gripper_closed = (torch.abs(finger_joint_1) < 0.3) & (torch.abs(finger_joint_2) < 0.3)
+    
+    # Object is between fingers: angle between vectors should be large (> 4.5π/6 ≈ 135°)
+    object_between_fingers = theta > (np.pi * 4/6) # 120 deg
+    
+    # Give reward only when gripper is closed AND object is between fingers
+    mask = gripper_closed & object_between_fingers
+    reward = torch.where(mask, torch.tensor(1.0), torch.tensor(0.0))
+
+    return reward
+
+
+
+# OPTIONAL: Add this helper function to track gripper state for debugging
+def debug_gripper_state(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """
+    Debug function to log gripper state.
+    Add this to your rewards with weight=0.0 to enable logging without affecting training.
+    """
+    if env.common_step_counter % 100 == 0:
+        joint_positions = env.scene['robot'].data.joint_pos_target
+        gripper_opening = (torch.abs(joint_positions[:, 5]) + torch.abs(joint_positions[:, 6])) / 2.0
+
+        object = env.scene['object']
+        ee_frame = env.scene['ee_frame']
+        distance = torch.norm(
+            object.data.root_pos_w - ee_frame.data.target_pos_w[..., 0, :],
+            dim=1
+        )
+
+        print(f"\n=== Step {env.common_step_counter} ===")
+        print(f"Gripper opening: {gripper_opening.mean():.3f} (0=closed, 0.5=open)")
+        print(f"Object-EE distance: {distance.mean():.3f}")
+        print(f"Object height: {object.data.root_pos_w[:, 2].mean():.3f}")
+
+    return torch.zeros(env.num_envs, device=env.device)
+
+
+
+def penalize_m0_after_lift(
+    env: ManagerBasedRLEnv,
+    minimal_height: float,
+    m0_movement_penalty_scale: float = 1.0,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """
+    Penalize M0 joint movement after the active object is lifted.
+
+    Args:
+        env: The environment
+        minimal_height: Height threshold to consider object as lifted
+        m0_movement_penalty_scale: Scale factor for the penalty (higher = more penalty)
+        object_cfg: Configuration for the object entity
+        robot_cfg: Configuration for the robot entity
+
+    Returns:
+        Penalty for M0 movement (0 when object not lifted, penalty when lifted and M0 moves)
+    """
+    # Get active object positions
+    active_pos_w, _ = get_active_object_states(env, object_cfg)
+    
+    # Get robot
+    robot: RigidObject = env.scene[robot_cfg.name]
+
+    # Check if active object is lifted
+    object_lifted = active_pos_w[:, 2] > minimal_height
+
+    # Get current M0 joint position (first joint, index 0)
+    current_m0_pos = robot.data.joint_pos[:, 1]
+
+    # Initialize previous M0 position storage if it doesn't exist
+    if not hasattr(env, '_prev_m0_pos'):
+        env._prev_m0_pos = current_m0_pos.clone()
+        return torch.zeros(env.num_envs, device=env.device)
+
+    # Calculate M0 movement (absolute change in position)
+    m0_movement = torch.abs(current_m0_pos - env._prev_m0_pos)
+
+    # Update previous position for next step
+    env._prev_m0_pos = current_m0_pos.clone()
+
+    # Apply penalty only when object is lifted
+    # Negative reward (penalty) scaled by movement magnitude
+    penalty = torch.where(
+        object_lifted,
+        -m0_movement * m0_movement_penalty_scale,
+        torch.zeros_like(m0_movement)
+    )
+
+    return penalty
+
+
+def penalize_xy_displacement(
+    env: ManagerBasedRLEnv,
+    penalty_scale: float = 1.0,
+    min_height: float = -0.05,
+    max_height: float = 0.1,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+) -> torch.Tensor:
+
+    active_pos_w, _ = get_active_object_states(env, object_cfg)
+    if not hasattr(env, '_prev_object_xy_pos'):
+        env._prev_object_xy_pos = active_pos_w[:, :2].clone()  # Store only x,y
+        return torch.zeros(env.num_envs, device=env.device)
+
+    # Calculate XY displacement (L2 norm)
+    current_xy = active_pos_w[:, :2]
+    xy_displacement = torch.norm(current_xy - env._prev_object_xy_pos, dim=1)
+    # print(xy_displacement)
+    env._prev_object_xy_pos = current_xy.clone()
+
+    current_height = active_pos_w[:, 2]
+
+    # Normalize height
+    normalized_height = torch.clamp(
+        (current_height - min_height) / (max_height - min_height),
+        0.0, 1.0
+    )
+    height_weight = 1.0 - normalized_height
+
+    # Calculate penalty
+    penalty = xy_displacement * height_weight * penalty_scale
+
+    return penalty
+
+
+def get_cached_pointcloud(env: ManagerBasedRLEnv) -> tuple[torch.Tensor | None, bool]:
+    """Safely retrieve cached point cloud."""
+    if not hasattr(env, 'point_cloud_cache') or env.point_cloud_cache is None:
+        return None, False
+    return env.point_cloud_cache, True
+
+
+def debug_pcd_cache(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Debug cache access."""
+    # Remove the modulo check - print EVERY step
+    pcd, valid = get_cached_pointcloud(env)
+    print(f"[DEBUG] Step={env.common_step_counter}, Valid={valid}, Shape={pcd.shape if pcd is not None else None}", flush=True)
+    return torch.zeros(env.num_envs, device=env.device)
 
 
 def pcd_contain_object(
@@ -444,553 +566,6 @@ def pcd_contain_object(
     return reward
 
 
-def contact_clamp_object(
-    env: ManagerBasedRLEnv,
-    contact_force_threshold: float = 1.5,
-    reward_value: float = 1.0,
-    gripper_closed_threshold: float = 0.2,
-    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
-    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
-) -> torch.Tensor:
-    """
-    Binary reward for clamping - either 1.0 or 0.0.
-    Simpler version that just checks if grasp is good enough.
-    """
-    # Check gripper closed
-    joint_positions = env.scene['robot'].data.joint_pos_target
-    gripper_closed = (torch.abs(joint_positions[:, 5]) < gripper_closed_threshold) & \
-                     (torch.abs(joint_positions[:, 6]) < gripper_closed_threshold)
-
-    # Get contact forces
-    left_sensor = env.scene.sensors[left_sensor_cfg.name]
-    right_sensor = env.scene.sensors[right_sensor_cfg.name]
-
-    if left_sensor.data.net_forces_w is None or right_sensor.data.net_forces_w is None:
-        return torch.zeros(env.num_envs, device=env.device)
-
-    # Y-axis forces
-    left_y = torch.abs(left_sensor.data.net_forces_w[:, 0, 1])
-    right_y = torch.abs(right_sensor.data.net_forces_w[:, 0, 1])
-
-    # Average force check
-    avg_force = (left_y + right_y) / 2.0
-    good_grasp = avg_force > contact_force_threshold
-
-    # Binary reward
-    reward = torch.where(
-        gripper_closed & good_grasp,
-        torch.ones(env.num_envs, device=env.device) * reward_value,
-        torch.zeros(env.num_envs, device=env.device)
-    )
-
-    return reward
-
-
-def contain_object(env, std, object_cfg=SceneEntityCfg("object_pool"),
-                   finger_frame_1_cfg=SceneEntityCfg("finger_frame_1"),
-                   finger_frame_2_cfg=SceneEntityCfg("finger_frame_2")):
-    active_pos_w, _ = get_active_object_states(env, object_cfg)
-
-    finger_frame_1 = env.scene[finger_frame_1_cfg.name]
-    finger_frame_2 = env.scene[finger_frame_2_cfg.name]
-    finger_w_1 = finger_frame_1.data.target_pos_w[..., 0, :]
-    finger_w_2 = finger_frame_2.data.target_pos_w[..., 0, :]
-
-    v1 = finger_w_1 - active_pos_w
-    v2 = finger_w_2 - active_pos_w
-    dot = torch.sum(v1 * v2, dim=1)
-    n1 = torch.norm(v1, dim=1)
-    n2 = torch.norm(v2, dim=1)
-    cos_theta = dot / (n1 * n2 + 1e-8)
-    cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
-    theta = torch.acos(cos_theta)
-
-    x = theta / np.pi  # [0,1]
-
-    gamma = 2.0  # 推荐先从 2 开始试
-    # 或者用 std 控制：gamma = 1.0 + 1.0/(std+1e-6)
-    reward = x.pow(gamma)
-    return reward
-
-
-def m0_turn_toward_object(
-    env,
-    std: float = 0.35,                       # 越小越“严格”
-    in_range_deg: float | None = 20.0,       # 只奖励“转到范围内”；None 表示用连续高斯奖励
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    center_from_robot: bool = True,
-    debug: bool = False,
-    debug_every_steps: int = 1,
-    debug_env: int = 0,
-):
-    """
-    让 M0 朝向物体所在方向：
-    - target_yaw = atan2(obj_y - center_y, obj_x - center_x)
-    - err = wrap_to_pi(target_yaw - m0_yaw)
-    - reward: 1) 如果 in_range_deg 不为 None：在范围内给 1，否则给 0（容易学“转到位”）
-              2) 如果 in_range_deg 为 None：用 exp(-0.5*(err/std)^2)（更平滑）
-    """
-    robot = env.scene[robot_cfg.name]
-
-    # Get M0 关节索引作为缓存
-    if not hasattr(env, '_m0_joint_id'):
-        # find_joints 返回 (list[int], list[str])
-        joint_ids, joint_names = robot.find_joints("^M0$", preserve_order=True)
-        if len(joint_ids) == 0:
-            # 容错：如果你的关节命名不是严格 M0，可以先用 "M0" 模糊匹配一次
-            joint_ids, joint_names = robot.find_joints("M0", preserve_order=True)
-        if len(joint_ids) == 0:
-            raise RuntimeError(
-                f"Cannot resolve M0 joint id. Available joints: {robot.joint_names}"
-            )
-        if len(joint_ids) > 1:
-            # 一般不会发生，但如果发生，打印一下你匹配到了哪些
-            raise RuntimeError(f"Multiple joints matched M0: {list(zip(joint_ids, joint_names))}")
-        env._m0_joint_id = int(joint_ids[0])
-
-    m0_id = env._m0_joint_id
-    m0_yaw = robot.data.joint_pos[:, m0_id]  # (num_envs,)
-
-    # --- active object world position（你原来 rewards.py 里已经有 helper 就用它；没有就按下面方式取）---
-    if "get_active_object_states" in globals():
-        obj_pos_w, _ = get_active_object_states(env, object_cfg)
-    else:
-        # fallback: 尽量从 RigidObjectCollection 里取（不同版本字段名可能不同）
-        obj_asset = env.scene[object_cfg.name]
-        if hasattr(obj_asset.data, "root_pos_w"):
-            # (num_envs, num_objects, 3) + active index
-            active = env.active_object_indices.to(dtype=torch.long)
-            obj_pos_w = obj_asset.data.root_pos_w[torch.arange(active.shape[0], device=active.device), active]
-        elif hasattr(obj_asset.data, "object_pos_w"):
-            active = env.active_object_indices.to(dtype=torch.long)
-            obj_pos_w = obj_asset.data.object_pos_w[torch.arange(active.shape[0], device=active.device), active]
-        else:
-            raise RuntimeError("Cannot access active object position. Please ensure get_active_object_states exists.")
-
-    # 圆心：用 robot root 或者 env_origin
-    if center_from_robot:
-        center_w = robot.data.root_pos_w  # (num_envs, 3)
-    else:
-        center_w = env.scene.env_origins  # (num_envs, 3)
-
-    d = obj_pos_w - center_w
-    target_yaw = torch.atan2(d[:, 1], d[:, 0])  # (num_envs,)
-
-    # 封装到 [-pi, pi]
-    err = torch.atan2(torch.sin(target_yaw - m0_yaw), torch.cos(target_yaw - m0_yaw))
-
-    # ===== debug 打印：每步输出 target_yaw / m0_yaw / err(deg) =====
-    if debug:
-        step = int(getattr(env, "common_step_counter", -1))
-        last = int(getattr(env, "_dbg_m0_turn_last_print_step", -10**9))
-        every = max(int(debug_every_steps), 1)
-        if step - last >= every:
-            setattr(env, "_dbg_m0_turn_last_print_step", step)
-            e = int(debug_env)
-            if 0 <= e < err.shape[0]:
-                rad2deg = 180.0 / math.pi
-                t_deg = float(target_yaw[e].item() * rad2deg)
-                m_deg = float(m0_yaw[e].item() * rad2deg)
-                err_deg = float(err[e].item() * rad2deg)
-                print(
-                    f"[m0_turn_dbg] step={step} env={e} "
-                    f"target_yaw={t_deg:+.2f}deg  m0_yaw={m_deg:+.2f}deg  err={err_deg:+.2f}deg",
-                    flush=True,
-                )
-
-    if in_range_deg is not None:
-        thr = float(in_range_deg) * math.pi / 180.0
-        return (err.abs() <= thr).to(dtype=torch.float32)
-    else:
-        # smooth gaussian shaping
-        std = max(float(std), 1e-6)
-        return torch.exp(-0.5 * (err / std) ** 2)
-
-
-def m0_turn_toward_object_until_grasp(
-    env,
-    post_grasp_scale: float = 0.0,
-    # ---- grasp gating params ----
-    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
-    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
-    contact_force_threshold: float = 1.5,
-    require_both_contacts: bool = True,
-    stable_steps: int = 8,
-    release_steps: int = 2,
-
-    # ---- 原 m0_turn_toward_object 的参数（显式列出）----
-    std: float = 0.35,
-    in_range_deg: float | None = 20.0,
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    center_from_robot: bool = True,
-    debug: bool = False,
-    debug_every_steps: int = 1,
-    debug_env: int = 0,
-):
-    base = m0_turn_toward_object(
-        env,
-        std=std,
-        in_range_deg=in_range_deg,
-        robot_cfg=robot_cfg,
-        object_cfg=object_cfg,
-        center_from_robot=center_from_robot,
-        debug=debug,
-        debug_every_steps=debug_every_steps,
-        debug_env=debug_env,
-    )
-    stable = get_stable_grasp_mask(
-        env,
-        left_sensor_cfg=left_sensor_cfg,
-        right_sensor_cfg=right_sensor_cfg,
-        contact_force_threshold=contact_force_threshold,
-        require_both_contacts=require_both_contacts,
-        stable_steps=stable_steps,
-        release_steps=release_steps,
-    )
-    scale = torch.where(stable, torch.full_like(base, post_grasp_scale), torch.ones_like(base))
-    return base * scale
-
-
-def _quat_conj_wxyz(q: torch.Tensor) -> torch.Tensor:
-    # q: (...,4) [w,x,y,z]
-    w, x, y, z = q.unbind(-1)
-    return torch.stack([w, -x, -y, -z], dim=-1)
-
-
-def _quat_mul_wxyz(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    # Hamilton product, both (...,4) [w,x,y,z]
-    aw, ax, ay, az = a.unbind(-1)
-    bw, bx, by, bz = b.unbind(-1)
-    w = aw*bw - ax*bx - ay*by - az*bz
-    x = aw*bx + ax*bw + ay*bz - az*by
-    y = aw*by - ax*bz + ay*bw + az*bx
-    z = aw*bz + ax*by - ay*bx + az*bw
-    return torch.stack([w, x, y, z], dim=-1)
-
-
-def _quat_rotate_wxyz(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-    # q: (...,4) [w,x,y,z], v: (...,3) -> rotated v in world
-    zeros = torch.zeros_like(v[..., :1])
-    vq = torch.cat([zeros, v], dim=-1)                 # (...,4)
-    return _quat_mul_wxyz(_quat_mul_wxyz(q, vq), _quat_conj_wxyz(q))[..., 1:]  # (...,3)
-
-
-def fingerline_align_object_y(
-    env,
-    std: float = 0.25,
-    in_range_deg: float | None = None,  # None: 连续 exp shaping；否则阈值内=1
-    symmetry: bool = True,              # True: 连线方向正反等价，用 |dot|
-    project_to_xy: bool = True,         # True: 只对齐水平朝向（推荐，抗 roll/pitch 噪声）
-    eps: float = 1e-6,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
-    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
-) -> torch.Tensor:
-    """
-    Align: v_gripper = (finger2 - finger1)  with  v_obj_y = R(q_obj) * [0,1,0].
-    Reward ↑ when angle ↓.
-    """
-    # --- active object pose ---
-    _, obj_quat_w = get_active_object_states(env, object_cfg)   # (N,4) wxyz
-
-    # object y-axis in world
-    y_local = torch.tensor([0.0, 1.0, 0.0], device=env.device).expand(env.num_envs, 3)
-    obj_y_w = _quat_rotate_wxyz(obj_quat_w, y_local)            # (N,3)
-
-    # --- gripper "y-axis" as the line between finger frames ---
-    f1 = env.scene[finger_frame_1_cfg.name].data.target_pos_w[:, 0, :]  # (N,3)
-    f2 = env.scene[finger_frame_2_cfg.name].data.target_pos_w[:, 0, :]  # (N,3)
-    grip_v = f2 - f1                                                   # (N,3)
-
-    if project_to_xy:
-        obj_y_w = obj_y_w.clone()
-        grip_v = grip_v.clone()
-        obj_y_w[:, 2] = 0.0
-        grip_v[:, 2] = 0.0
-
-    # normalize
-    grip_n = torch.norm(grip_v, dim=1).clamp_min(eps)
-    obj_n = torch.norm(obj_y_w, dim=1).clamp_min(eps)
-    grip_hat = grip_v / grip_n.unsqueeze(1)
-    obj_hat = obj_y_w / obj_n.unsqueeze(1)
-
-    dot = torch.sum(grip_hat * obj_hat, dim=1).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
-    if symmetry:
-        dot = dot.abs()
-
-    theta = torch.acos(dot)  # [0, pi] or [0, pi/2] if symmetry=True
-
-    if in_range_deg is not None:
-        thr = float(in_range_deg) * math.pi / 180.0
-        return (theta <= thr).to(dtype=torch.float32)
-
-    std = max(float(std), 1e-6)
-    return torch.exp(-0.5 * (theta / std) ** 2)
-
-
-def fingerline_align_object_y_until_grasp(
-    env,
-    post_grasp_scale: float = 0.0,  # 夹稳后把这项关掉；想“夹住后也保持对齐”可设 0.2~1.0
-    # ---- grasp gating ----
-    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
-    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
-    contact_force_threshold: float = 1.5,
-    require_both_contacts: bool = True,
-    stable_steps: int = 8,
-    release_steps: int = 2,
-    # ---- base reward params ----
-    std: float = 0.25,
-    in_range_deg: float | None = None,
-    symmetry: bool = True,
-    project_to_xy: bool = True,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
-    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
-) -> torch.Tensor:
-    base = fingerline_align_object_y(
-        env,
-        std=std,
-        in_range_deg=in_range_deg,
-        symmetry=symmetry,
-        project_to_xy=project_to_xy,
-        object_cfg=object_cfg,
-        finger_frame_1_cfg=finger_frame_1_cfg,
-        finger_frame_2_cfg=finger_frame_2_cfg,
-    )
-
-    stable = get_stable_grasp_mask(
-        env,
-        left_sensor_cfg=left_sensor_cfg,
-        right_sensor_cfg=right_sensor_cfg,
-        contact_force_threshold=contact_force_threshold,
-        require_both_contacts=require_both_contacts,
-        stable_steps=stable_steps,
-        release_steps=release_steps,
-    )
-    scale = torch.where(stable, torch.full_like(base, post_grasp_scale), torch.ones_like(base))
-    return base * scale
-
-
-#######################################################################
-# penalty function
-#######################################################################
-def is_terminated(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Penalize terminated episodes that don't correspond to episodic timeouts."""
-    return env.termination_manager.terminated.float()
-
-
-def penalize_active_object_tangential_speed(
-    env,
-    penalty_scale: float = 1.0,
-    v_deadzone: float = 0.01,
-    center_from_robot: bool = True,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    # --- gating: contact-based grasp detection ---
-    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
-    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
-    contact_force_threshold: float = 1.5,
-    require_both_contacts: bool = True,
-    # optional hysteresis: require stable contact for N steps
-    stable_steps: int = 5,  # 0 = disable; e.g. 3 or 5 to reduce noise
-    eps: float = 1e-6,
-) -> torch.Tensor:
-    """
-    Penalize tangential speed v_t of the ACTIVE object around M0 rotation center.
-
-    - v_t is computed in XY plane: v_t = dot(v_xy, t_hat), where t_hat is tangential unit vector.
-    - penalty = relu(|v_t| - v_deadzone)^2 * penalty_scale
-    - gating: only apply when grasp contact is detected (Y-force on both fingers)
-    """
-
-    # 1) active object pos & vel
-    obj_pos_w, _ = get_active_object_states(env, object_cfg)            # (N, 3)
-    obj_vel_w = get_active_object_lin_vel_w(env, object_cfg)            # (N, 3)
-
-    obj_xy = obj_pos_w[:, :2]
-    vel_xy = obj_vel_w[:, :2]
-
-    # 2) center of rotation
-    if center_from_robot:
-        robot = env.scene[robot_cfg.name]
-        center_xy = robot.data.root_pos_w[:, :2]
-    else:
-        center_xy = env.scene.env_origins[:, :2]
-
-    # 3) tangential unit vector
-    r = obj_xy - center_xy                                 # (N, 2)
-    r_norm = torch.norm(r, dim=1, keepdim=True).clamp_min(eps)
-    t_hat = torch.cat([-r[:, 1:2], r[:, 0:1]], dim=1) / r_norm  # (N, 2)
-
-    # 4) tangential speed (signed)
-    v_t = torch.sum(vel_xy * t_hat, dim=1)                 # (N,)
-
-    # 5) deadzone penalty
-    excess = torch.relu(torch.abs(v_t) - float(v_deadzone))
-    pen = (excess * excess) * float(penalty_scale)         # (N,)
-
-    # 6) gating from contact sensors (Y force)
-    left = env.scene.sensors[left_sensor_cfg.name]
-    right = env.scene.sensors[right_sensor_cfg.name]
-
-    if left.data.net_forces_w is None or right.data.net_forces_w is None:
-        return torch.zeros(env.num_envs, device=env.device)
-
-    left_y = torch.abs(left.data.net_forces_w[:, 0, 1])
-    right_y = torch.abs(right.data.net_forces_w[:, 0, 1])
-
-    if require_both_contacts:
-        contact_mask = (left_y > contact_force_threshold) & (right_y > contact_force_threshold)
-    else:
-        contact_mask = (left_y > contact_force_threshold) | (right_y > contact_force_threshold)
-
-    # 7) optional hysteresis (stable_steps)
-    if stable_steps > 0:
-        if not hasattr(env, "_vt_contact_streak"):
-            env._vt_contact_streak = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
-        env._vt_contact_streak = torch.where(
-            contact_mask,
-            (env._vt_contact_streak + 1).clamp_max(10**9),
-            torch.zeros_like(env._vt_contact_streak),
-        )
-        contact_mask = env._vt_contact_streak >= int(stable_steps)
-
-    # 8) apply gating
-    pen = torch.where(contact_mask, pen, torch.zeros_like(pen))
-    return pen
-
-
-#######################################################################
-# OPTIONAL: Add this helper function to track gripper state for debugging
-#######################################################################
-def debug_gripper_state(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """
-    Debug function to log gripper state.
-    Add this to your rewards with weight=0.0 to enable logging without affecting training.
-    """
-    if env.common_step_counter % 100 == 0:
-        joint_positions = env.scene['robot'].data.joint_pos_target
-        gripper_opening = (torch.abs(joint_positions[:, 5]) + torch.abs(joint_positions[:, 6])) / 2.0
-
-        object = env.scene['object']
-        ee_frame = env.scene['ee_frame']
-        distance = torch.norm(
-            object.data.root_pos_w - ee_frame.data.target_pos_w[..., 0, :],
-            dim=1
-        )
-
-        print(f"\n=== Step {env.common_step_counter} ===")
-        print(f"Gripper opening: {gripper_opening.mean():.3f} (0=closed, 0.5=open)")
-        print(f"Object-EE distance: {distance.mean():.3f}")
-        print(f"Object height: {object.data.root_pos_w[:, 2].mean():.3f}")
-
-    return torch.zeros(env.num_envs, device=env.device)
-
-
-def penalize_m0_after_lift(
-    env: ManagerBasedRLEnv,
-    minimal_height: float,
-    m0_movement_penalty_scale: float = 1.0,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-) -> torch.Tensor:
-    """
-    Penalize M0 joint movement after the active object is lifted.
-
-    Args:
-        env: The environment
-        minimal_height: Height threshold to consider object as lifted
-        m0_movement_penalty_scale: Scale factor for the penalty (higher = more penalty)
-        object_cfg: Configuration for the object entity
-        robot_cfg: Configuration for the robot entity
-
-    Returns:
-        Penalty for M0 movement (0 when object not lifted, penalty when lifted and M0 moves)
-    """
-    # Get active object positions
-    active_pos_w, _ = get_active_object_states(env, object_cfg)
-
-    # Get robot
-    robot: RigidObject = env.scene[robot_cfg.name]
-
-    # Check if active object is lifted
-    object_lifted = active_pos_w[:, 2] > minimal_height
-
-    # Get current M0 joint position (first joint, index 0)
-    current_m0_pos = robot.data.joint_pos[:, 0]
-
-    # Initialize previous M0 position storage if it doesn't exist
-    if not hasattr(env, '_prev_m0_pos'):
-        env._prev_m0_pos = current_m0_pos.clone()
-        return torch.zeros(env.num_envs, device=env.device)
-
-    # Calculate M0 movement (absolute change in position)
-    m0_movement = torch.abs(current_m0_pos - env._prev_m0_pos)
-
-    # Update previous position for next step
-    env._prev_m0_pos = current_m0_pos.clone()
-
-    # Apply penalty only when object is lifted
-    # Negative reward (penalty) scaled by movement magnitude
-    penalty = torch.where(
-        object_lifted,
-        -m0_movement * m0_movement_penalty_scale,
-        torch.zeros_like(m0_movement)
-    )
-
-    return penalty
-
-
-def penalize_xy_displacement(
-    env: ManagerBasedRLEnv,
-    penalty_scale: float = 1.0,
-    min_height: float = -0.05,
-    max_height: float = 0.1,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-) -> torch.Tensor:
-
-    active_pos_w, _ = get_active_object_states(env, object_cfg)
-    if not hasattr(env, '_prev_object_xy_pos'):
-        env._prev_object_xy_pos = active_pos_w[:, :2].clone()  # Store only x,y
-        return torch.zeros(env.num_envs, device=env.device)
-
-    # Calculate XY displacement (L2 norm)
-    current_xy = active_pos_w[:, :2]
-    xy_displacement = torch.norm(current_xy - env._prev_object_xy_pos, dim=1)
-    # print(xy_displacement)
-    env._prev_object_xy_pos = current_xy.clone()
-
-    current_height = active_pos_w[:, 2]
-
-    # Normalize height
-    normalized_height = torch.clamp(
-        (current_height - min_height) / (max_height - min_height),
-        0.0, 1.0
-    )
-    height_weight = 1.0 - normalized_height
-
-    # Calculate penalty
-    penalty = xy_displacement * height_weight * penalty_scale
-
-    return penalty
-
-
-def get_cached_pointcloud(env: ManagerBasedRLEnv) -> tuple[torch.Tensor | None, bool]:
-    """Safely retrieve cached point cloud."""
-    if not hasattr(env, 'point_cloud_cache') or env.point_cloud_cache is None:
-        return None, False
-    return env.point_cloud_cache, True
-
-
-def debug_pcd_cache(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Debug cache access."""
-    # Remove the modulo check - print EVERY step
-    pcd, valid = get_cached_pointcloud(env)
-    print(f"[DEBUG] Step={env.common_step_counter}, Valid={valid}, Shape={pcd.shape if pcd is not None else None}", flush=True)
-    return torch.zeros(env.num_envs, device=env.device)
-
 
 def penalty_if_gripper_closed_far(
     env: ManagerBasedRLEnv,
@@ -1020,6 +595,7 @@ def penalty_if_gripper_closed_far(
     penalty[penalty_mask] = penalty_value
 
     return penalty
+
 
 
 def pcd_clamp_object(
@@ -1149,6 +725,11 @@ def pcd_clamp_object(
     left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
     right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
 
+    camera = env.scene.sensors[sensor_cfg_name]
+    camera_pos_w = camera.data.pos_w
+    camera_quat_w = camera.data.quat_w_ros
+    camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
+
     left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, sensor_cfg_name)
     right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
     sphere_center = (left_finger_cam + right_finger_cam) / 2.0
@@ -1182,6 +763,50 @@ def pcd_clamp_object(
     return reward
 
 
+def contact_clamp_object(
+    env: ManagerBasedRLEnv,
+    contact_force_threshold: float = 1.5,
+    reward_value: float = 1.0,
+    gripper_closed_threshold: float = 0.2,
+    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
+    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
+) -> torch.Tensor:
+    """
+    Binary reward for clamping - either 1.0 or 0.0.
+    Simpler version that just checks if grasp is good enough.
+    """
+    # Check gripper closed
+    joint_positions = env.scene['robot'].data.joint_pos_target
+    gripper_closed = (torch.abs(joint_positions[:, 5]) < gripper_closed_threshold) & \
+                     (torch.abs(joint_positions[:, 6]) < gripper_closed_threshold)
+
+    # Get contact forces
+    left_sensor = env.scene.sensors[left_sensor_cfg.name]
+    right_sensor = env.scene.sensors[right_sensor_cfg.name]
+
+    if left_sensor.data.net_forces_w is None or right_sensor.data.net_forces_w is None:
+        return torch.zeros(env.num_envs, device=env.device)
+
+    # Y-axis forces
+    left_y = torch.abs(left_sensor.data.net_forces_w[:, 0, 1])
+    right_y = torch.abs(right_sensor.data.net_forces_w[:, 0, 1])
+
+    # Average force check
+    avg_force = (left_y + right_y) / 2.0
+    good_grasp = avg_force > contact_force_threshold
+
+    # Binary reward
+    reward = torch.where(
+        gripper_closed & good_grasp,
+        torch.ones(env.num_envs, device=env.device) * reward_value,
+        torch.zeros(env.num_envs, device=env.device)
+    )
+
+    return reward
+
+
+
+
 def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Debug version - prints density info."""
     from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
@@ -1192,6 +817,12 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
             # Get gripper positions
             left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
             right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
+
+            # Transform to camera frame
+            camera = env.scene.sensors["depth_camera"]
+            camera_pos_w = camera.data.pos_w
+            camera_quat_w = camera.data.quat_w_ros
+            camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
 
             left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, "depth_camera")
             right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, "depth_camera")
@@ -1215,9 +846,10 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros(env.num_envs, device=env.device)
 
 
+
 def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Save point cloud visualization with sphere region highlighted."""
-    from .gripper_transform import transform_world_to_camera
+    from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
     import os
 
     if env.common_step_counter % 1 == 0:
@@ -1227,6 +859,12 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
             left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
             right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
             active_pos_w, _ = get_active_object_states(env)
+
+            # Transform to camera frame
+            camera = env.scene.sensors["depth_camera"]
+            camera_pos_w = camera.data.pos_w
+            camera_quat_w = camera.data.quat_w_ros
+            camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
 
             left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, "depth_camera")
             right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, "depth_camera")
@@ -1318,12 +956,14 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros(env.num_envs, device=env.device)
 
 
+
 def debug_contact_forces(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Minimal contact force debug - just XYZ components."""
 
     if env.common_step_counter % 1 == 0:
         left_sensor = env.scene.sensors["contact_forces_left"]
         right_sensor = env.scene.sensors["contact_forces_right"]
+        middle_sensor = env.scene.sensors['contact_forces_middle']
 
         if left_sensor.data.net_forces_w is not None:
             left_force = left_sensor.data.net_forces_w[0].cpu().numpy().flatten()
@@ -1335,6 +975,261 @@ def debug_contact_forces(env: ManagerBasedRLEnv) -> torch.Tensor:
         else:
             right_force = [0, 0, 0]
 
-        print(f"[Step {env.common_step_counter}] Left: [{left_force[0]:.3f}, {left_force[1]:.3f}, {left_force[2]:.3f}] | Right: [{right_force[0]:.3f}, {right_force[1]:.3f}, {right_force[2]:.3f}]")
+        if middle_sensor.data.net_forces_w is not None:
+            middle_force = middle_sensor.data.net_forces_w[0].cpu().numpy().flatten()
+        else:
+            middle_force = [0, 0, 0]
+
+        # print(f"[Step {env.common_step_counter}] Left: [{left_force[0]:.3f}, {left_force[1]:.3f}, {left_force[2]:.3f}] | Right: [{right_force[0]:.3f}, {right_force[1]:.3f}, {right_force[2]:.3f}]")
+        print(f"[Step {env.common_step_counter}] Middle: [{middle_force[0]:.3f}, {middle_force[1]:.3f}, {middle_force[2]:.3f}]")
 
     return torch.zeros(env.num_envs, device=env.device)
+
+
+def base_orientation_penalty_exp(
+    env: ManagerBasedRLEnv,
+    std: float = 0.1,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize non-flat base orientation using exponential kernel for better sensitivity.
+    """
+    asset: RigidObject = env.scene[asset_cfg.name]
+
+    projected_gravity = asset.data.projected_gravity_b[:, :2]  # (num_envs, 2)
+
+    tilt_magnitude = torch.sum(torch.square(projected_gravity), dim=1)  # (num_envs,)
+
+    penalty = 1.0 - torch.exp(-tilt_magnitude / (std ** 2))
+
+    return penalty
+
+
+def penalize_m5_movement_after_alignment(
+    env: ManagerBasedRLEnv,
+    alignment_steps: int = 2,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+
+    robot = env.scene[asset_cfg.name]
+
+    # Get M5 joint index
+    m5_idx = robot.joint_names.index("M5")
+
+    # Get M5 joint velocity (absolute value)
+    m5_velocity = torch.abs(robot.data.joint_vel[:, m5_idx])
+
+    # Only penalize after alignment phase
+    after_alignment = env.episode_length_buf > alignment_steps
+
+    penalty = torch.where(
+        after_alignment,
+        m5_velocity,  # Penalize velocity after alignment
+        torch.zeros_like(m5_velocity)  # No penalty during alignment phase
+    )
+
+    # print(f"M5 stability penalty: {penalty}")
+
+    return penalty
+
+
+def wrist_object_orientation_alignment(
+    env: ManagerBasedRLEnv,
+    std: float = 0.5,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    debug: bool = True,
+) -> torch.Tensor:
+
+    active_pos_w, active_quat_w = get_active_object_states(env, object_cfg)
+
+    w, x, y, z = active_quat_w[:, 0], active_quat_w[:, 1], active_quat_w[:, 2], active_quat_w[:, 3]
+    object_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+    # Get M5 joint angle
+    robot = env.scene[asset_cfg.name]
+    m5_idx = robot.joint_names.index("M5")
+    m5_angle = robot.data.joint_pos[:, m5_idx]
+
+    angle_diff = torch.abs(object_yaw + m5_angle)
+    # print(angle_diff)
+
+    reward = torch.pow(torch.cos(angle_diff), 6)
+    # print(f"reward for current step: {reward}")
+
+    return reward
+
+
+def _quat_mul_wxyz(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    # Hamilton product, both (...,4) [w,x,y,z]
+    aw, ax, ay, az = a.unbind(-1)
+    bw, bx, by, bz = b.unbind(-1)
+    w = aw*bw - ax*bx - ay*by - az*bz
+    x = aw*bx + ax*bw + ay*bz - az*by
+    y = aw*by - ax*bz + ay*bw + az*bx
+    z = aw*bz + ax*by - ay*bx + az*bw
+    return torch.stack([w, x, y, z], dim=-1)
+
+
+def _quat_conj_wxyz(q: torch.Tensor) -> torch.Tensor:
+    # q: (...,4) [w,x,y,z]
+    w, x, y, z = q.unbind(-1)
+    return torch.stack([w, -x, -y, -z], dim=-1)
+
+
+def _quat_rotate_wxyz(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
+    # q: (...,4) [w,x,y,z], v: (...,3) -> rotated v in world
+    zeros = torch.zeros_like(v[..., :1])
+    vq = torch.cat([zeros, v], dim=-1)                 # (...,4)
+    return _quat_mul_wxyz(_quat_mul_wxyz(q, vq), _quat_conj_wxyz(q))[..., 1:]  # (...,3)
+
+
+def fingerline_align_object_y(
+    env,
+    std: float = 0.25,
+    in_range_deg: float | None = None,  # None: 连续 exp shaping；否则阈值内=1
+    symmetry: bool = True,              # True: 连线方向正反等价，用 |dot|
+    project_to_xy: bool = True,         # True: 只对齐水平朝向（推荐，抗 roll/pitch 噪声）
+    eps: float = 1e-6,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
+    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
+) -> torch.Tensor:
+    """
+    Align: v_gripper = (finger2 - finger1)  with  v_obj_y = R(q_obj) * [0,1,0].
+    Reward ↑ when angle ↓.
+    """
+    # --- active object pose ---
+    _, obj_quat_w = get_active_object_states(env, object_cfg)   # (N,4) wxyz
+
+    # object y-axis in world
+    y_local = torch.tensor([0.0, 1.0, 0.0], device=env.device).expand(env.num_envs, 3)
+    obj_y_w = _quat_rotate_wxyz(obj_quat_w, y_local)            # (N,3)
+
+    # --- gripper "y-axis" as the line between finger frames ---
+    f1 = env.scene[finger_frame_1_cfg.name].data.target_pos_w[:, 0, :]  # (N,3)
+    f2 = env.scene[finger_frame_2_cfg.name].data.target_pos_w[:, 0, :]  # (N,3)
+    grip_v = f2 - f1                                                   # (N,3)
+
+    if project_to_xy:
+        obj_y_w = obj_y_w.clone()
+        grip_v = grip_v.clone()
+        obj_y_w[:, 2] = 0.0
+        grip_v[:, 2] = 0.0
+
+    # normalize
+    grip_n = torch.norm(grip_v, dim=1).clamp_min(eps)
+    obj_n = torch.norm(obj_y_w, dim=1).clamp_min(eps)
+    grip_hat = grip_v / grip_n.unsqueeze(1)
+    obj_hat = obj_y_w / obj_n.unsqueeze(1)
+
+    dot = torch.sum(grip_hat * obj_hat, dim=1).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+    if symmetry:
+        dot = dot.abs()
+
+    theta = torch.acos(dot)  # [0, pi] or [0, pi/2] if symmetry=True
+
+    if in_range_deg is not None:
+        thr = float(in_range_deg) * math.pi / 180.0
+        return (theta <= thr).to(dtype=torch.float32)
+
+    std = max(float(std), 1e-6)
+    return torch.exp(-0.5 * (theta / std) ** 2)
+
+
+def get_stable_grasp_mask(
+    env,
+    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
+    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
+    contact_force_threshold: float = 1.5,
+    require_both_contacts: bool = True,
+    stable_steps: int = 8,
+    release_steps: int = 2,
+) -> torch.Tensor:
+    """Return (num_envs,) bool: stable grasp detected, with hysteresis & per-step cache."""
+
+    step = int(getattr(env, "common_step_counter", 0))
+
+    # --- init buffers ---
+    if not hasattr(env, "_grasp_cache_step"):
+        env._grasp_cache_step = -1
+        env._grasp_cnt = torch.zeros(env.num_envs, device=env.device, dtype=torch.int32)
+        env._grasp_rel_cnt = torch.zeros(env.num_envs, device=env.device, dtype=torch.int32)
+        env._grasp_stable = torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
+
+    # --- cache: update only once per sim step ---
+    if env._grasp_cache_step == step:
+        return env._grasp_stable
+
+    env._grasp_cache_step = step
+
+    left = env.scene.sensors[left_sensor_cfg.name]
+    right = env.scene.sensors[right_sensor_cfg.name]
+
+    if left.data.net_forces_w is None or right.data.net_forces_w is None:
+        env._grasp_stable[:] = False
+        env._grasp_cnt[:] = 0
+        env._grasp_rel_cnt[:] = 0
+        return env._grasp_stable
+
+    left_y = torch.abs(left.data.net_forces_w[:, 0, 1])
+    right_y = torch.abs(right.data.net_forces_w[:, 0, 1])
+
+    if require_both_contacts:
+        contact = (left_y > contact_force_threshold) & (right_y > contact_force_threshold)
+    else:
+        contact = (left_y > contact_force_threshold) | (right_y > contact_force_threshold)
+
+    # update hold counter
+    env._grasp_cnt = torch.where(contact, env._grasp_cnt + 1, torch.zeros_like(env._grasp_cnt))
+    newly_stable = env._grasp_cnt >= int(stable_steps)
+
+    # hysteresis: once stable, only drop after release_steps of no-contact
+    env._grasp_rel_cnt = torch.where(~contact, env._grasp_rel_cnt + 1, torch.zeros_like(env._grasp_rel_cnt))
+    drop = env._grasp_rel_cnt >= int(release_steps)
+
+    env._grasp_stable = (env._grasp_stable | newly_stable) & (~drop)
+
+    return env._grasp_stable
+
+
+def fingerline_align_object_y_until_grasp(
+    env,
+    post_grasp_scale: float = 0.0,  # 夹稳后把这项关掉；想“夹住后也保持对齐”可设 0.2~1.0
+    # ---- grasp gating ----
+    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
+    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
+    contact_force_threshold: float = 1.5,
+    require_both_contacts: bool = True,
+    stable_steps: int = 8,
+    release_steps: int = 2,
+    # ---- base reward params ----
+    std: float = 0.25,
+    in_range_deg: float | None = None,
+    symmetry: bool = True,
+    project_to_xy: bool = True,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
+    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
+) -> torch.Tensor:
+    base = fingerline_align_object_y(
+        env,
+        std=std,
+        in_range_deg=in_range_deg,
+        symmetry=symmetry,
+        project_to_xy=project_to_xy,
+        object_cfg=object_cfg,
+        finger_frame_1_cfg=finger_frame_1_cfg,
+        finger_frame_2_cfg=finger_frame_2_cfg,
+    )
+
+    stable = get_stable_grasp_mask(
+        env,
+        left_sensor_cfg=left_sensor_cfg,
+        right_sensor_cfg=right_sensor_cfg,
+        contact_force_threshold=contact_force_threshold,
+        require_both_contacts=require_both_contacts,
+        stable_steps=stable_steps,
+        release_steps=release_steps,
+    )
+    scale = torch.where(stable, torch.full_like(base, post_grasp_scale), torch.ones_like(base))
+    return base * scale

@@ -282,7 +282,7 @@ def main():
                 total_reward = 0.0
                 step_count = 0
                 print_m0_pos_from_obs(obs, prefix="[m0_debug][after_reset_R]")
-                plot_spawn_distribution(env)
+                # plot_spawn_distribution(env)
                 print("Robot reset complete\n")
                 continue
 

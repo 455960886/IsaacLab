@@ -143,31 +143,6 @@ class _OnnxPolicyExporter(torch.nn.Module):
     def forward(self, x):
         return self.actor(self.normalizer(x))
     
-    def _infer_obs_dim(self) -> int:
-        """Infer observation dimension for ONNX export.
-
-        Priority:
-          1) From normalizer running stats (most reliable).
-          2) From first Linear layer of actor (works for MLP-based actors).
-        """
-        # 1) normalizer stats
-        for attr in ("_mean", "mean", "running_mean"):
-            if hasattr(self.normalizer, attr):
-                t = getattr(self.normalizer, attr)
-                if isinstance(t, torch.Tensor) and t.numel() > 0:
-                    # supports shapes like (obs_dim,) or (1, obs_dim)
-                    return int(t.shape[-1])
-
-        # 2) actor first Linear
-        for m in self.actor.modules():
-            if isinstance(m, torch.nn.Linear):
-                return int(m.in_features)
-
-        raise RuntimeError(
-            "Cannot infer obs_dim for ONNX export. "
-            "Provide a normalizer with running stats, or use an actor with a Linear first layer."
-        )
-    
     # def forward(self, x):
     #     image_features = self.cnn_feature(x["image"])
     #     state_features = self.state_encoder(x["joint_pos"])
@@ -195,8 +170,7 @@ class _OnnxPolicyExporter(torch.nn.Module):
                 dynamic_axes={},
             )
         else:
-            obs_dim = self._infer_obs_dim()
-            obs = torch.zeros(1, obs_dim)
+            obs = torch.zeros(1, 1536)
             torch.onnx.export(
                 self,
                 obs,
@@ -209,7 +183,7 @@ class _OnnxPolicyExporter(torch.nn.Module):
                 dynamic_axes={},
             )
         
-        # 改动
+        #改动
         #     dummy_input = torch.zeros(1, 3, 300, 400)
         # torch.onnx.export(
         #     self,

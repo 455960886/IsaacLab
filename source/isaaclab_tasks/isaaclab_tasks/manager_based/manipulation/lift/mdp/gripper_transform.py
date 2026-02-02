@@ -74,8 +74,11 @@ def transform_world_to_camera(points_world, env, sensor_cfg_name="depth_camera",
     
     if points_world.dim() == 2:
         points_camera[:, 1] = -points_camera[:, 1]
+        # points_camera[:, 0] = -points_camera[:, 0]
     else:
         points_camera[:, :, 1] = -points_camera[:, :, 1]
+        # points_camera[:, :, 0] = -points_camera[:, :, 0]
+
     
     # Apply the rotation
     if apply_x_rotation:
@@ -268,6 +271,7 @@ def calculate_pointcloud_density_in_sphere(pointcloud, sphere_center, sphere_rad
     # Count points inside sphere
     inside_sphere = distances < sphere_radius  # (B, N) boolean
     num_points_in_sphere = inside_sphere.sum(dim=1).float()  # (B,)
+    # print(num_points_in_sphere)
 
     # Normalize by total points to get density ratio [0, 1]
     density = num_points_in_sphere / N

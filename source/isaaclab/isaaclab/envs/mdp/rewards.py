@@ -12,7 +12,6 @@ the reward introduced by the function.
 from __future__ import annotations
 
 import torch
-import math
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import Articulation, RigidObject
@@ -86,24 +85,6 @@ def ang_vel_xy_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntit
     # extract the used quantities (to enable type-hinting)
     asset: RigidObject = env.scene[asset_cfg.name]
     return torch.sum(torch.square(asset.data.root_ang_vel_b[:, :2]), dim=1)
-
-
-def base_orientation_penalty_exp(
-    env: ManagerBasedRLEnv,
-    std: float = 0.1,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-) -> torch.Tensor:
-    """Penalize non-flat base orientation using exponential kernel for better sensitivity.
-    """
-    asset: RigidObject = env.scene[asset_cfg.name]
-
-    projected_gravity = asset.data.projected_gravity_b[:, :2]  # (num_envs, 2)
-
-    tilt_magnitude = torch.sum(torch.square(projected_gravity), dim=1)  # (num_envs,)
-
-    penalty = 1.0 - torch.exp(-tilt_magnitude / (std ** 2))
-
-    return penalty
 
 
 def flat_orientation_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
@@ -268,70 +249,7 @@ def applied_torque_limits(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = Sc
     return torch.sum(out_of_limits, dim=1)
 
 
-def action_rate_l2(
-    env,
-    # --- scaling ---
-    pre_grasp_scale: float = 1.0,     # grasp 前惩罚系数
-    post_grasp_scale: float = 1.0,    # grasp 后惩罚系数
-    only_after_grasp: bool = False,   # True: grasp 前完全不罚
-    # --- shaping ---
-    deadzone: float = 0.0,            # 小于 deadzone 的变化不计入惩罚（按 action 的单位）
-    action_weights: list[float] | None = None,  # 每个 action 维度的权重（可加大 M0 那一维）
-    # --- grasp gating params (复用你的 stable grasp mask) ---
-    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
-    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
-    contact_force_threshold: float = 1.5,
-    require_both_contacts: bool = True,
-    stable_steps: int = 8,
-    release_steps: int = 2,
-) -> torch.Tensor:
-    """Penalize the rate of change of actions (L2^2). Supports grasp-gating & deadzone & per-dim weights."""
-
-    a = env.action_manager.action
-    pa = env.action_manager.prev_action
-
-    # 容错：第 1 步可能没有 prev_action
-    if pa is None:
-        return torch.zeros(env.num_envs, device=env.device)
-
-    da = a - pa  # (num_envs, action_dim)
-
-    # 可选：每维权重（比如把 M0 那一维权重大一点）
-    if action_weights is not None:
-        w = torch.tensor(action_weights, device=da.device, dtype=da.dtype)
-        if w.numel() != da.shape[1]:
-            raise ValueError(f"action_weights length {w.numel()} != action_dim {da.shape[1]}")
-        da = da * w
-
-    # deadzone：忽略小幅变化，避免把正常控制噪声也压得过死
-    if deadzone > 0.0:
-        da = torch.sign(da) * torch.relu(torch.abs(da) - float(deadzone))
-
-    pen = torch.sum(da * da, dim=1)  # (num_envs,)
-
-    # grasp gating：只在夹稳后启用 / 或者夹稳后更强
-    if only_after_grasp or (pre_grasp_scale != post_grasp_scale):
-        stable = get_stable_grasp_mask(
-            env,
-            left_sensor_cfg=left_sensor_cfg,
-            right_sensor_cfg=right_sensor_cfg,
-            contact_force_threshold=contact_force_threshold,
-            require_both_contacts=require_both_contacts,
-            stable_steps=stable_steps,
-            release_steps=release_steps,
-        )
-
-        if only_after_grasp:
-            scale = torch.where(stable, torch.full_like(pen, post_grasp_scale), torch.zeros_like(pen))
-        else:
-            scale = torch.where(stable, torch.full_like(pen, post_grasp_scale), torch.full_like(pen, pre_grasp_scale))
-
-        pen = pen * scale
-
-    return pen
-
-
-def action_rate_l2_1(env: ManagerBasedRLEnv) -> torch.Tensor:
+def action_rate_l2(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Penalize the rate of change of the actions using L2 squared kernel."""
     # with open('output_652.txt', 'a') as f:
     #     f.write(f"action_rate_l2 : {torch.mean(torch.sum(torch.square(env.action_manager.action - env.action_manager.prev_action), dim=1)).item()}\n")

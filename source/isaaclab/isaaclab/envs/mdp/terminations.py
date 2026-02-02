@@ -60,6 +60,7 @@ def bad_orientation(
     return torch.acos(-asset.data.projected_gravity_b[:, 2]).abs() > limit_angle
 
 
+
 def object_pushed_away(
     env: ManagerBasedRLEnv, 
     x_limits: tuple[float, float] = (0.22, 0.42),
@@ -102,8 +103,9 @@ def object_pushed_away(
     return outside_x | outside_y
 
 
+
 def bad_object_orientation(
-    env: ManagerBasedRLEnv,
+    env: ManagerBasedRLEnv, 
     limit_angle: float,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")
 ) -> torch.Tensor:
@@ -148,7 +150,7 @@ def root_height_below_minimum(
     asset: RigidObject = env.scene[asset_cfg.name]
     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
 
-    return (asset.data.root_pos_w[:, 2] < minimum_height) | (ee_frame.data.target_pos_w[..., 0, 2] < 0.0)
+    return (asset.data.root_pos_w[:, 2] < minimum_height) | (ee_frame.data.target_pos_w[..., 0, 2] < -0.01)
 
 
 """
@@ -339,9 +341,96 @@ def gripper_z_force_limit(
 
     if check_either:
         # Terminate if either finger exceeds threshold
-        terminate = left_exceeds | right_exceeds
+        terminate = left_exceeds | right_exceeds 
+        if terminate.any():
+            print("termination due to z force limit")
     else:
         # Terminate only if both fingers exceed threshold
-        terminate = left_exceeds & right_exceeds
+        terminate = left_exceeds & right_exceeds 
+        if terminate.any():
+            print("termination due to z force limit")
 
     return terminate
+
+
+def hand_z_force_limit(
+    env: ManagerBasedRLEnv,
+    z_threshold: float = 50.0,
+    middle_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_middle"),
+) -> torch.Tensor:
+    """Terminate when the middle contact sensor (wrist/hand) Z-force exceeds threshold.
+
+    This prevents excessive downward force on the wrist link that could damage the robot
+    or indicate the gripper is pushing too hard against a surface.
+
+    Args:
+        env: The RL environment.
+        z_threshold: Maximum allowed Z-axis force (in Newtons). Default 50.0N.
+        middle_sensor_cfg: Configuration for the middle/wrist contact sensor.
+
+    Returns:
+        Boolean tensor indicating which environments should terminate.
+    """
+    middle_sensor: ContactSensor = env.scene.sensors[middle_sensor_cfg.name]
+
+    if middle_sensor.data.net_forces_w is None:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    # Extract Z-component (index 2) of contact forces
+    middle_z_force = torch.abs(middle_sensor.data.net_forces_w[:, 0, 2])
+
+    # Check if force exceeds threshold
+    middle_exceeds = middle_z_force > z_threshold
+
+    if middle_exceeds.any():
+        print(f"[TERMINATION] Hand Z-force limit exceeded: max={middle_z_force.max().item():.2f}N (threshold={z_threshold}N)")
+
+    return middle_exceeds
+
+
+def base_orientation_out_of_limits(
+    env: ManagerBasedRLEnv,
+    threshold_rad: float = 0.5,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Terminate when the robot base orientation deviates too much from upright.
+
+    This checks if the robot base has tilted beyond the specified threshold, which could
+    indicate the robot has tipped over or is in an unstable configuration.
+
+    Args:
+        env: The environment.
+        threshold_rad: Maximum allowed deviation from upright orientation in radians.
+            Defaults to 0.5 rad (≈28.6°).
+        asset_cfg: The asset configuration. Defaults to SceneEntityCfg("robot").
+
+    Returns:
+        Boolean tensor indicating which environments should terminate.
+    """
+    # Extract the asset (robot)
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # Get current base orientation (quaternion: w, x, y, z)
+    base_quat = asset.data.root_quat_w
+
+    # Upright orientation quaternion (identity: w=1, x=0, y=0, z=0)
+    upright_quat = torch.zeros_like(base_quat)
+    upright_quat[:, 0] = 1.0  # w component
+
+    # Compute quaternion difference
+    # For small angles, we can use: angle ≈ 2 * arccos(|q1 · q2|)
+    dot_product = torch.abs((base_quat * upright_quat).sum(dim=-1))
+    dot_product = torch.clamp(dot_product, -1.0, 1.0)  # Numerical stability
+
+    # Angle between quaternions (in radians)
+    angle_diff = 2.0 * torch.acos(dot_product)
+
+    # Check if angle exceeds threshold
+    out_of_limits = angle_diff > threshold_rad
+
+    # Log when termination occurs
+    if out_of_limits.any():
+        max_angle = angle_diff.max().item()
+        print(f"[TERMINATION] Base orientation limit exceeded: max={max_angle:.3f} rad ({max_angle*57.3:.1f}°), threshold={threshold_rad:.3f} rad ({threshold_rad*57.3:.1f}°)")
+
+    return out_of_limits

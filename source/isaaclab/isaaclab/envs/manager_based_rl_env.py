@@ -250,6 +250,21 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
 
+            # # # # ============== ADD DEBUG CODE HERE ==============                                                                                                                               
+            # import time                                                                                                                                                                       
+                                                                                                                                                                                                
+            # # Run a few physics steps with zero action to let reset settle                                                                                                                    
+            # for _ in range(5):                                                                                                                                                                
+            #     self.sim.step(render=True)                                                                                                                                                    
+            #     self.scene.update(dt=self.physics_dt)                                                                                                                                         
+                                                                                                                                                                                                
+            # # # Print and sleep                                                                                                                                                                 
+            # # robot = self.scene["robot"]                                                                                                                                                       
+            # # print(f"[RESET] Joint pos: {robot.data.joint_pos[0].cpu().numpy()}")                                                                                                              
+                                                                                                                                                                                                
+            # time.sleep(3.0)                                                                                                                                        
+            # # # # =================================================  
+
             # trigger recorder terms for post-reset calls
             self.recorder_manager.record_post_reset(reset_env_ids)
 
@@ -385,6 +400,17 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
         if "reset" in self.event_manager.available_modes:
             env_step_count = self._sim_step_counter // self.cfg.decimation
             self.event_manager.apply(mode="reset", env_ids=env_ids, global_env_step_count=env_step_count)
+
+        # # Print joint positions after randomization for verification (env 0 only)
+        # if 0 in env_ids:
+        #     robot = self.scene["robot"]
+        #     joint_pos = robot.data.joint_pos[0]
+        #     if "M3" in robot.joint_names and "M4" in robot.joint_names:
+        #         m3_idx = robot.joint_names.index("M3")
+        #         m4_idx = robot.joint_names.index("M4")
+        #         m3_pos = joint_pos[m3_idx].item()
+        #         m4_pos = joint_pos[m4_idx].item()
+        #         print(f"[Reset Verification] Env 0 - M3: {m3_pos:.4f} rad ({m3_pos*57.3:.1f}°), M4: {m4_pos:.4f} rad ({m4_pos*57.3:.1f}°)")
 
         # iterate over all managers and reset them
         # this returns a dictionary of information which is stored in the extras
