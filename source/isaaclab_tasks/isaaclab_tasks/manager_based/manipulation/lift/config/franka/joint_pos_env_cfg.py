@@ -16,40 +16,43 @@ from isaaclab_tasks.manager_based.manipulation.lift.lift_env_cfg import LiftEnvC
 # Pre-defined configs
 ##
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
-
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
 
 MY_ROBOT_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/r50_v6_rev/r50_v6_rev.usd",
-        # usd_path=f"/home/xuyang/xuyang_ws/DRL/isaac/IsaacLab-2.0.0/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/marm_backup/marm_backup.usd",
-        activate_contact_sensors=True,
+        usd_path=f"/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/r50_v6_rev/r50_v6_rev_flat_finger.usd",
+        # usd_path=f"/home/roborock/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/r50_v6_rev/r50_v6_rev.usd",
+        activate_contact_sensors=False,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
-            max_depenetration_velocity=5.0,
+            # max_depenetration_velocity=5.0,  # Balanced to prevent penetration without instability
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
             enabled_self_collisions=False,
             solver_position_iteration_count=128,
-            solver_velocity_iteration_count=64,
+            solver_velocity_iteration_count=32,
         ),
-        # collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.005, rest_offset=0.0),
+        # collision_props=sim_utils.CollisionPropertiesCfg(
+        #     contact_offset=0.005,  # Increased to 5mm for earlier collision detection
+        #     rest_offset=0.001,     # 1mm air gap to prevent penetration
+        # ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         joint_pos={
-            "M0": 0,
+            # "M0": 0,
             "M1": 1.57,
             # "M2": 1.57,
             "M3": 3.8,
             "M4": 1.4,
             "M5": 0.0,
-            "M6_1": 0.0,
-            "M6_2": 0.0,
+            "M6_1": 0.65,
+            "M6_2": -0.65,
         },
     ),
     actuators={
+
         "base": ImplicitActuatorCfg(
             joint_names_expr=["M[0]"],
             effort_limit=87.0,
@@ -62,24 +65,24 @@ MY_ROBOT_CFG = ArticulationCfg(
             joint_names_expr=["M[1-4]"],
             effort_limit=87.0,
             velocity_limit=2.175,  # 2.175  0.17  0.5
-            stiffness=60,
-            damping=4,
+            stiffness=100,
+            damping=4.0,
         ),
 
         "forearm": ImplicitActuatorCfg(
             joint_names_expr=["M5"],
-            effort_limit=12.0,
-            velocity_limit=0.5,  # 2.61  0.17  0.5
-            stiffness=80.0,
-            damping=4.0,
+            effort_limit=300.0,
+            velocity_limit=2.175,  # 2.61  0.17  0.5
+            stiffness=500.0,
+            damping=5.0,
         ),
 
         "hand": ImplicitActuatorCfg(
             joint_names_expr=["M6_.*"],
-            effort_limit=0.5,
-            velocity_limit=15,
-            stiffness=80,
-            damping=4,
+            effort_limit=50,      # Reduced to prevent excessive force
+            velocity_limit=4.0,     # Keep same
+            stiffness=3000,          # Increased from 15 to reduce penetration
+            damping=0.001,           # Increased from 0.001 for better stability
         ),
     },
     soft_joint_pos_limit_factor=1.0,
@@ -97,32 +100,40 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         self.scene.robot = MY_ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         # self.actions.arm_action = mdp.RelativeJointPositionActionCfg(
-        #     asset_name="robot", joint_names=["M[0345]"]
+        #     asset_name="robot",
+        #     joint_names=["M[0345]"],
+        #     scale={
+        #         # "M0": 0.08,
+        #         "M3": 0.3,
+        #         "M4": 0.3,
+        #         # "M5": 0.08
+        #     }
         # )
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
-            joint_names=["M[034]"],
+            joint_names=["M[345]"],
             use_default_offset=True,
         )
+
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
             joint_names=["M6_.*"],
             open_command_expr={"M6_1": 0.65, "M6_2": -0.65},
-            close_command_expr={"M6_1": 0.03, "M6_2": -0.03},
+            close_command_expr={"M6_1": 0.02, "M6_2": -0.02},
         )
 
         self.commands.object_pose.body_name = "M6_1_leftfinger_link"
 
         # Create dummy object to satisfy parent class validation
         self.scene.object = RigidObjectCfg(
-            prim_path="/World/envs/env_.*/Object_Dummy",
+            prim_path="{ENV_REGEX_NS}/Object_Dummy",
             spawn=sim_utils.CuboidCfg(
                 size=(0.001, 0.001, 0.001),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.0)),
                 rigid_props=sim_utils.RigidBodyPropertiesCfg(disable_gravity=True),
                 mass_props=sim_utils.MassPropertiesCfg(mass=0.001),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[200.0, 200.0, -100.0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=(200.0, 200.0, -100.0)),
         )
 
         # Object pool - all objects spawned, but only one active per env
@@ -130,30 +141,30 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
 
         self.scene.object_pool = RigidObjectCollectionCfg(
             rigid_objects={
-                # "lego": RigidObjectCfg(
-                #     prim_path="/World/envs/env_.*/lego",
-                #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets1/3D_assets_usd_new/lego_gongzixing.usdc",
-                #         scale=(4.0, 4.0, 8.0),
-                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                #             solver_position_iteration_count=64,
-                #             solver_velocity_iteration_count=32,
-                #             disable_gravity=False,
-                #         ),
-                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                #             articulation_enabled=False,  # CRITICAL: Disable articulation
-                #         ),
-                #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.0), rot=(1, 0, 0, 0)),
-                # ),
+                "lego": RigidObjectCfg(
+                    prim_path="/World/envs/env_.*/lego",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/lego_gongzixing.usdc",
+                        scale=(4.0, 4.0, 8.0),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
+                            disable_gravity=False,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.01), rot=(1, 0, 0, 0)),
+                ),
                 # "paperball": RigidObjectCfg(
-                #     prim_path="/World/envs/env_.*/paperball",
+                #     prim_path="/World/envs/env_.*/Object_13",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cloth/paperball.usdc",
+                #         usd_path="/home/roborock/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cloth/paperball.usdc",
                 #         scale=(0.8, 0.8, 1.2),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
-                #             solver_velocity_iteration_count=64,
+                #             solver_velocity_iteration_count=32,
                 #             disable_gravity=False,
                 #         ),
                 #         mass_props=sim_utils.MassPropertiesCfg(
@@ -163,24 +174,29 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #             articulation_enabled=False,  # CRITICAL: Disable articulation
                 #         ),
                 #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.01, 0.0]),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.005, -0.01]),
                 # ),
 
                 "bus": RigidObjectCfg(
-                    prim_path="/World/envs/env_.*/bus",
+                    prim_path="{ENV_REGEX_NS}/bus",
                     spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/bus_2.usd",
+                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/bus_new_usd/bus.usdc",
+                        scale=(0.08, 0.08, 0.08),
                         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=128,
-                            solver_velocity_iteration_count=64,
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
                             disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
                         ),
                         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                             articulation_enabled=False,  # CRITICAL: Disable articulation
                         ),
                     ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.00, 0.02), rot=(0.7071, 0.0, 0.0, 0.7071)),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.00, 0.0)),
                 ),
+
 
                 # "eye_drops": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/eye_drops",
@@ -199,6 +215,64 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.012, 0.00)),
                 # ),
 
+                # "vans": RigidObjectCfg(
+                #     prim_path="/World/envs/env_.*/vans",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/vans_black/vans_black.usdc",
+                #         scale=(0.25, 0.25, 0.25),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=32,
+                #             disable_gravity=False,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.33, 0, 0.05)),
+                # ),
+
+                # "cube": RigidObjectCfg(
+                #     prim_path="/World/envs/env_.*/cube",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cube1.usd",
+                #         # scale=(0.25, 0.25, 0.25),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=32,
+                #             disable_gravity=False,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0, 0.0)),
+                # ),
+
+                # "slippers": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/slippers",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper/slipper.usdc",
+                #         scale=(1.0, 1.1, 1.3),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=32,
+                #             solver_velocity_iteration_count=16,
+                #              # max_depenetration_velocity=10.0,  # CRITICAL: Limit depenetration speed
+                #             disable_gravity=False,
+                #         ),
+                #         # mass_props=sim_utils.MassPropertiesCfg(
+                #         #     mass=0.001,  # Adjust based on actual slipper weight
+                #         # ),
+                #         # collision_props=sim_utils.CollisionPropertiesCfg(
+                #         #     contact_offset=0.002,  # Start collision detection at 2mm
+                #         #     rest_offset=0.0,       # Rest at surface contact
+                #         # ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.30, 0.01, 0.06)),
+                # ),
             },
         )
 
@@ -207,23 +281,21 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         # marker_cfg.markers["frame"].scale = (0.03, 0.03, 0.03)
         marker_cfg.prim_path = "/Visuals/FrameTransformer"
         self.scene.ee_frame = FrameTransformerCfg(
-            # prim_path="{ENV_REGEX_NS}/Robot/panda_link0",
+            #prim_path="{ENV_REGEX_NS}/Robot/panda_link0",
             prim_path="{ENV_REGEX_NS}/Robot/base_link",
             debug_vis=False,
             visualizer_cfg=marker_cfg,
             target_frames=[
                 FrameTransformerCfg.FrameCfg(
-                    # prim_path="{ENV_REGEX_NS}/Robot/panda_hand",
-                    # prim_path="{ENV_REGEX_NS}/Robot/gripper_finger_link2",
-                    # prim_path="{ENV_REGEX_NS}/Robot/M6_1_leftfinger_link",
                     prim_path="{ENV_REGEX_NS}/Robot/M5_wrist_link",
                     name="end_effector",
                     offset=OffsetCfg(
-                        pos=(0.1008, 0.003, 0.01),
+                        pos=(0.10, 0, -0.0015),
                     ),
                 ),
             ],
         )
+
         self.scene.finger_frame_1 = FrameTransformerCfg(
             prim_path="{ENV_REGEX_NS}/Robot/base_link",
             debug_vis=False,
@@ -254,36 +326,6 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
             ],
         )
 
-        self.scene.ee_tip_probe_frame = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/base_link",
-            debug_vis=False,
-            visualizer_cfg=marker_cfg,
-            target_frames=[
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/M5_wrist_link",
-                    name="ee_probe_tip",
-                    offset=OffsetCfg(
-                        pos=(0.11, 0.0, -0.0015),
-                    ),
-                ),
-            ],
-        )
-
-        self.scene.gripper_peak = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/base_link",
-            debug_vis=False,
-            visualizer_cfg=marker_cfg,
-            target_frames=[
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/M6_1_leftfinger_link",
-                    name="gripper_peak",
-                    offset=OffsetCfg(
-                        pos=(0.02349, -0.00603, 0.0027),
-                    ),
-                ),
-            ],
-        )
-
 
 @configclass
 class CoarseArmCubeLiftEnvCfg_PLAY(CoarseArmCubeLiftEnvCfg):
@@ -292,7 +334,6 @@ class CoarseArmCubeLiftEnvCfg_PLAY(CoarseArmCubeLiftEnvCfg):
         super().__post_init__()
         # make a smaller scene for play
         self.scene.num_envs = 50
-        self.scene.env_spacing = 2.5
+        self.scene.env_spacing = 1
         # disable randomization for play
         self.observations.policy.enable_corruption = False
-        self.sim.wait_for_textures = True
