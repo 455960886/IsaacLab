@@ -20,35 +20,28 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-## Help Function to get the states of active object from the object pool
-def get_active_object_states(env: ManagerBasedRLEnv, object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")):
-    """
-    Helper function to get states of active objects from object pool.
-    
-    Returns:
-        pos_w: (num_envs, 3) - World positions of active objects
-        quat_w: (num_envs, 4) - World orientations of active objects [w, x, y, z]
-    """
+def get_active_object_states(env, object_cfg=SceneEntityCfg("object_pool")):
     from isaaclab.assets import RigidObjectCollection
-    
+
     object_collection: RigidObjectCollection = env.scene[object_cfg.name]
-    
-    # Get active object indices for each environment
-    if not hasattr(env, 'active_object_indices'):
-        raise RuntimeError("active_object_indices not found. Ensure randomize_object_pool_selection has been called.")
-    
-    active_indices = env.active_object_indices  # (num_envs,)
-    
-    # Get all object states: (num_envs, num_objects, state_dim)
-    all_pos_w = object_collection.data.object_pos_w  # (num_envs, num_objects, 3)
-    all_quat_w = object_collection.data.object_quat_w  # (num_envs, num_objects, 4)
-    
-    # Index to get only active objects
-    # Use advanced indexing: env_indices = [0, 1, 2, ...], object_indices = active_indices
+
+    # --- lazy init: allow call during ObservationManager shape inference ---
+    if not hasattr(env, "active_object_indices") or env.active_object_indices is None:
+        # default: pick object 0 for all envs
+        env.active_object_indices = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+
+    active_indices = env.active_object_indices.to(dtype=torch.long, device=env.device)
+
+    # safety clamp (in case something weird happens)
+    num_objects = object_collection.data.object_pos_w.shape[1]
+    active_indices = torch.clamp(active_indices, 0, num_objects - 1)
+
     env_indices = torch.arange(env.num_envs, device=env.device)
-    active_pos_w = all_pos_w[env_indices, active_indices]  # (num_envs, 3)
-    active_quat_w = all_quat_w[env_indices, active_indices]  # (num_envs, 4)
-    
+    all_pos_w = object_collection.data.object_pos_w
+    all_quat_w = object_collection.data.object_quat_w
+
+    active_pos_w = all_pos_w[env_indices, active_indices]
+    active_quat_w = all_quat_w[env_indices, active_indices]
     return active_pos_w, active_quat_w
 
 
@@ -954,7 +947,6 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
             print(f"{'='*80}\n")
 
     return torch.zeros(env.num_envs, device=env.device)
-
 
 
 def debug_contact_forces(env: ManagerBasedRLEnv) -> torch.Tensor:

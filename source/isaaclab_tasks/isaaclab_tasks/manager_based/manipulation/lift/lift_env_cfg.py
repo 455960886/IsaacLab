@@ -211,7 +211,10 @@ class ResNet18ObservationCfg:
 
         image = ObsTerm(
             func=mdp.image_features,
-            params={"sensor_cfg": SceneEntityCfg("gripper_camera"), "data_type": "rgb","model_name": "resnet18","depth_cfg":SceneEntityCfg("depth_camera")},
+            params={"sensor_cfg": SceneEntityCfg("gripper_camera"),
+                    "data_type": "rgb",
+                    "model_name": "resnet18",
+                    "depth_cfg": SceneEntityCfg("depth_camera")},
         )
     policy: ObsGroup = ResNet18FeaturesCameraPolicyCfg()
 
@@ -246,7 +249,7 @@ class EventCfg:
         params={
             "pose_range": {
                 "x": (0.00, 0.04),
-                "y": (-0.002, 0.002),
+                "y": (-0.005, 0.005),
                 "z": (0.0, 0.0),
                 "roll": (0.0, 0.0),
                 "pitch": (0, 0),
@@ -268,7 +271,7 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-50.0)
+    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-20.0)
 
     reaching_object = RewTerm(
         func=mdp.object_ee_distance,
@@ -292,7 +295,7 @@ class RewardsCfg:
             "contact_force_threshold": 1.5,  # 1.5N on Y-axis (based on your data)
             "require_both_contacts": True,  # Both fingers must contact
         },
-        weight=200.0,
+        weight=100.0,
     )
 
     # NEW: Point cloud density reward
@@ -360,8 +363,8 @@ class RewardsCfg:
 
     base_orientation_penalty = RewTerm(
         func=mdp.base_orientation_penalty_exp,
-        params={"std": 0.1},  # Adjust: 0.05 (very sensitive) to 0.2 (less sensitive)
-        weight=-50.0,  # Higher weight since exp kernel returns 0-1 range
+        params={"std": 0.05},  # Adjust: 0.05 (very sensitive) to 0.2 (less sensitive)
+        weight=-8.0,  # Higher weight since exp kernel returns 0-1 range
     )
 
 
@@ -421,15 +424,15 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         self.sim.dt = 0.01  # 100Hz
         self.decimation = 20  # 2 20 48
-        self.episode_length_s = 10 * self.decimation * self.sim.dt
+        self.episode_length_s = 6 * self.decimation * self.sim.dt
         # self.decimation = 1
         # self.episode_length_s = 10
-        self.sim.render_interval = self.decimation
-        # self.sim.render_interval = 1
+        # self.sim.render_interval = self.decimation
+        self.sim.render_interval = 1
 
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
-        self.sim.physx.gpu_total_aggregate_pairs_capacity = 16 * 1024
+        self.sim.physx.gpu_total_aggregate_pairs_capacity = 32 * 1024
         self.sim.physx.friction_correlation_distance = 0.00625
 
         self.sim.physx.gpu_heap_capacity = 256 * 1024 * 1024          # 256 MB

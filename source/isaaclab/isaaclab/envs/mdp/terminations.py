@@ -60,7 +60,6 @@ def bad_orientation(
     return torch.acos(-asset.data.projected_gravity_b[:, 2]).abs() > limit_angle
 
 
-
 def object_pushed_away(
     env: ManagerBasedRLEnv, 
     x_limits: tuple[float, float] = (0.22, 0.42),
@@ -101,7 +100,6 @@ def object_pushed_away(
     outside_y = torch.abs(active_positions_robot[:, 1] - 0.0) > y_tolerance
 
     return outside_x | outside_y
-
 
 
 def bad_object_orientation(

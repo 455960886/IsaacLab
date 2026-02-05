@@ -177,22 +177,26 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.005, -0.01]),
                 # ),
 
-                # "bus": RigidObjectCfg(
-                #     prim_path="{ENV_REGEX_NS}/bus",
-                #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/roborock/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/bus_2.usd",
-                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                #             solver_position_iteration_count=64,
-                #             solver_velocity_iteration_count=32,
-                #             disable_gravity=False,
-                #         ),
-                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                #             articulation_enabled=False,  # CRITICAL: Disable articulation
-                #         ),
-                #     ),
-                #     # init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, 0.00, 0.02),rot = (1.0, 0.0 ,0.0 , 0.0)),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, 0.00, 0.02),rot = (0.7071 , 0.0 ,0.0 , 0.7071)),
-                # ),
+                "bus": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/bus",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/bus_new_usd/bus.usdc",
+                        scale=(0.08, 0.08, 0.08),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                        mass=0.01,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    # init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, 0.00, 0.02),rot = (1.0, 0.0 ,0.0 , 0.0)),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.00, 0.0)),
+                ),
 
                 # "eye_drops": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/eye_drops",
@@ -248,12 +252,12 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "slippers": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/slippers",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/roborock/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper/slipper.usdc",
+                #         usd_path="/home/robo/code/IsaacLab/assets/slipper/slipper.usdc",
                 #         scale=(1.0, 1.1, 1.3),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=32,
                 #             solver_velocity_iteration_count=16,
-                #              # max_depenetration_velocity=10.0,  # CRITICAL: Limit depenetration speed
+                #             # max_depenetration_velocity=10.0,  # CRITICAL: Limit depenetration speed
                 #             disable_gravity=False,
                 #         ),
                 #         # mass_props=sim_utils.MassPropertiesCfg(
@@ -267,9 +271,9 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #             articulation_enabled=False,  # CRITICAL: Disable articulation
                 #         ),
                 #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.30, 0.01, 0.06)),
-                # ),
-            },
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.30, 0.01, 0.06), rot=(-0.70710678, 0, 0, -0.70710678)),
+                # )
+            }
         )
 
         # Listens to the required transforms
@@ -277,7 +281,6 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         # marker_cfg.markers["frame"].scale = (0.03, 0.03, 0.03)
         marker_cfg.prim_path = "/Visuals/FrameTransformer"
         self.scene.ee_frame = FrameTransformerCfg(
-            #prim_path="{ENV_REGEX_NS}/Robot/panda_link0",
             prim_path="{ENV_REGEX_NS}/Robot/base_link",
             debug_vis=False,
             visualizer_cfg=marker_cfg,
