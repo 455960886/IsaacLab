@@ -48,12 +48,14 @@ import gymnasium as gym
 import os
 
 import time
+import copy
 import torch
 import cv2
 from rsl_rl.runners import OnPolicyRunner
 import numpy as np
 
 from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
+import torch.nn as nn
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
@@ -112,6 +114,60 @@ def main():
     # wrap around environment for rsl-rl
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
+    # ===== debug: print observation concat layout =====
+    import numpy as np
+    import torch
+
+    def print_obs_concat_layout(env, group_name: str = "policy", env_idx: int = 0, preview_vals: int = 0):
+        base_env = env.unwrapped
+        om = getattr(base_env, "observation_manager", None)
+        if om is None:
+            print("[OBS] env.unwrapped.observation_manager not found.")
+            return
+
+        # 1) 打印 manager 自带的表格（你日志里那个）
+        try:
+            print(om)
+        except Exception as e:
+            print(f"[OBS] print(observation_manager) failed: {e}")
+
+        # 2) 打印拼接切片顺序
+        if group_name not in om.active_terms:
+            print(f"[OBS] group '{group_name}' not in active_terms: {list(om.active_terms.keys())}")
+            return
+
+        names = om.active_terms[group_name]
+        dims_list = om.group_obs_term_dim[group_name]
+        concat = om.group_obs_concatenate[group_name]
+
+        print(f"[OBS] group='{group_name}' concat={concat} group_obs_dim={om.group_obs_dim[group_name]}")
+        idx = 0
+        for i, (name, dims) in enumerate(zip(names, dims_list)):
+            flat = int(np.prod(dims))
+            print(f"[OBS] {i:02d}: {group_name}.{name} dims={tuple(dims)} flat={flat} slice=[{idx}:{idx+flat}]")
+            idx += flat
+        print(f"[OBS] total_flat={idx}")
+
+        # 3) 可选：把当前 obs 按 slice 拆开，预览每段前 N 个值
+        if preview_vals and concat:
+            obs_tensor, _ = env.get_observations()
+            # obs_tensor: (num_envs, obs_dim)
+            one = obs_tensor[env_idx].detach().to("cpu")
+            idx = 0
+            for name, dims in zip(names, dims_list):
+                flat = int(np.prod(dims))
+                seg = one[idx:idx+flat]
+                print(f"[OBS] preview {group_name}.{name}: first {preview_vals} = {seg[:preview_vals].tolist()}")
+                idx += flat
+
+    # 调用：只看 slice
+    print_obs_concat_layout(env, group_name="policy", env_idx=0, preview_vals=0)
+
+    # 或者：顺便预览每段前 8 个值（image 会很大，只看前几个即可）
+    # print_obs_concat_layout(env, group_name="policy", env_idx=0, preview_vals=8)
+    # ================================================
+
+
     print(f"[INFO]: Loading model checkpoint from: {resume_path}")
     # load previously trained model
     print("before creating runner")
@@ -119,9 +175,18 @@ def main():
     ppo_runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     print("7777")
     ppo_runner.load(resume_path)
+    # 让 normalizer 和 policy 同设备（跟 env 一致）
+    device = env.unwrapped.device  # 通常是 cuda:0
+    ppo_runner.obs_normalizer.to(device)
+    # rsl_rl>=2.3: alg.policy; older: alg.actor_critic
+    if hasattr(ppo_runner.alg, "policy"):
+        ppo_runner.alg.policy.to(device)
+    elif hasattr(ppo_runner.alg, "actor_critic"):
+        ppo_runner.alg.actor_critic.to(device)
+
     print("after creating runner")
     # obtain the trained policy for inference
-    policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
+    policy = ppo_runner.get_inference_policy(device=device)
 
     # extract the neural network module
     # we do this in a try-except to maintain backwards compatibility.
@@ -134,21 +199,72 @@ def main():
         policy_nn = ppo_runner.alg.actor_critic
 
     # export policy to onnx/jit
+    # export_model_dir = os.path.join(os.path.dirname(resume_path), "exported2")
+    # export_policy_as_jit(policy_nn, ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.pt")
+    # export_policy_as_onnx(
+    #     policy_nn, normalizer=ppo_runner.obs_normalizer, path=export_model_dir, filename="policy1905.onnx"
+    # )
     export_model_dir = os.path.join(os.path.dirname(resume_path), "exported2")
-    export_policy_as_jit(policy_nn, ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.pt")
-    export_policy_as_onnx(
-        policy_nn, normalizer=ppo_runner.obs_normalizer, path=export_model_dir, filename="policy1905.onnx"
+    os.makedirs(export_model_dir, exist_ok=True)
+
+    # 关键：用环境真实输出的 obs 作为 example input（shape 会是 [1, 1541]）
+    obs, _ = env.get_observations()
+    obs = obs.to(device)
+
+    dummy = obs[0:1].detach().to("cpu")
+    print("[EXPORT] dummy obs shape =", tuple(dummy.shape))  # 应该是 (1, 1541)
+
+    # ⚠️ 关键：不要对 runner 里的对象原地 .to("cpu")，否则后面推理会 device mismatch
+    # 用 deepcopy 拷贝一份做导出即可
+    policy_nn_cpu = copy.deepcopy(policy_nn).to("cpu").eval()
+    normalizer_cpu = copy.deepcopy(ppo_runner.obs_normalizer).to("cpu").eval()
+
+    class ActorWithNorm(nn.Module):
+        def __init__(self, policy, normalizer):
+            super().__init__()
+            self.policy = policy
+            self.normalizer = normalizer
+
+        def forward(self, x):
+            x = self.normalizer(x)
+            # policy 可能是 ActorCritic(有 .actor)，也可能本身就是 actor
+            if hasattr(self.policy, "actor"):
+                return self.policy.actor(x)
+            return self.policy(x)
+
+    export_module = ActorWithNorm(policy_nn_cpu, normalizer_cpu).eval()
+
+    onnx_path = os.path.join(export_model_dir, "policy1905.onnx")
+    torch.onnx.export(
+        export_module,
+        dummy,
+        onnx_path,
+        input_names=["obs"],
+        output_names=["actions"],
+        opset_version=17,
+        do_constant_folding=True,
+        dynamic_axes={"obs": {0: "batch"}, "actions": {0: "batch"}},
     )
+    print("[INFO] Exported ONNX to:", onnx_path)
+
+    # 如果你还想导出 jit：
+    jit_path = os.path.join(export_model_dir, "policy.pt")
+    traced = torch.jit.trace(export_module, dummy)
+    traced.save(jit_path)
+    print("[INFO] Exported JIT to:", jit_path)
+
 
     dt = env.unwrapped.step_dt
     # img_bgr = cv2.imread('/home/roborock/下载/9.png')
     # img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     # img_tensor = torch.from_numpy(img_rgb).permute(2, 0, 1)
     # obs = img_tensor.unsqueeze(0)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # 推理阶段继续使用与 env 一致的 device（不要重新覆盖）
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     save_dir = "/home/roborock/下载/"
     # reset environment
     obs, _ = env.get_observations()
+    obs = obs.to(device)
     num_envs = env.unwrapped.num_envs  # 或者 env.num_envs（看 wrapper）
     global_step = 0
 

@@ -250,20 +250,18 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
 
-            # # # # ============== ADD DEBUG CODE HERE ==============                                                                                                                               
-            # import time                                                                                                                                                                       
-                                                                                                                                                                                                
-            # # Run a few physics steps with zero action to let reset settle                                                                                                                    
-            # for _ in range(5):                                                                                                                                                                
-            #     self.sim.step(render=True)                                                                                                                                                    
-            #     self.scene.update(dt=self.physics_dt)                                                                                                                                         
-                                                                                                                                                                                                
-            # # # Print and sleep                                                                                                                                                                 
-            # # robot = self.scene["robot"]                                                                                                                                                       
-            # # print(f"[RESET] Joint pos: {robot.data.joint_pos[0].cpu().numpy()}")                                                                                                              
-                                                                                                                                                                                                
-            # time.sleep(3.0)                                                                                                                                        
-            # # # # =================================================  
+            # # # ============== ADD DEBUG CODE HERE ==============
+            # Run a few physics steps with zero action to let reset settle
+            # for _ in range(5):
+            #     self.sim.step(render=True)
+            #     self.scene.update(dt=self.physics_dt)
+
+            # # Print and sleep
+            # robot = self.scene["robot"]
+            # print(f"[RESET] Joint pos: {robot.data.joint_pos[0].cpu().numpy()}")
+
+            # time.sleep(3.0)
+            # # # =================================================
 
             # trigger recorder terms for post-reset calls
             self.recorder_manager.record_post_reset(reset_env_ids)

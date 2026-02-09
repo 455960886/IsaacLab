@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import torch
 from typing import TYPE_CHECKING
+import re
 
 import isaaclab.utils.math as math_utils
 from isaaclab.assets import Articulation, RigidObject
@@ -118,6 +119,188 @@ def joint_pos(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
     return asset.data.joint_pos[:, asset_cfg.joint_ids]
+
+
+class joint_pos_with_binary_m6_from_gripper_action(ManagerTermBase):
+    """Joint positions, but replace M6_.* entries with binary open/close state inferred from action delta.
+
+    Output meaning:
+      - 1 = open
+      - 0 = close
+
+    Update rule (per env):
+      - delta(raw_gripper_action) >  eps -> state = 1
+      - delta(raw_gripper_action) < -eps -> state = 0
+      - otherwise keep previous state
+
+    Initialization / reset:
+      - infer initial state from current gripper joint target/pos (so step=0 is correct even if raw==0).
+    """
+
+    def __init__(self, cfg: ObservationTermCfg, env: "ManagerBasedEnv"):
+        super().__init__(cfg, env)
+
+        # internal caches (initialized lazily)
+        self._mask: torch.Tensor | None = None        # (n_selected_joints,)
+        self._prev_raw: torch.Tensor | None = None    # (num_envs, 1)
+        self._prev_bin: torch.Tensor | None = None    # (num_envs, 1)
+
+    # ---------------- helpers ----------------
+    def _ensure_mask(self, asset: Articulation, joint_ids: list[int], gripper_joint_regex: str, device):
+        if self._mask is not None:
+            return
+        compiled = re.compile(gripper_joint_regex)
+        selected_names = [asset.joint_names[jid] for jid in joint_ids]
+        mask_list = [compiled.fullmatch(n) is not None for n in selected_names]
+        self._mask = torch.tensor(mask_list, device=device, dtype=torch.bool)
+
+    def _read_raw_action(self, env: "ManagerBasedEnv", action_name: str, device, dtype) -> torch.Tensor:
+        """Return raw action as (B,1). If missing, return zeros."""
+        try:
+            term = env.action_manager.get_term(action_name)
+            raw = term.raw_actions
+        except Exception:
+            raw = None
+
+        if raw is None:
+            return torch.zeros((env.num_envs, 1), device=device, dtype=dtype)
+
+        if raw.ndim == 1:
+            raw = raw.unsqueeze(-1)
+        else:
+            # if raw has more dims, take first column as gripper scalar
+            raw = raw[:, :1]
+        return raw.to(device=device, dtype=dtype)
+
+    def _infer_init_state_from_gripper_pose(
+        self,
+        asset: Articulation,
+        joint_ids: list[int],
+        open_abs_threshold: float,
+        device,
+        dtype,
+    ) -> torch.Tensor:
+        """Infer initial open/close state from current gripper target/pos. Return (B,1) 0/1."""
+        if self._mask is None or (not torch.any(self._mask)):
+            return torch.zeros((asset.data.joint_pos.shape[0], 1), device=device, dtype=dtype)
+
+        # prefer joint_pos_target (commanded), fallback to joint_pos (actual)
+        q_src = asset.data.joint_pos_target if hasattr(asset.data, "joint_pos_target") else asset.data.joint_pos
+        q_sel = q_src[:, joint_ids].to(device=device, dtype=dtype)
+        q_grip = q_sel[:, self._mask]  # (B,g)
+
+        # mean abs magnitude represents how open it is (0.65 vs 0.02)
+        cmd_abs = q_grip.abs().mean(dim=1, keepdim=True)  # (B,1)
+        return (cmd_abs > float(open_abs_threshold)).to(dtype)
+
+    # ---------------- reset ----------------
+    def reset(self, env_ids: torch.Tensor | None = None):
+        """Align caches to *current* state on reset (do not zero blindly)."""
+        # caches not created yet -> nothing to do (will be init in __call__)
+        if self._prev_raw is None or self._prev_bin is None:
+            return
+
+        env = getattr(self, "_env", None)
+        if env is None:
+            return
+
+        # Use the same defaults as __call__ (these will be overridden by cfg if provided there)
+        action_name = "gripper_action"
+        gripper_joint_regex = r"M6_.*"
+        open_abs_threshold = 0.1
+
+        asset_cfg = self.cfg.params.get("asset_cfg", SceneEntityCfg("robot"))  # type: ignore
+        asset: Articulation = env.scene[asset_cfg.name]
+        joint_ids = list(asset_cfg.joint_ids)
+
+        self._ensure_mask(asset, joint_ids, gripper_joint_regex, asset.data.joint_pos.device)
+
+        raw = self._read_raw_action(env, action_name, asset.data.joint_pos.device, self._prev_raw.dtype)
+        bin_init = self._infer_init_state_from_gripper_pose(
+            asset, joint_ids, open_abs_threshold, asset.data.joint_pos.device, self._prev_bin.dtype
+        )
+
+        if env_ids is None:
+            self._prev_raw.copy_(raw)
+            self._prev_bin.copy_(bin_init)
+        else:
+            self._prev_raw[env_ids] = raw[env_ids]
+            self._prev_bin[env_ids] = bin_init[env_ids]
+
+    # ---------------- main ----------------
+    def __call__(
+        self,
+        env: "ManagerBasedEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        action_name: str = "gripper_action",
+        gripper_joint_regex: str = r"M6_.*",
+        eps: float = 0.05,
+        open_abs_threshold: float = 0.1,
+        debug: bool = False,
+        debug_every: int = 200,
+    ) -> torch.Tensor:
+
+        asset: Articulation = env.scene[asset_cfg.name]
+        joint_ids = list(asset_cfg.joint_ids)
+
+        # base joint pos
+        q = asset.data.joint_pos[:, joint_ids].clone()
+        device, dtype = q.device, q.dtype
+
+        # mask once
+        self._ensure_mask(asset, joint_ids, gripper_joint_regex, device)
+
+        if self._mask is None or (not torch.any(self._mask)):
+            return q
+
+        # read raw action
+        raw = self._read_raw_action(env, action_name, device, dtype)  # (B,1)
+
+        # init caches (IMPORTANT: init bin from current pose/target so step=0 correct)
+        if self._prev_raw is None or self._prev_bin is None:
+            self._prev_raw = raw.clone()
+            self._prev_bin = self._infer_init_state_from_gripper_pose(
+                asset, joint_ids, open_abs_threshold, device, dtype
+            )
+
+        # delta rule
+        delta = raw - self._prev_raw
+        open_mask = delta > float(eps)
+        close_mask = delta < -float(eps)
+
+        bin_state = self._prev_bin.clone()
+        bin_state[open_mask] = 1.0
+        bin_state[close_mask] = 0.0
+        # else keep previous
+
+        # replace M6 joints with 0/1
+        num_grip = int(self._mask.sum().item())
+        q[:, self._mask] = bin_state.expand(-1, num_grip)
+
+        # debug print
+        if debug:
+            step = int(getattr(env, "common_step_counter", -1))
+            if step % int(debug_every) == 0:
+                e = 0
+                qpos = asset.data.joint_pos[e, joint_ids][self._mask].detach().cpu().numpy()
+                qtgt = (
+                    asset.data.joint_pos_target[e, joint_ids][self._mask].detach().cpu().numpy()
+                    if hasattr(asset.data, "joint_pos_target")
+                    else None
+                )
+                print(
+                    f"[obs_debug] step={step} raw={raw[e].item():.3f} prev_raw={self._prev_raw[e].item():.3f} "
+                    f"delta={delta[e].item():.3f} eps={eps:.3f} open={bool(open_mask[e].item())} "
+                    f"close={bool(close_mask[e].item())} prev_bin={int(self._prev_bin[e].item())} "
+                    f"bin={int(bin_state[e].item())} mask={self._mask.detach().cpu().numpy().tolist()}"
+                )
+                print(f"[obs_debug] m6_joint_pos={qpos} m6_joint_pos_target={qtgt}")
+
+        # update caches
+        self._prev_raw = raw.clone()
+        self._prev_bin = bin_state.clone()
+
+        return q
 
 
 def joint_pos_rel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
@@ -572,7 +755,6 @@ class image_features(ManagerTermBase):
         points = voxel_down_sample_fixed(points, voxel_size=2.0)
         # save_ply(points, colors=None, output_path=output_path.replace(".ply","_downsampled8.ply"))
         return points
-    
 
     # GPU-accelerated version for batch processing
     def depth_to_pointcloud_batch_gpu(self, depth_batch, fx, fy, cx, cy, num_points=1024, 
@@ -733,11 +915,11 @@ class image_features(ManagerTermBase):
         # if save_ply_debug:
         #     points_final = result[env_id].cpu().numpy()
         #     save_ply(points_final, "4_noised")
-        result = randomize_pointcloud_batch_torch(result,dropout_rate=0.02,outlier_ratio=0.02,outlier_max_offset=0.08,surface_jitter=0.001)
+        result = randomize_pointcloud_batch_torch(result,dropout_rate=0.02,outlier_ratio=0.02,outlier_max_offset=0.15,surface_jitter=0.001)
         
-        # if save_ply_debug:
-        #     points_final = result[env_id].cpu().numpy()
-        #     save_ply(points_final, "4_random")
+        if save_ply_debug:
+            points_final = result[env_id].cpu().numpy()
+            save_ply(points_final, "4_random")
         
         return result
 
@@ -974,7 +1156,6 @@ class image_features(ManagerTermBase):
     """
     Helper functions.
     """
-
 
     def voxelize_pointcloud_batch(
         self,

@@ -102,6 +102,44 @@ def object_pushed_away(
     return outside_x | outside_y
 
 
+def object_tipped_while_not_lifted(
+    env: ManagerBasedRLEnv,
+    limit_angle: float = 1.0,                 # rad, 1.0≈57°
+    lift_height_threshold: float = 0.03,      # m, 低于这个认为“没夹起/还在桌上”
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+) -> torch.Tensor:
+    """Terminate when the active object is tipped over, but only if it is not lifted yet.
+
+    Tilt is measured by the angle between object's local z axis and world z axis,
+    implemented via projected_gravity_b like bad_object_orientation().
+    """
+    from isaaclab.assets import RigidObjectCollection
+
+    object_collection: RigidObjectCollection = env.scene[object_cfg.name]
+
+    # No active object selection -> do nothing
+    if not hasattr(env, "active_object_indices") or env.active_object_indices is None:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    active_indices = env.active_object_indices.to(dtype=torch.long, device=env.device)
+
+    # safety clamp
+    num_objects = object_collection.data.projected_gravity_b.shape[1]
+    active_indices = torch.clamp(active_indices, 0, num_objects - 1)
+    env_ids = torch.arange(env.num_envs, device=env.device)
+
+    # 1) "not lifted" gate (still on/near table)
+    # object_link_pos_w: (num_envs, num_objects, 3)
+    active_pos_w = object_collection.data.object_link_pos_w[env_ids, active_indices]
+    not_lifted = active_pos_w[:, 2] < lift_height_threshold
+
+    # 2) tilt angle from projected_gravity_b (same idea as bad_object_orientation)
+    active_pg = object_collection.data.projected_gravity_b[env_ids, active_indices]
+    tilt_angle = torch.acos((-active_pg[:, 2]).clamp(-1.0, 1.0)).abs()
+
+    return not_lifted & (tilt_angle > limit_angle)
+
+
 def bad_object_orientation(
     env: ManagerBasedRLEnv, 
     limit_angle: float,

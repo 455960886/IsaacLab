@@ -211,11 +211,35 @@ class ResNet18ObservationCfg:
 
         image = ObsTerm(
             func=mdp.image_features,
-            params={"sensor_cfg": SceneEntityCfg("gripper_camera"),
-                    "data_type": "rgb",
-                    "model_name": "resnet18",
-                    "depth_cfg": SceneEntityCfg("depth_camera")},
+            params={
+                "sensor_cfg": SceneEntityCfg("gripper_camera"),
+                "data_type": "rgb",
+                "model_name": "resnet18",
+                "depth_cfg": SceneEntityCfg("depth_camera"),
+            },
         )
+
+        # joint_pos = ObsTerm(
+        #     func=mdp.joint_pos_with_binary_m6_from_gripper_action,
+        #     params={
+        #         "asset_cfg": SceneEntityCfg("robot", joint_names=["M[345]", "M6_.*"]),
+        #         "action_name": "gripper_action",
+        #         "eps": 0.015,
+        #         "open_abs_threshold": 0.1,
+        #         "debug": False,        # 训练务必 False
+        #         "debug_every": 200,
+        #     },
+        # )
+        joint_pos = ObsTerm(
+            func=mdp.joint_pos,
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=["M[345]", "M6_.*"],
+                )
+            },
+        )
+
     policy: ObsGroup = ResNet18FeaturesCameraPolicyCfg()
 
 
@@ -251,18 +275,23 @@ class EventCfg:
                 "x": (0.00, 0.04),
                 "y": (-0.005, 0.005),
                 "z": (0.0, 0.0),
-                "roll": (0.0, 0.0),
+                "roll": (0, 0),
                 "pitch": (0, 0),
                 "yaw": (-1.2, 0.0),
+                # "yaw": (0.0, 1.2),
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object_pool"),
+            # 新增：按物体名覆盖 yaw（只改 slippers）
+            # "yaw_override_by_name": {
+            #     "slippers_m5": (0.0, 1.2),
+            # },
         },
     )
 
     randomize_lighting_reset = EventTerm(
         func=mdp.randomize_multiple_sphere_lights,
-        mode="startup",
+        mode="reset",
         params={"num_lights": 2},
     )
 
@@ -324,8 +353,7 @@ class RewardsCfg:
             "reward_value": 1.0,
             "gripper_closed_threshold": 0.2,
         },
-        # weight=300.0,
-        weight=10.0,
+        weight=25.0,
     )
 
     # action penalty
@@ -378,7 +406,7 @@ class TerminationsCfg:
     robot_base_orientation = DoneTerm(
         func=mdp.bad_orientation,
         params={
-            "limit_angle": 0.09,  # 0.5 rad ≈ 28.6° tilt limit
+            "limit_angle": 0.08,  # ~4.5 degrees; adjust based on how much tilt you want to allow
             "asset_cfg": SceneEntityCfg("robot"),
         },
     )
@@ -392,6 +420,15 @@ class TerminationsCfg:
             "robot_cfg": SceneEntityCfg("robot")
         },
     )
+
+    # object_tipped_not_lifted = DoneTerm(
+    #     func=mdp.object_tipped_while_not_lifted,
+    #     params={
+    #         "limit_angle": 1.50,  # ~87 degrees; adjust based on how much tipping you want to allow
+    #         "lift_height_threshold": 0.03,    # 没夹起阶段
+    #         "object_cfg": SceneEntityCfg("object_pool"),
+    #     },
+    # )
 
 
 @configclass
@@ -420,7 +457,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
-        
+
         """Post initialization."""
         self.sim.dt = 0.01  # 100Hz
         self.decimation = 20  # 2 20 48

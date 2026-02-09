@@ -22,7 +22,7 @@ import carb
 import omni.physics.tensors.impl.api as physx
 import omni.usd
 from isaacsim.core.utils.extensions import enable_extension
-from pxr import Gf, Sdf, UsdGeom, Vt, UsdShade, Usd
+from pxr import Gf, Sdf, UsdGeom, Vt, UsdShade
 
 import isaaclab.sim as sim_utils
 import isaaclab.utils.math as math_utils
@@ -32,10 +32,6 @@ from isaaclab.actuators import ImplicitActuator
 from isaaclab.assets import Articulation, DeformableObject, RigidObject
 from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
 from isaaclab.terrains import TerrainImporter
-from isaaclab.assets import RigidObjectCfg
-from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
-from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -1072,17 +1068,17 @@ def reset_root_state_uniform(
     asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
 
 
-
-
-
 def reset_object_pool_state_uniform(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     pose_range: dict[str, tuple[float, float]],
     velocity_range: dict[str, tuple[float, float]],
     asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    yaw_override_by_name: dict[str, tuple[float, float]] | None = None,   # ✅ 新增
 ):
-    """Reset active objects in object pool to random position and velocity uniformly within given ranges."""
+    """Reset active objects in object pool to random position and velocity uniformly within given ranges.
+    Support per-object yaw range override via yaw_override_by_name.
+    """
     from isaaclab.assets import RigidObjectCollection
     import isaaclab.utils.math as math_utils
 
@@ -1090,49 +1086,79 @@ def reset_object_pool_state_uniform(
     object_collection: RigidObjectCollection = env.scene[asset_cfg.name]
 
     # Get active object indices
-    if not hasattr(env, 'active_object_indices'):
+    if not hasattr(env, "active_object_indices"):
         raise RuntimeError("active_object_indices not found")
 
-    # Prepare pose ranges (same as original)
+    if yaw_override_by_name is None:
+        yaw_override_by_name = {}
+
+    # -----------------------------
+    # 1) 先按“默认 pose_range”采样 6D (x,y,z,roll,pitch,yaw)
+    # -----------------------------
     pose_range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
     pose_ranges = torch.tensor(pose_range_list, device=object_collection.device)
     pose_rand_samples = math_utils.sample_uniform(
         pose_ranges[:, 0], pose_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
     )
 
-    # Prepare velocity ranges (same as original)
+    # -----------------------------
+    # 2) ✅ 关键：按“当前激活物体名”覆盖 yaw 采样范围
+    #    bus / lego -> 用默认 yaw（pose_range["yaw"]）
+    #    slippers_m5 -> 用 yaw_override_by_name["slippers_m5"]
+    # -----------------------------
+    default_yaw = pose_range.get("yaw", (0.0, 0.0))
+    yaw_lo = torch.full((len(env_ids),), float(default_yaw[0]), device=object_collection.device)
+    yaw_hi = torch.full((len(env_ids),), float(default_yaw[1]), device=object_collection.device)
+
+    for idx, env_idx in enumerate(env_ids):
+        active_obj_idx = env.active_object_indices[env_idx].item()
+        obj_name = object_collection.object_names[active_obj_idx]   # e.g. "lego" / "bus" / "slippers_m5"
+
+        if obj_name in yaw_override_by_name:
+            lo, hi = yaw_override_by_name[obj_name]
+            yaw_lo[idx] = float(lo)
+            yaw_hi[idx] = float(hi)
+
+    # 重新采样 yaw（逐 env 不同范围）
+    # 用线性方式采样，避免对 sample_uniform 传“每个样本不同 range”的限制
+    yaw = yaw_lo + (yaw_hi - yaw_lo) * torch.rand((len(env_ids),), device=object_collection.device)
+    pose_rand_samples[:, 5] = yaw
+
+    # -----------------------------
+    # 3) 速度采样（保持你原来的逻辑）
+    # -----------------------------
     vel_range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
     vel_ranges = torch.tensor(vel_range_list, device=object_collection.device)
     vel_rand_samples = math_utils.sample_uniform(
         vel_ranges[:, 0], vel_ranges[:, 1], (len(env_ids), 6), device=object_collection.device
     )
 
-    # Reset each environment's active object
+    # -----------------------------
+    # 4) Reset each environment's active object (保持你原来的逻辑)
+    # -----------------------------
     for idx, env_idx in enumerate(env_ids):
         active_obj_idx = env.active_object_indices[env_idx].item()
 
         # Get default state for active object
         root_state = object_collection.data.default_object_state[env_idx, active_obj_idx].clone()
 
-        # Apply pose randomization (same logic as original)
+        # Apply pose randomization
         position = root_state[0:3] + env.scene.env_origins[env_idx] + pose_rand_samples[idx, 0:3]
         orientation_delta = math_utils.quat_from_euler_xyz(
             pose_rand_samples[idx, 3], pose_rand_samples[idx, 4], pose_rand_samples[idx, 5]
         )
         orientation = math_utils.quat_mul(root_state[3:7], orientation_delta)
 
-        # Apply velocity randomization (same logic as original)
+        # Apply velocity randomization
         velocity = root_state[7:13] + vel_rand_samples[idx]
 
-        # Combine and write (adapted for object collection)
+        # Combine and write
         new_state = torch.cat([position, orientation, velocity], dim=-1)
         object_collection.write_object_state_to_sim(
             new_state.unsqueeze(0),
             env_ids=torch.tensor([env_idx], device=object_collection.device),
-            object_ids=torch.tensor([active_obj_idx], device=object_collection.device)
+            object_ids=torch.tensor([active_obj_idx], device=object_collection.device),
         )
-
-
 
 
 def reset_root_state_with_random_orientation(
@@ -1872,7 +1898,6 @@ def initialize_point_cloud_cache(
     print("[INFO] Point cloud cache initialized")
 
 
-
 def randomize_floor_texture(
     env: "ManagerBasedEnv",
     env_ids: torch.Tensor,
@@ -1939,9 +1964,9 @@ def randomize_multiple_sphere_lights(
             if light_prim.IsValid():
                 # 随机位置
                 pos = (
-                    np.random.uniform(-0.5,0.2 ),
+                    np.random.uniform(-0.5, 0.2),
                     np.random.uniform(-0.5, 0.5),
-                    np.random.uniform(0.5,1.5),
+                    np.random.uniform(0.5, 1.5),
                 )
                 light_prim.GetAttribute("xformOp:translate").Set(pos)
                 # 随机缩放

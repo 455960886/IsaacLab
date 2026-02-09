@@ -18,6 +18,7 @@ from isaaclab_tasks.manager_based.manipulation.lift.lift_env_cfg import LiftEnvC
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
+import math
 
 
 MY_ROBOT_CFG = ArticulationCfg(
@@ -42,7 +43,7 @@ MY_ROBOT_CFG = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         joint_pos={
             # "M0": 0,
-            "M1": 1.57,
+            "M1": math.pi / 2,
             # "M2": 1.57,
             "M3": 3.8,
             "M4": 1.4,
@@ -80,9 +81,9 @@ MY_ROBOT_CFG = ArticulationCfg(
         "hand": ImplicitActuatorCfg(
             joint_names_expr=["M6_.*"],
             effort_limit=50,      # Reduced to prevent excessive force
-            velocity_limit=4.0,     # Keep same
-            stiffness=3000,          # Increased from 15 to reduce penetration
-            damping=0.001,           # Increased from 0.001 for better stability
+            velocity_limit=2.0,     # Keep same
+            stiffness=1000,          # Increased from 15 to reduce penetration
+            damping=10,           # Increased from 0.001 for better stability
         ),
     },
     soft_joint_pos_limit_factor=1.0,
@@ -142,7 +143,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         self.scene.object_pool = RigidObjectCollectionCfg(
             rigid_objects={
                 "lego": RigidObjectCfg(
-                    prim_path="/World/envs/env_.*/lego",
+                    prim_path="{ENV_REGEX_NS}/lego",
                     spawn=sim_utils.UsdFileCfg(
                         usd_path="/home/robo/code/IsaacLab/assets/lego_gongzixing.usdc",
                         scale=(4.0, 4.0, 8.0),
@@ -150,6 +151,9 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                             solver_position_iteration_count=64,
                             solver_velocity_iteration_count=32,
                             disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
                         ),
                         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                             articulation_enabled=False,  # CRITICAL: Disable articulation
@@ -188,7 +192,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                             disable_gravity=False,
                         ),
                         mass_props=sim_utils.MassPropertiesCfg(
-                        mass=0.01,
+                            mass=0.01,
                         ),
                         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                             articulation_enabled=False,  # CRITICAL: Disable articulation
@@ -249,20 +253,19 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0, 0.0)),
                 # ),
 
-                # "slippers": RigidObjectCfg(
-                #     prim_path="{ENV_REGEX_NS}/slippers",
+                # "slippers_m5": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/slippers_m5",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/slipper/slipper.usdc",
-                #         scale=(1.0, 1.1, 1.3),
+                #         usd_path="/home/robo/code/IsaacLab/assets/slipper_top/slipper.usdc",
+                #         scale=(1.0, 0.8, 1.1),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                #             solver_position_iteration_count=32,
-                #             solver_velocity_iteration_count=16,
-                #             # max_depenetration_velocity=10.0,  # CRITICAL: Limit depenetration speed
+                #             solver_position_iteration_count=128,
+                #             solver_velocity_iteration_count=32,
                 #             disable_gravity=False,
                 #         ),
-                #         # mass_props=sim_utils.MassPropertiesCfg(
-                #         #     mass=0.001,  # Adjust based on actual slipper weight
-                #         # ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.001,  
+                #         ),
                 #         # collision_props=sim_utils.CollisionPropertiesCfg(
                 #         #     contact_offset=0.002,  # Start collision detection at 2mm
                 #         #     rest_offset=0.0,       # Rest at surface contact
@@ -271,8 +274,8 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #             articulation_enabled=False,  # CRITICAL: Disable articulation
                 #         ),
                 #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.30, 0.01, 0.06), rot=(-0.70710678, 0, 0, -0.70710678)),
-                # )
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.33, 0.01, 0.1), rot=(0.7071, 0, 0, -0.7071)),
+                # ),
             }
         )
 
