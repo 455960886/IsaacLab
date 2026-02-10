@@ -20,6 +20,10 @@ from isaaclab.app import AppLauncher
 
 # local imports
 import cli_args  # isort: skip
+import torch
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+torch.backends.cudnn.benchmark = True
 
 
 # add argparse arguments

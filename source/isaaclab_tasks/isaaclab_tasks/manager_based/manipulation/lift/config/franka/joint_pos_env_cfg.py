@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import isaaclab.sim as sim_utils
+import math
 from isaaclab.assets import RigidObjectCfg
 from isaaclab.sensors import FrameTransformerCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
@@ -42,7 +43,7 @@ MY_ROBOT_CFG = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         joint_pos={
             # "M0": 0,
-            "M1": 1.57,
+            "M1": math.pi / 2,
             # "M2": 1.57,
             "M3": 3.8,
             "M4": 1.4,
@@ -142,7 +143,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         self.scene.object_pool = RigidObjectCollectionCfg(
             rigid_objects={
                 "lego": RigidObjectCfg(
-                    prim_path="/World/envs/env_.*/lego",
+                    prim_path="{ENV_REGEX_NS}/lego",
                     spawn=sim_utils.UsdFileCfg(
                         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/lego_gongzixing.usdc",
                         scale=(4.0, 4.0, 8.0),
@@ -177,25 +178,25 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.005, -0.01]),
                 # ),
 
-                "bus": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/bus",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/bus_new_usd/bus.usdc",
-                        scale=(0.08, 0.08, 0.08),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        mass_props=sim_utils.MassPropertiesCfg(
-                            mass=0.01,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.00, 0.0)),
-                ),
+                # "bus": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/bus",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/bus_new_usd/bus.usdc",
+                #         scale=(0.08, 0.08, 0.08),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=32,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.00, 0.0)),
+                # ),
 
 
                 # "eye_drops": RigidObjectCfg(
