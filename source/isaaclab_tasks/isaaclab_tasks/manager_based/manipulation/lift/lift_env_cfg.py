@@ -119,16 +119,28 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     #     # update_period=0.2,
     # )
 
+    # depth_camera: TiledCameraCfg = TiledCameraCfg(
+    #     # prim_path="{ENV_REGEX_NS}/depth_camera",
+    #     prim_path="{ENV_REGEX_NS}/Robot/M0_chassis_link/tof_link/depth_camera",
+    #     offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.0, -1.0, 0.0, 0.0)), convention="opengl"),
+    #     data_types=["distance_to_image_plane"],  # Key change to depth
+    #     spawn=sim_utils.PinholeCameraCfg(
+    #         focal_length=40, focus_distance=400.0, horizontal_aperture=93.5
+    #     ),
+    #     width=530,
+    #     height=150,
+    #     debug_vis=False,
+    # )
     depth_camera: TiledCameraCfg = TiledCameraCfg(
         # prim_path="{ENV_REGEX_NS}/depth_camera",
         prim_path="{ENV_REGEX_NS}/Robot/M0_chassis_link/tof_link/depth_camera",
         offset=TiledCameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=((0.0, -1.0, 0.0, 0.0)), convention="opengl"),
         data_types=["distance_to_image_plane"],  # Key change to depth
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=40, focus_distance=400.0, horizontal_aperture=93.5
+            focal_length=40, focus_distance=400.0, horizontal_aperture=93.5,
         ),
-        width=530,
-        height=150,
+        width=243,
+        height=90,
         debug_vis=False,
     )
 
@@ -219,26 +231,28 @@ class ResNet18ObservationCfg:
             },
         )
 
-        # joint_pos = ObsTerm(
-        #     func=mdp.joint_pos_with_binary_m6_from_gripper_action,
-        #     params={
-        #         "asset_cfg": SceneEntityCfg("robot", joint_names=["M[345]", "M6_.*"]),
-        #         "action_name": "gripper_action",
-        #         "eps": 0.015,
-        #         "open_abs_threshold": 0.1,
-        #         "debug": False,        # 训练务必 False
-        #         "debug_every": 200,
-        #     },
-        # )
         joint_pos = ObsTerm(
-            func=mdp.joint_pos,
+            func=mdp.joint_pos_with_binary_m6_latched,
             params={
-                "asset_cfg": SceneEntityCfg(
-                    "robot",
-                    joint_names=["M[345]", "M6_.*"],
-                )
+                "asset_cfg": SceneEntityCfg("robot", joint_names=["M[345]", "M6_.*"]),
+                "action_name": "gripper_action",
+                "action_index": 0,
+                "m6_open_value": 0.65,
+                "m6_close_value": 0.02,
+                "toggle_threshold": 0.02,
+                "debug": False,
+                "debug_every": 200,
             },
         )
+        # joint_pos = ObsTerm(
+        #     func=mdp.joint_pos,
+        #     params={
+        #         "asset_cfg": SceneEntityCfg(
+        #             "robot",
+        #             joint_names=["M[345]", "M6_.*"],
+        #         )
+        #     },
+        # )
 
     policy: ObsGroup = ResNet18FeaturesCameraPolicyCfg()
 
@@ -272,8 +286,8 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": (0.00, 0.04),
-                "y": (-0.005, 0.005),
+                "x": (0.00, 0.08),
+                "y": (-0.01, 0.01),
                 "z": (0.0, 0.0),
                 "roll": (0, 0),
                 "pitch": (0, 0),
@@ -283,9 +297,9 @@ class EventCfg:
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object_pool"),
             # 新增：按物体名覆盖 yaw（只改 slippers）
-            # "yaw_override_by_name": {
-            #     "slippers_m5": (0.0, 1.2),
-            # },
+            "yaw_override_by_name": {
+                "slippers_m5_0": (0.0, 1.2),
+            },
         },
     )
 
@@ -460,8 +474,9 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
 
         """Post initialization."""
         self.sim.dt = 0.01  # 100Hz
-        self.decimation = 20  # 2 20 48
-        self.episode_length_s = 6 * self.decimation * self.sim.dt
+        self.decimation = 40  # 2 20 48
+        # self.decimation = 20  # 2 20 48
+        self.episode_length_s = 10 * self.decimation * self.sim.dt
         # self.decimation = 1
         # self.episode_length_s = 10
         # self.sim.render_interval = self.decimation

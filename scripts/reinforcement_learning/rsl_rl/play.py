@@ -80,6 +80,7 @@ def main():
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Loading experiment from directory: {log_root_path}")
+
     if args_cli.use_pretrained_checkpoint:
         resume_path = get_published_pretrained_checkpoint("rsl_rl", args_cli.task)
         if not resume_path:
@@ -91,6 +92,30 @@ def main():
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
 
     log_dir = os.path.dirname(resume_path)
+
+    # ===== debug: print checkpoint expected obs_dim =====
+    ckpt = torch.load(resume_path, map_location="cpu")
+    sd = ckpt.get("model_state_dict", ckpt)
+
+    # rsl_rl 的 key 有时会带前缀，做个稳健查找
+    actor_w_key = None
+    for k in sd.keys():
+        if k.endswith("actor.0.weight"):
+            actor_w_key = k
+            break
+    if actor_w_key is None and "actor.0.weight" in sd:
+        actor_w_key = "actor.0.weight"
+
+    if actor_w_key is not None:
+        w = sd[actor_w_key]
+        print(f"[CKPT] actor.0.weight key='{actor_w_key}' expects obs_dim = {w.shape[1]}")
+    else:
+        # 兜底：把所有含 actor/weight 的 key 打出来，方便你定位
+        cand = [k for k in sd.keys() if ("actor" in k and "weight" in k)]
+        print("[CKPT] ❌ cannot find 'actor.0.weight' in state_dict. Candidate keys:")
+        for k in cand[:50]:
+            print("  ", k)
+    # ================================================
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
@@ -114,9 +139,7 @@ def main():
     # wrap around environment for rsl-rl
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
-    # ===== debug: print observation concat layout =====
-    import numpy as np
-    import torch
+    env.reset()    
 
     def print_obs_concat_layout(env, group_name: str = "policy", env_idx: int = 0, preview_vals: int = 0):
         base_env = env.unwrapped
@@ -162,6 +185,10 @@ def main():
 
     # 调用：只看 slice
     print_obs_concat_layout(env, group_name="policy", env_idx=0, preview_vals=0)
+
+    # 再额外打印一次实际 obs tensor shape（最直观）
+    obs_dbg, _ = env.get_observations()
+    print("[OBS] env.get_observations() shape =", tuple(obs_dbg.shape))
 
     # 或者：顺便预览每段前 8 个值（image 会很大，只看前几个即可）
     # print_obs_concat_layout(env, group_name="policy", env_idx=0, preview_vals=8)
@@ -300,15 +327,15 @@ def main():
             global_step += 1
 
             # 如果某些 env done，打印并对这些 env 重置 ep_step，ep_id+1
-            if torch.any(dones):
-                done_ids = torch.nonzero(dones, as_tuple=False).squeeze(-1).cpu().numpy()
-                for eid in done_ids:
-                    print(f"[PLAY] ✅ env={eid} episode结束：ep={ep_id[eid]} 总步数={ep_step[eid]}")
-                    ep_id[eid] += 1
-                    ep_step[eid] = 0
+            # if torch.any(dones):
+            #     done_ids = torch.nonzero(dones, as_tuple=False).squeeze(-1).cpu().numpy()
+            #     for eid in done_ids:
+            #         print(f"[PLAY] ✅ env={eid} episode结束：ep={ep_id[eid]} 总步数={ep_step[eid]}")
+            #         ep_id[eid] += 1
+            #         ep_step[eid] = 0
 
         # # time delay for real-time evaluation
-        time.sleep(0.6)
+        # time.sleep(0.6)
 
     # close the simulator
     env.close()

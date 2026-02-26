@@ -1466,7 +1466,7 @@ def reset_scene_to_default(env: ManagerBasedEnv, env_ids: torch.Tensor):
         articulation_asset.data.joint_vel_target[env_ids] = 0.0                                                                                                                       
         articulation_asset._joint_vel_target_sim[env_ids] = 0.0                                                                                                                       
         # =============================================          
-    
+
     # deformable objects
     for deformable_object in env.scene.deformable_objects.values():
         # obtain default and set into the physics simulation

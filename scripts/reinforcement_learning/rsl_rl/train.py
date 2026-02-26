@@ -110,11 +110,6 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 
 # PLACEHOLDER: Extension template (do not remove this comment)
 
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-torch.backends.cudnn.deterministic = False
-torch.backends.cudnn.benchmark = False
-
 
 # hydra_task_config 会从配置文件加载环境 & agent 配置。
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point")

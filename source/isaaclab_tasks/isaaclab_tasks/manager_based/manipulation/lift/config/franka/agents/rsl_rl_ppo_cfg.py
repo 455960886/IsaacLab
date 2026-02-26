@@ -15,7 +15,6 @@ class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     save_interval = 10
     experiment_name = "coarse_arm_lift"
     empirical_normalization = True
-    # empirical_normalization = True
 
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=0.2,
@@ -29,7 +28,7 @@ class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
         use_clipped_value_loss=True,
         clip_param=0.2,
         entropy_coef=0.005,
-        num_learning_epochs=8,
+        num_learning_epochs=4,
         num_mini_batches=4,
         learning_rate=3.0e-4,
         # learning_rate=1.0e-4,

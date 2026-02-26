@@ -291,13 +291,13 @@ def main():
     device = env.unwrapped.device
 
     # ====== 环境/空间信息：帮助确认 action/obs 维度 ======
-    try:
-        cn_log(f"【手动调试】已开启中文日志。日志文件：{LOG_FILE}")
-        cn_log(f"【手动调试】env.device = {device}")
-        cn_log(f"【手动调试】env.action_space = {env.action_space}")
-        cn_log(f"【手动调试】env.observation_space = {env.observation_space}")
-    except Exception as e:
-        cn_log(f"【手动调试】读取 action/observation space 失败（不影响运行）：{e}")
+    # try:
+    #     cn_log(f"【手动调试】已开启中文日志。日志文件：{LOG_FILE}")
+    #     cn_log(f"【手动调试】env.device = {device}")
+    #     cn_log(f"【手动调试】env.action_space = {env.action_space}")
+    #     cn_log(f"【手动调试】env.observation_space = {env.observation_space}")
+    # except Exception as e:
+    #     cn_log(f"【手动调试】读取 action/observation space 失败（不影响运行）：{e}")
 
     # ====== 尝试解析 robot 的关节名与 M6 索引（用于打印实际关节状态/target）======
     base_env = env.unwrapped
@@ -311,7 +311,7 @@ def main():
     m6_ids = _find_joint_ids(r"M6_.*")
     m345_ids = _find_joint_ids(r"M3|M4|M5")
     m0_ids = _find_joint_ids(r"M0")
-    cn_log(f"【手动调试】robot关节总数={len(joint_names_all)} | M0 ids={m0_ids} | M3/4/5 ids={m345_ids} | M6 ids={m6_ids}")
+    # cn_log(f"【手动调试】robot关节总数={len(joint_names_all)} | M0 ids={m0_ids} | M3/4/5 ids={m345_ids} | M6 ids={m6_ids}")
 
     obs, _ = env.reset()
     print("[INFO] Environment reset complete")
@@ -319,10 +319,10 @@ def main():
 
     # reset 后打印一次 obs 的 tail5（如果能拿到）
     tail5 = try_extract_joint_tail5_from_policy(obs)
-    if tail5 is not None:
-        cn_log(f"【手动调试】reset后 | policy输入obs末尾5维(joint_pos)={tail5}（通常顺序=M3,M4,M5,M6_1,M6_2）")
-    else:
-        cn_log("【手动调试】reset后 | 未能从 obs 里解析 policy 拼接向量末尾5维（可能当前 obs 不是拼接结构/版本差异）")
+    # if tail5 is not None:
+    #     cn_log(f"【手动调试】reset后 | policy输入obs末尾5维(joint_pos)={tail5}（通常顺序=M3,M4,M5,M6_1,M6_2）")
+    # else:
+    #     cn_log("【手动调试】reset后 | 未能从 obs 里解析 policy 拼接向量末尾5维（可能当前 obs 不是拼接结构/版本差异）")
 
     if hasattr(env.unwrapped, 'reward_manager'):
         available_terms = env.unwrapped.reward_manager.active_terms
@@ -370,9 +370,9 @@ def main():
                 break
    
             # ====== (A) 打印“你按键产生的 action”（送进 env.step 的 action）======
-            if DEBUG_CN_LOG and (step_count % LOG_EVERY == 0):
-                a0 = action[LOG_ENV_ID].detach().cpu().numpy()
-                cn_log(f"【手动调试】步={step_count} | 键盘送入env.step的action={a0} | gripper_open={controller.gripper_open}")
+            # if DEBUG_CN_LOG and (step_count % LOG_EVERY == 0):
+            #     a0 = action[LOG_ENV_ID].detach().cpu().numpy()
+            #     cn_log(f"【手动调试】步={step_count} | 键盘送入env.step的action={a0} | gripper_open={controller.gripper_open}")
 
             # Step environment
             obs, reward, terminated, truncated, info = env.step(action)
@@ -386,23 +386,23 @@ def main():
                 env0 = LOG_ENV_ID
                 try:
                     am = base_env.action_manager
-                    if hasattr(am, "action"):
-                        final_act = am.action[env0].detach().cpu().numpy()
-                        cn_log(f"【手动调试】步={step_count-1} | ActionManager最终动作向量={final_act}")
-                    else:
-                        cn_log(f"【手动调试】步={step_count-1} | ActionManager没有 action 字段（版本差异）")
+                    # if hasattr(am, "action"):
+                    #     final_act = am.action[env0].detach().cpu().numpy()
+                    #     cn_log(f"【手动调试】步={step_count-1} | ActionManager最终动作向量={final_act}")
+                    # else:
+                    #     cn_log(f"【手动调试】步={step_count-1} | ActionManager没有 action 字段（版本差异）")
 
                     # 夹爪 action term 细节（字段名因版本不同）
-                    try:
-                        term = am.get_term("gripper_action")
-                        if hasattr(term, "raw_actions"):
-                            cn_log(f"【手动调试】步={step_count-1} | gripper_action.raw_actions={term.raw_actions[env0].detach().cpu().numpy()}")
-                        if hasattr(term, "processed_actions"):
-                            cn_log(f"【手动调试】步={step_count-1} | gripper_action.processed_actions={term.processed_actions[env0].detach().cpu().numpy()}")
-                        if hasattr(term, "actions"):
-                            cn_log(f"【手动调试】步={step_count-1} | gripper_action.actions={term.actions[env0].detach().cpu().numpy()}")
-                    except Exception as e:
-                        cn_log(f"【手动调试】步={step_count-1} | 无法读取 gripper_action term 细节（版本差异）：{e}")
+                    # try:
+                    #     term = am.get_term("gripper_action")
+                    #     if hasattr(term, "raw_actions"):
+                    #         cn_log(f"【手动调试】步={step_count-1} | gripper_action.raw_actions={term.raw_actions[env0].detach().cpu().numpy()}")
+                    #     if hasattr(term, "processed_actions"):
+                    #         cn_log(f"【手动调试】步={step_count-1} | gripper_action.processed_actions={term.processed_actions[env0].detach().cpu().numpy()}")
+                    #     if hasattr(term, "actions"):
+                    #         cn_log(f"【手动调试】步={step_count-1} | gripper_action.actions={term.actions[env0].detach().cpu().numpy()}")
+                    # except Exception as e:
+                    #     cn_log(f"【手动调试】步={step_count-1} | 无法读取 gripper_action term 细节（版本差异）：{e}")
 
                 except Exception as e:
                     cn_log(f"【手动调试】步={step_count-1} | 读取 ActionManager 信息失败：{e}")
@@ -412,9 +412,9 @@ def main():
                     if m6_ids:
                         jp = robot.data.joint_pos[env0, m6_ids].detach().cpu().numpy()
                         cn_log(f"【手动调试】步={step_count-1} | 机器人当前M6 joint_pos={jp}")
-                        if hasattr(robot.data, "joint_pos_target"):
-                            jt = robot.data.joint_pos_target[env0, m6_ids].detach().cpu().numpy()
-                            cn_log(f"【手动调试】步={step_count-1} | 机器人当前M6 joint_pos_target={jt}")
+                        # if hasattr(robot.data, "joint_pos_target"):
+                        #     jt = robot.data.joint_pos_target[env0, m6_ids].detach().cpu().numpy()
+                        #     cn_log(f"【手动调试】步={step_count-1} | 机器人当前M6 joint_pos_target={jt}")
                 except Exception as e:
                     cn_log(f"【手动调试】步={step_count-1} | 读取机器人M6关节状态失败：{e}")
 
