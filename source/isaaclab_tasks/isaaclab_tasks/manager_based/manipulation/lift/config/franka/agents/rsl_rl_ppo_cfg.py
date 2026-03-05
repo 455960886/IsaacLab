@@ -10,15 +10,15 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 
 @configclass
 class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
-    num_steps_per_env = 40
+    num_steps_per_env = 32
     max_iterations = 50000
     save_interval = 10
     experiment_name = "coarse_arm_lift"
     empirical_normalization = True
+    # empirical_normalization = True
 
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=0.2,
-        # init_noise_std=1.0,
         actor_hidden_dims=[512, 256, 128, 64],
         critic_hidden_dims=[512, 256, 128, 64],
         activation="elu",
@@ -27,9 +27,9 @@ class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.005,
-        num_learning_epochs=4,
-        num_mini_batches=4,
+        entropy_coef=0.015,
+        num_learning_epochs=5,
+        num_mini_batches=12,
         learning_rate=3.0e-4,
         # learning_rate=1.0e-4,
         schedule="adaptive",
@@ -37,4 +37,5 @@ class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
         lam=0.97,
         desired_kl=0.01,
         max_grad_norm=0.5,
+        # max_grad_norm=0.5,
     )

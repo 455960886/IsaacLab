@@ -117,7 +117,145 @@ def joint_pos(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("
     """
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
+    # print(asset.data.joint_pos[:, asset_cfg.joint_ids])
     return asset.data.joint_pos[:, asset_cfg.joint_ids]
+
+
+def joint_pos_with_binary_m6_latched(
+    env: "ManagerBasedEnv",
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    action_name: str = "gripper_action",
+    action_index: int = 0,
+    m6_open_value: float = 0.65,     # state==1 -> 0.65
+    m6_close_value: float = 0.02,    # state==0 -> 0.02
+    toggle_threshold: float = 0.0,   # action[3] > thr 视为 open 指令；< -thr 视为 close 指令
+    debug: bool = False,
+    debug_every: int = 200,
+) -> torch.Tensor:
+    """Return selected joint positions, but override M6_* with fixed binary values using a latched state.
+
+    This matches your deployment C++ exactly:
+      - Internal state s in {0,1} (close/open)
+      - If s==0 and a>0 => s=1
+      - If s==1 and a<0 => s=0
+      - Observation uses:
+          m6_1 = (s ? 0.65 : 0.02)
+          m6_2 = -m6_1
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # 原始 joint pos（只取配置里选中的那些关节：比如 M[345], M6_.*）
+    q = asset.data.joint_pos[:, asset_cfg.joint_ids].clone()  # (num_envs, n_selected)
+
+    # 拿 joint 名字，用于定位选中关节里哪些是 M6_*
+    if hasattr(asset, "joint_names") and asset.joint_names is not None:
+        all_joint_names = asset.joint_names
+    elif hasattr(asset.data, "joint_names") and asset.data.joint_names is not None:
+        all_joint_names = asset.data.joint_names
+    else:
+        raise RuntimeError("Cannot access joint names from articulation to locate M6 joints.")
+
+    sel_names = [all_joint_names[j] for j in asset_cfg.joint_ids]
+    m6_cols = [i for i, n in enumerate(sel_names) if isinstance(n, str) and n.startswith("M6_")]
+
+    # 如果 selection 里没包含 M6，就退化成普通 joint_pos
+    if len(m6_cols) == 0:
+        return q
+
+    # -----------------------------
+    # 1) 初始化/维护每个 env 的 M6 二值状态（latch）
+    # -----------------------------
+    # 我们把它挂到 env 上，名字不与 IsaacLab 冲突即可
+    # state: 0=close, 1=open（与你 C++ 完全一致）
+    state_attr = "_m6_binary_state_obs"  # (num_envs,) int64 on device
+
+    need_init = (not hasattr(env, state_attr))
+    if not need_init:
+        s = getattr(env, state_attr)
+        # 设备/shape 不对也重建
+        if (not torch.is_tensor(s)) or (s.shape[0] != env.num_envs) or (s.device != q.device):
+            need_init = True
+
+    # 用当前仿真 M6 的连续 qpos 做“只用于初始化”的推断，避免 reset 后状态乱掉
+    # （不改变 latch 更新规则，只是 reset/首次时给一个合理初值）
+    def _infer_state_from_joint():
+        # 用第一根 M6 finger 的绝对值判断 open/close
+        mid = 0.5 * (m6_open_value + m6_close_value)
+        m6_abs = q[:, m6_cols[0]].abs()
+        return (m6_abs > mid).to(torch.int64)
+
+    if need_init:
+        setattr(env, state_attr, _infer_state_from_joint())
+    else:
+        # 尝试检测 reset：如果能找到 episode_length_buf 或 reset_buf，就在 reset 的 env 上重置 state
+        reset_mask = None
+        if hasattr(env, "episode_length_buf") and torch.is_tensor(env.episode_length_buf):
+            reset_mask = (env.episode_length_buf == 0)
+        elif hasattr(env, "reset_buf") and torch.is_tensor(env.reset_buf):
+            reset_mask = env.reset_buf.bool()
+
+        if reset_mask is not None and reset_mask.any():
+            s = getattr(env, state_attr)
+            s[reset_mask] = _infer_state_from_joint()[reset_mask]
+            setattr(env, state_attr, s)
+
+    s = getattr(env, state_attr)  # (num_envs,) int64, 0/1
+
+    # -----------------------------
+    # 2) 按 C++：用 action 符号触发翻转（close->open / open->close）
+    # -----------------------------
+    a = last_action(env, action_name)
+    if a.ndim == 2:
+        if a.shape[1] <= action_index:
+            raise RuntimeError(
+                f"action_index {action_index} out of range for action '{action_name}' with dim {a.shape[1]}"
+            )
+        a1 = a[:, action_index]
+    else:
+        a1 = a
+
+    open_cmd = a1 > float(toggle_threshold)
+    close_cmd = a1 < -float(toggle_threshold)
+
+    # close->open: s==0 & open_cmd
+    to_open = (s == 0) & open_cmd
+    # open->close: s==1 & close_cmd
+    to_close = (s == 1) & close_cmd
+
+    if to_open.any() or to_close.any():
+        s = s.clone()
+        s[to_open] = 1
+        s[to_close] = 0
+        setattr(env, state_attr, s)
+
+    # -----------------------------
+    # 3) 按 C++ 三目：state->固定值，并覆盖 selection 里的 M6_*
+    # -----------------------------
+    m6_1 = torch.where(
+        s == 1,
+        torch.tensor(m6_open_value, device=q.device, dtype=q.dtype),
+        torch.tensor(m6_close_value, device=q.device, dtype=q.dtype),
+    )
+    m6_2 = -m6_1
+
+    for col in m6_cols:
+        name = sel_names[col]
+        # 约定：M6_2 是第二根 finger -> 取负号
+        if isinstance(name, str) and ("M6_2" in name or "right" in name or "Right" in name):
+            q[:, col] = m6_2
+        else:
+            q[:, col] = m6_1
+
+    # debug
+    if debug:
+        step = getattr(env, "common_step_counter", 0)
+        if int(step) % int(debug_every) == 0:
+            print(
+                f"[m6_obs] step={int(step)} a0={a1[0].item():.3f} "
+                f"s0={int(s[0].item())} m6_1={m6_1[0].item():.3f} m6_2={m6_2[0].item():.3f}"
+            )
+
+    return q
 
 
 def joint_pos_rel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
@@ -351,8 +489,8 @@ def image(
         elif "distance_to" in data_type or "depth" in data_type:
             images[images == float("inf")] = 0
     # print("image shape11:",images.shape)
-    #深度图与RGB图拼接
-    images = torch.cat((images,depth),dim=-1)
+    # 深度图与RGB图拼接
+    images = torch.cat((images, depth), dim=-1)
     # print("image shape22:",images.shape)
     return images.clone()
 
@@ -456,6 +594,7 @@ class image_features(ManagerTermBase):
 
         self._frame_counter = 0
 
+
     def reset(self, env_ids: torch.Tensor | None = None):
         # reset the model if a reset function is provided
         # this might be useful when the model has a state that needs to be reset
@@ -463,7 +602,7 @@ class image_features(ManagerTermBase):
         if self._reset_fn is not None:
             self._reset_fn(self._model, env_ids)
 
-    def depth_to_pointcloud(self, depth_image, fx, fy, cx, cy, rgb_image=None, output_path="pointcloud.ply"):
+    def depth_to_pointcloud(self,depth_image, fx, fy, cx, cy, rgb_image=None, output_path="pointcloud.ply"):
         """
         将深度图转换为点云（可选带颜色）
         
@@ -572,7 +711,7 @@ class image_features(ManagerTermBase):
         points = voxel_down_sample_fixed(points, voxel_size=2.0)
         # save_ply(points, colors=None, output_path=output_path.replace(".ply","_downsampled8.ply"))
         return points
-    
+
     # GPU-accelerated version for batch processing
     def depth_to_pointcloud_batch_gpu(self, depth_batch, fx, fy, cx, cy, num_points=1024, 
                                       save_ply_debug=False, env_id=0, frame_counter=None, save_dir="debug_pointclouds", env=None):
@@ -628,9 +767,9 @@ class image_features(ManagerTermBase):
         def deg2rad(v, device):
             return torch.tensor(v, device=device) * torch.pi / 180.0
 
-        roll  = deg2rad(90.0, device)
-        pitch = deg2rad(0.0,  device)
-        yaw   = deg2rad(90.0, device)
+        roll = deg2rad(90.0, device)
+        pitch = deg2rad(0.0, device)
+        yaw = deg2rad(90.0, device)
         c1, s1 = torch.cos(roll), torch.sin(roll)
         c2, s2 = torch.cos(pitch), torch.sin(pitch)
         c3, s3 = torch.cos(yaw), torch.sin(yaw)
@@ -662,11 +801,11 @@ class image_features(ManagerTermBase):
 
         Rx1 = torch.tensor([
             [1., 0., 0.],
-            [0.,     c,    -s],
-            [0.,     s,     c],
+            [0., c, -s],
+            [0., s, c],
         ], device=device)
 
-        R = Rx1@ Rz @ Ry @ Rx 
+        R = Rx1 @ Rz @ Ry @ Rx
         # print(R)
         # import pdb
         # pdb.set_trace()
@@ -674,22 +813,20 @@ class image_features(ManagerTermBase):
         rotated_points = torch.matmul(points_flat, R.T)
         # translation = torch.tensor([0.1654, 0.0, 0.0494], device=device)
         translation = torch.tensor([0.1654, 0.0, 0.0494 + 0.013], device=device)
-        trans_points = rotated_points +translation
+        trans_points = rotated_points + translation
         # Save Stage 1: After rotation
         if save_ply_debug:
             points_trans = trans_points[env_id].cpu().numpy()
             save_ply(points_trans, "1_rotated")
-
         # Apply distance filtering
         # mask1 = rotated_points[:, :, 2] < 0.21
         # mask2 = rotated_points[:, :, 1] > -0.0628
         # mask3 = rotated_points[:, :, 1] < 0.0428
-
-        rand_thresh = np.random.uniform(0.0, 0.01)
+        rand_thresh = np.random.uniform(0.005, 0.01)
         # rand_thresh = np.random.uniform(-0.0003, 0.002)
-        mask2 = trans_points[:,:, 0] <=0.42
+        mask2 = trans_points[:, :, 0] <= 0.42
         # mask3 = trans_points[:,:, 2] >= -0.0003
-        mask3 = trans_points[:,:, 2] >= rand_thresh
+        mask3 = trans_points[:, :, 2] >= rand_thresh
 
         # mask4 = trans_points[:,:, 1] <=0.20
         # mask5 = trans_points[:,:, 1] >=-0.20
@@ -734,9 +871,9 @@ class image_features(ManagerTermBase):
         #     save_ply(points_final, "4_noised")
         result = randomize_pointcloud_batch_torch(result,dropout_rate=0.02,outlier_ratio=0.02,outlier_max_offset=0.08,surface_jitter=0.001)
         
-        # if save_ply_debug:
-        #     points_final = result[env_id].cpu().numpy()
-        #     save_ply(points_final, "4_random")
+        if save_ply_debug:
+            points_final = result[env_id].cpu().numpy()
+            save_ply(points_final, "4_random")
         
         return result
 
@@ -815,6 +952,7 @@ class image_features(ManagerTermBase):
             save_dir: Base directory (default: "debug_pointclouds")
         """
         import os
+        import cv2
         import numpy as np
 
         # Use same directory structure as point clouds
@@ -867,7 +1005,7 @@ class image_features(ManagerTermBase):
         model_name: str = "resnet18",
         model_device: str | None = None,
         inference_kwargs: dict | None = None,
-        save_augmentation_debug: bool = True,
+        save_augmentation_debug: bool = False,
     ) -> torch.Tensor:
         # obtain the images from the sensor
         # image_data = image(
@@ -910,6 +1048,9 @@ class image_features(ManagerTermBase):
             save_dir="debug_pointclouds"
         )
 
+        # import pdb
+        # pdb.set_trace()
+
         # store the device of the image
         image_device = images.device
         # forward the images through the model
@@ -951,7 +1092,17 @@ class image_features(ManagerTermBase):
         #     frame_counter=self._frame_counter
         # )
 
+        # import pdb
+        # pdb.set_trace()
+
+        img_feat_norm = torch.nn.functional.normalize(features, p=2, dim=1)
+        # import pdb
+        # pdb.set_trace()
+        pc_feat_norm = torch.nn.functional.normalize(depth_features_batch, p=2, dim=1)
+
         features = torch.cat((features, depth_features_batch), dim=-1)
+        # features = torch.cat((img_feat_norm, pc_feat_norm), dim=-1)
+
         return features.detach().to(image_device)
 
     """
@@ -1007,13 +1158,13 @@ class image_features(ManagerTermBase):
         # Fill occupancy (batch-wise)
         for b in range(B):
             voxels[b, x_idx[b], y_idx[b], z_idx[b]] = 1.0
-        
+
         # Debug visualization
         if save_debug:
             self._save_voxel_visualization(voxels[0], grid_size, frame_counter)
             occupied_count = (voxels[0] > 0).sum().item()
             print(f"Voxel occupancy: {occupied_count}/{grid_size**3} ({occupied_count/(grid_size**3)*100:.1f}%)")
-        
+
         # Flatten spatial dimensions [B, D, H, W] -> [B, D*H*W]
         return voxels.flatten(start_dim=1)
 
@@ -1208,24 +1359,14 @@ class image_features(ManagerTermBase):
 
         experiment_dir = '/home/robo/code/IsaacLab'
         ckpt_path = f"{experiment_dir}/best_model.pth"
-
-        # ✅ 模型输入通道：原模型是 normal_channel=True（6 通道）
         classifier = PointNet2ClsMsg(num_class=40, normal_channel=False).cuda()  
-
-        # ✅ 加载 checkpoint
         checkpoint = torch.load(ckpt_path, map_location='cuda', weights_only=False)
-
-        # 拿出权重字典
         state_dict = checkpoint['model_state_dict']
-
-        # ✅ 加载修正后的权重
         classifier.load_state_dict(state_dict, strict=False)
         # print("[INFO] Missing keys:", missing)
         # print("[INFO] Unexpected keys:", unexpected)
 
         classifier.eval()
-
-        # ✅ 仅保留特征提取部分（encoder）
         class PointNet2Encoder(nn.Module):
             def __init__(self, base_model):
                 super().__init__()
@@ -1246,7 +1387,7 @@ class image_features(ManagerTermBase):
                 return features
 
         self._point_encoder = PointNet2Encoder(classifier).cuda().eval()
-            
+
 
 """
 Actions.

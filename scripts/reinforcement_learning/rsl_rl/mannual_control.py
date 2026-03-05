@@ -408,22 +408,22 @@ def main():
                     cn_log(f"【手动调试】步={step_count-1} | 读取 ActionManager 信息失败：{e}")
 
                 # 打印机器人真实关节状态（M6 当前 joint_pos / target）
-                try:
-                    if m6_ids:
-                        jp = robot.data.joint_pos[env0, m6_ids].detach().cpu().numpy()
-                        cn_log(f"【手动调试】步={step_count-1} | 机器人当前M6 joint_pos={jp}")
-                        # if hasattr(robot.data, "joint_pos_target"):
-                        #     jt = robot.data.joint_pos_target[env0, m6_ids].detach().cpu().numpy()
-                        #     cn_log(f"【手动调试】步={step_count-1} | 机器人当前M6 joint_pos_target={jt}")
-                except Exception as e:
-                    cn_log(f"【手动调试】步={step_count-1} | 读取机器人M6关节状态失败：{e}")
+                # try:
+                #     if m6_ids:
+                #         jp = robot.data.joint_pos[env0, m6_ids].detach().cpu().numpy()
+                #         cn_log(f"【手动调试】步={step_count-1} | 机器人当前M6 joint_pos={jp}")
+                #         if hasattr(robot.data, "joint_pos_target"):
+                #             jt = robot.data.joint_pos_target[env0, m6_ids].detach().cpu().numpy()
+                #             cn_log(f"【手动调试】步={step_count-1} | 机器人当前M6 joint_pos_target={jt}")
+                # except Exception as e:
+                #     cn_log(f"【手动调试】步={step_count-1} | 读取机器人M6关节状态失败：{e}")
 
                 # ====== (C) 打印“policy obs 里 joint_pos 的末尾5维”（你要对齐的输入）======
                 tail5 = try_extract_joint_tail5_from_policy(obs)
-                if tail5 is not None:
-                    cn_log(f"【手动调试】步={step_count-1} | policy输入obs末尾5维(joint_pos)={tail5}（通常顺序=M3,M4,M5,M6_1,M6_2）")
-                else:
-                    cn_log(f"【手动调试】步={step_count-1} | 未解析到 policy obs 末尾5维（结构/版本差异）")
+                # if tail5 is not None:
+                #     cn_log(f"【手动调试】步={step_count-1} | policy输入obs末尾5维(joint_pos)={tail5}（通常顺序=M3,M4,M5,M6_1,M6_2）")
+                # else:
+                #     cn_log(f"【手动调试】步={step_count-1} | 未解析到 policy obs 末尾5维（结构/版本差异）")
 
             print(f"Step {step_count:4d} | Reward: {reward_value:+.4f} | Total: {total_reward:+.4f}", end="")
 
