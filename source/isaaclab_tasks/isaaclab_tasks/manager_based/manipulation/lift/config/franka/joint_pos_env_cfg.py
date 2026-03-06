@@ -377,7 +377,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "paper": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/paper",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cloth/paperball.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cloth/paperball.usdc",
                 #         scale=(1.5, 1.0, 1.5),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -397,7 +397,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "bus": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/bus",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/bus_new_usd/bus.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/bus_new_usd/bus.usdc",
                 #         scale=(0.08, 0.08, 0.08),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -418,7 +418,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "eye_drops": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/eye_drops",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/eyedrops/2.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/eyedrops/2.usdc",
                 #         scale=(0.0002, 0.0002, 0.0002),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=128,
@@ -435,7 +435,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "vans": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/vans",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/vans_black/vans_black.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/vans_black/vans_black.usdc",
                 #         scale=(0.25, 0.25, 0.25),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -452,7 +452,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "cube": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/cube",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cube1.usd",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cube1.usd",
                 #         # scale=(0.25, 0.25, 0.25),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -468,7 +468,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "slippers_m5_0": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/slippers_m5_0",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper_top/slipper.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper_top/slipper.usdc",
                 #         scale=(1.0, 1.0, 1.0),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -493,7 +493,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "slippers_m5_1": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/slippers_m5_1",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper_top/slipper.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper_top/slipper.usdc",
                 #         scale=(0.8, 0.8, 0.8),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -519,7 +519,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "slippers_m5_2": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/slippers_m5_2",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper_top/slipper.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper_top/slipper.usdc",
                 #         scale=(1.1, 1.1, 1.1),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=128,
@@ -544,7 +544,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "lego": RigidObjectCfg(
                 #     prim_path="/World/envs/env_.*/lego",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/lego.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/lego.usdc",
                 #         scale=(4.0, 4.0, 8.0),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,

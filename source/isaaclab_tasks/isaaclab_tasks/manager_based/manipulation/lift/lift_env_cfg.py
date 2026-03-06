@@ -298,11 +298,11 @@ class EventCfg:
         params={
             "pose_range": {
                 "x": (0.02, 0.1),
-                "y": (-0.01, 0.01),
+                "y": (-0.015, 0.015),
                 "z": (0.0, 0.0),
                 "roll": (0.0, 0.0),
                 "pitch": (0, 0),
-                "yaw": (-0.8, 0.0),
+                "yaw": (-1.0, 0.0),
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object_pool"),

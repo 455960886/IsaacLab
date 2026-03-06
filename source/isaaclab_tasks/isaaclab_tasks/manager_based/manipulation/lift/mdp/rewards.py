@@ -879,26 +879,27 @@ def penalize_m5_movement_after_alignment(
 
 def wrist_object_orientation_alignment(
     env: ManagerBasedRLEnv,
-    std: float = 0.5,
+    std: float = 0.2,  # 越小越严格（单位：弧度），0.2rad≈11.5°
     object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    debug: bool = True,
+    debug: bool = False,
 ) -> torch.Tensor:
+    _, active_quat_w = get_active_object_states(env, object_cfg)
 
-    active_pos_w, active_quat_w = get_active_object_states(env, object_cfg)
-
+    # object yaw in world
     w, x, y, z = active_quat_w[:, 0], active_quat_w[:, 1], active_quat_w[:, 2], active_quat_w[:, 3]
     object_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
-    # Get M5 joint angle
     robot = env.scene[asset_cfg.name]
     m5_idx = robot.joint_names.index("M5")
-    m5_angle = robot.data.joint_pos[:, m5_idx]
+    wrist_yaw = robot.data.joint_pos[:, m5_idx]
 
-    angle_diff = torch.abs(object_yaw + m5_angle)
-    # print(angle_diff)
+    # ✅ 关键：用 wrap-to-pi 得到最短角差（并且用“差”而不是 cos 的偶次方）
+    diff = object_yaw + wrist_yaw   # 你原来是 +，如果物理上应是减号就改成 object_yaw - wrist_yaw
+    diff = torch.atan2(torch.sin(diff), torch.cos(diff))  # wrap to [-pi, pi]
+    angle_diff = torch.abs(diff)
 
-    reward = torch.pow(torch.cos(angle_diff), 4)
-    # print(f"reward for current step: {reward}")
+    # 高斯奖励：在 0 处峰值为 1，偏差越大衰减越快；std 控制“严格程度”
+    reward = torch.exp(-0.5 * (angle_diff / std) ** 2)
 
     return reward

@@ -442,10 +442,10 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
 
         """Post initialization."""
         self.sim.dt = 0.01  # 100Hz
-        # self.decimation = 40  # 2 20 48
-        # self.episode_length_s = 10 * self.decimation * self.sim.dt
-        self.decimation = 1
-        self.episode_length_s = 10
+        self.decimation = 40  # 2 20 48
+        self.episode_length_s = 10 * self.decimation * self.sim.dt
+        # self.decimation = 1
+        # self.episode_length_s = 10
         self.sim.render_interval = self.decimation
         # self.sim.render_interval = 1
 

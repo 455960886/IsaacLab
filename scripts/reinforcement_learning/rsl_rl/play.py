@@ -321,6 +321,9 @@ def main():
             )
 
             obs, _, dones, infos = env.step(actions)
+            env0 = 0
+            tail5 = obs[env0, -5:].detach().float().cpu().numpy()
+            print(f"[OBS] env={env0} last5 = {tail5}")
 
             # step 计数更新：每一步所有 env 的 ep_step 都 +1
             ep_step += 1
