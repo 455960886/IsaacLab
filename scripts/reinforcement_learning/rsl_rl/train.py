@@ -116,7 +116,6 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
-torch.backends.cudnn.benchmark = False
 
 
 # hydra_task_config 会从配置文件加载环境 & agent 配置。
@@ -140,6 +139,29 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # multi-gpu training configuration
     if args_cli.distributed:
+        # --- ADD: print distributed / env cfg info (before gym.make) ---
+        # import os
+        # import torch
+
+        # rank = int(os.environ.get("RANK", "-1"))
+        # local_rank = int(os.environ.get("LOCAL_RANK", str(app_launcher.local_rank)))
+        # world_size = int(os.environ.get("WORLD_SIZE", "1"))
+
+        # # 确保当前进程绑定到对应 GPU（有些环境下 torchrun 会帮你设好）
+        # if torch.cuda.is_available():
+        #     try:
+        #         torch.cuda.set_device(local_rank)
+        #     except Exception:
+        #         pass
+
+        # print(
+        #     f"[ENV-COUNT][rank {rank}/{world_size} | local_rank {local_rank}] "
+        #     f"env_cfg.scene.num_envs={env_cfg.scene.num_envs} "
+        #     f"env_cfg.sim.device={env_cfg.sim.device} "
+        #     f"torch.cuda.current_device={torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'}",
+        #     flush=True,
+        # )
+        # # --- END ADD ---
         env_cfg.sim.device = f"cuda:{app_launcher.local_rank}"
         agent_cfg.device = f"cuda:{app_launcher.local_rank}"
 
@@ -162,6 +184,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+
+    # --- ADD: print env.unwrapped.num_envs (after gym.make) ---
+    # try:
+    #     print(
+    #         f"[ENV-COUNT][rank {rank}/{world_size} | local_rank {local_rank}] "
+    #         f"env.unwrapped.num_envs={env.unwrapped.num_envs} "
+    #         f"env.unwrapped.device={getattr(env.unwrapped, 'device', 'N/A')}",
+    #         flush=True,
+    #     )
+    # except Exception as e:
+    #     print(f"[ENV-COUNT][rank {rank}/{world_size} | local_rank {local_rank}] print failed: {e}", flush=True)
+    # --- END ADD ---
 
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):

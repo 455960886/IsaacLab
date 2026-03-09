@@ -131,94 +131,58 @@ def joint_pos_with_binary_m6_latched(
     debug: bool = False,
     debug_every: int = 200,
 ) -> torch.Tensor:
-    """Return selected joint positions, but override M6_* with fixed binary values using a latched state.
-
-    This matches your deployment C++ exactly:
-      - Internal state s in {0,1} (close/open)
-      - If s==0 and a>0 => s=1
-      - If s==1 and a<0 => s=0
-      - Observation uses:
-          m6_1 = (s ? 0.65 : 0.02)
-          m6_2 = -m6_1
+    """
+    Assumptions:
+      - asset_cfg.joint_ids 对应的观测关节恒定为 [M3, M4, M5, M6_1, M6_2]（或至少最后两列是 M6_1/M6_2）
+      - 用 action 的符号触发 latch 翻转：s==0 & a>thr => s=1；s==1 & a<-thr => s=0
+      - 覆盖观测：M6_1 = (s?open:close), M6_2 = -M6_1
     """
     asset: Articulation = env.scene[asset_cfg.name]
+    q = asset.data.joint_pos[:, asset_cfg.joint_ids].clone()  # (num_envs, 5)
 
-    # 原始 joint pos（只取配置里选中的那些关节：比如 M[345], M6_.*）
-    q = asset.data.joint_pos[:, asset_cfg.joint_ids].clone()  # (num_envs, n_selected)
-
-    # 拿 joint 名字，用于定位选中关节里哪些是 M6_*
-    if hasattr(asset, "joint_names") and asset.joint_names is not None:
-        all_joint_names = asset.joint_names
-    elif hasattr(asset.data, "joint_names") and asset.data.joint_names is not None:
-        all_joint_names = asset.data.joint_names
-    else:
-        raise RuntimeError("Cannot access joint names from articulation to locate M6 joints.")
-
-    sel_names = [all_joint_names[j] for j in asset_cfg.joint_ids]
-    m6_cols = [i for i, n in enumerate(sel_names) if isinstance(n, str) and n.startswith("M6_")]
-
-    # 如果 selection 里没包含 M6，就退化成普通 joint_pos
-    if len(m6_cols) == 0:
-        return q
+    # 约定：最后两列是 M6_1, M6_2
+    m6_1_col, m6_2_col = -2, -1
 
     # -----------------------------
-    # 1) 初始化/维护每个 env 的 M6 二值状态（latch）
+    # 1) 维护 latch 状态 s ∈ {0,1}
     # -----------------------------
-    # 我们把它挂到 env 上，名字不与 IsaacLab 冲突即可
-    # state: 0=close, 1=open（与你 C++ 完全一致）
-    state_attr = "_m6_binary_state_obs"  # (num_envs,) int64 on device
+    state_attr = "_m6_binary_state_obs"
 
-    need_init = (not hasattr(env, state_attr))
-    if not need_init:
-        s = getattr(env, state_attr)
-        # 设备/shape 不对也重建
-        if (not torch.is_tensor(s)) or (s.shape[0] != env.num_envs) or (s.device != q.device):
-            need_init = True
-
-    # 用当前仿真 M6 的连续 qpos 做“只用于初始化”的推断，避免 reset 后状态乱掉
-    # （不改变 latch 更新规则，只是 reset/首次时给一个合理初值）
-    def _infer_state_from_joint():
-        # 用第一根 M6 finger 的绝对值判断 open/close
+    def infer_state_from_joint(q_local: torch.Tensor) -> torch.Tensor:
         mid = 0.5 * (m6_open_value + m6_close_value)
-        m6_abs = q[:, m6_cols[0]].abs()
-        return (m6_abs > mid).to(torch.int64)
+        return (q_local[:, m6_1_col].abs() > mid).to(torch.int64)
+
+    s = getattr(env, state_attr, None)
+    need_init = (
+        (not torch.is_tensor(s))
+        or (s.shape != (env.num_envs,))
+        or (s.device != q.device)
+    )
 
     if need_init:
-        setattr(env, state_attr, _infer_state_from_joint())
+        s = infer_state_from_joint(q)
+        setattr(env, state_attr, s)
     else:
-        # 尝试检测 reset：如果能找到 episode_length_buf 或 reset_buf，就在 reset 的 env 上重置 state
-        reset_mask = None
+        # reset 时同步 state（用 episode_length_buf == 0 作为 reset 标志）
         if hasattr(env, "episode_length_buf") and torch.is_tensor(env.episode_length_buf):
             reset_mask = (env.episode_length_buf == 0)
-        elif hasattr(env, "reset_buf") and torch.is_tensor(env.reset_buf):
-            reset_mask = env.reset_buf.bool()
+            if reset_mask.any():
+                s = s.clone()
+                s[reset_mask] = infer_state_from_joint(q)[reset_mask]
+                setattr(env, state_attr, s)
 
-        if reset_mask is not None and reset_mask.any():
-            s = getattr(env, state_attr)
-            s[reset_mask] = _infer_state_from_joint()[reset_mask]
-            setattr(env, state_attr, s)
-
-    s = getattr(env, state_attr)  # (num_envs,) int64, 0/1
+    s = getattr(env, state_attr)  # (num_envs,)
 
     # -----------------------------
-    # 2) 按 C++：用 action 符号触发翻转（close->open / open->close）
+    # 2) 用 action 符号触发翻转
     # -----------------------------
-    a = last_action(env, action_name)
-    if a.ndim == 2:
-        if a.shape[1] <= action_index:
-            raise RuntimeError(
-                f"action_index {action_index} out of range for action '{action_name}' with dim {a.shape[1]}"
-            )
-        a1 = a[:, action_index]
-    else:
-        a1 = a
+    a = last_action(env, action_name)  # raw_actions
+    a1 = a[:, action_index] if a.ndim == 2 else a
 
     open_cmd = a1 > float(toggle_threshold)
     close_cmd = a1 < -float(toggle_threshold)
 
-    # close->open: s==0 & open_cmd
     to_open = (s == 0) & open_cmd
-    # open->close: s==1 & close_cmd
     to_close = (s == 1) & close_cmd
 
     if to_open.any() or to_close.any():
@@ -228,31 +192,19 @@ def joint_pos_with_binary_m6_latched(
         setattr(env, state_attr, s)
 
     # -----------------------------
-    # 3) 按 C++ 三目：state->固定值，并覆盖 selection 里的 M6_*
+    # 3) 覆盖 M6 观测为固定二值
     # -----------------------------
-    m6_1 = torch.where(
-        s == 1,
-        torch.tensor(m6_open_value, device=q.device, dtype=q.dtype),
-        torch.tensor(m6_close_value, device=q.device, dtype=q.dtype),
-    )
-    m6_2 = -m6_1
+    open_tensor = q.new_full((env.num_envs,), m6_open_value)
+    close_tensor = q.new_full((env.num_envs,), m6_close_value)
+    m6_1 = torch.where(s.bool(), open_tensor, close_tensor)
 
-    for col in m6_cols:
-        name = sel_names[col]
-        # 约定：M6_2 是第二根 finger -> 取负号
-        if isinstance(name, str) and ("M6_2" in name or "right" in name or "Right" in name):
-            q[:, col] = m6_2
-        else:
-            q[:, col] = m6_1
+    q[:, m6_1_col] = m6_1
+    q[:, m6_2_col] = -m6_1
 
-    # debug
     if debug:
-        step = getattr(env, "common_step_counter", 0)
-        if int(step) % int(debug_every) == 0:
-            print(
-                f"[m6_obs] step={int(step)} a0={a1[0].item():.3f} "
-                f"s0={int(s[0].item())} m6_1={m6_1[0].item():.3f} m6_2={m6_2[0].item():.3f}"
-            )
+        step = int(getattr(env, "common_step_counter", 0))
+        if step % int(debug_every) == 0:
+            print(f"[m6_obs] step={step} a0={a1[0].item():.3f} s0={int(s[0].item())} m6_1={m6_1[0].item():.3f}")
 
     return q
 
@@ -488,7 +440,7 @@ def image(
         elif "distance_to" in data_type or "depth" in data_type:
             images[images == float("inf")] = 0
     # print("image shape11:",images.shape)
-    #深度图与RGB图拼接
+    # 深度图与RGB图拼接
     images = torch.cat((images,depth),dim=-1)
     # print("image shape22:",images.shape)
     return images.clone()
@@ -593,6 +545,7 @@ class image_features(ManagerTermBase):
 
         self._frame_counter = 0
 
+
     def reset(self, env_ids: torch.Tensor | None = None):
         # reset the model if a reset function is provided
         # this might be useful when the model has a state that needs to be reset
@@ -600,7 +553,7 @@ class image_features(ManagerTermBase):
         if self._reset_fn is not None:
             self._reset_fn(self._model, env_ids)
 
-    def depth_to_pointcloud(self, depth_image, fx, fy, cx, cy, rgb_image=None, output_path="pointcloud.ply"):
+    def depth_to_pointcloud(self,depth_image, fx, fy, cx, cy, rgb_image=None, output_path="pointcloud.ply"):
         """
         将深度图转换为点云（可选带颜色）
         
@@ -823,7 +776,7 @@ class image_features(ManagerTermBase):
         # mask2 = rotated_points[:, :, 1] > -0.0628
         # mask3 = rotated_points[:, :, 1] < 0.0428
 
-        rand_thresh = np.random.uniform(0.0, 0.01)
+        rand_thresh = np.random.uniform(0.005, 0.01)
         # rand_thresh = np.random.uniform(-0.0003, 0.002)
         mask2 = trans_points[:,:, 0] <=0.42
         # mask3 = trans_points[:,:, 2] >= -0.0003
@@ -915,20 +868,21 @@ class image_features(ManagerTermBase):
         # if save_debug:
         #     self._save_images(images, step_counter, prefix="0_before_aug", env_id=env_id, save_dir=save_dir)
 
-        # Random Gaussian blur
-        # if torch.rand(1).item() < 0.5:  # 50% chance to apply blur
-        kernel_size = int(torch.randint(3, 12, (1,)).item())
-        if kernel_size % 2 == 0:
-            kernel_size += 1  # Ensure odd kernel size
-        sigma = torch.rand(1).item() * 3.0 + 0.5  # Random sigma between 0.5-2.0
-        images = torchvision.transforms.functional.gaussian_blur(
-            images, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma]
-        )
+        # Random Gaussian blur (reduced effect)
+        if torch.rand(1).item() < 0.5:  # 50% chance to apply blur
+            
+            kernel_size = int(torch.randint(3, 12, (1,)).item())  # Reduced from 3-12 to 3-6
+            if kernel_size % 2 == 0:
+                kernel_size += 1  # Ensure odd kernel size
+            sigma = torch.rand(1).item() * 3.0 + 0.5  # Reduced: 0.3-1.3 (was 0.5-3.5)
+            images = torchvision.transforms.functional.gaussian_blur(
+                images, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma]
+            )
 
-        # Random Gaussian noise
-        noise_std = torch.rand(1).item() * 0.08 + 0.02  # Random std between 0-0.03
-        noise = torch.randn_like(images) * noise_std
-        images = torch.clamp(images + noise, 0.0, 1.0)
+            # Random Gaussian noise (reduced effect)
+            noise_std = torch.rand(1).item() * 0.08 + 0.02  # Reduced: 0.01-0.04 (was 0.02-0.10)
+            noise = torch.randn_like(images) * noise_std
+            images = torch.clamp(images + noise, 0.0, 1.0)
 
         if save_debug:
             self._save_images(images, step_counter, prefix="1_after_aug", env_id=env_id, save_dir=save_dir)
@@ -1368,14 +1322,24 @@ class image_features(ManagerTermBase):
 
         experiment_dir = '/home/roborock/data/private/shengmei/IsaacLab'
         ckpt_path = f"{experiment_dir}/best_model.pth"
-        classifier = PointNet2ClsMsg(num_class=40, normal_channel=False).cuda()
+
+        # ✅ 模型输入通道：原模型是 normal_channel=True（6 通道）
+        classifier = PointNet2ClsMsg(num_class=40, normal_channel=False).cuda()  
+
+        # ✅ 加载 checkpoint
         checkpoint = torch.load(ckpt_path, map_location='cuda', weights_only=False)
+
+        # 拿出权重字典
         state_dict = checkpoint['model_state_dict']
+
+        # ✅ 加载修正后的权重
         classifier.load_state_dict(state_dict, strict=False)
         # print("[INFO] Missing keys:", missing)
         # print("[INFO] Unexpected keys:", unexpected)
+
         classifier.eval()
 
+        # ✅ 仅保留特征提取部分（encoder）
         class PointNet2Encoder(nn.Module):
             def __init__(self, base_model):
                 super().__init__()
@@ -1395,7 +1359,8 @@ class image_features(ManagerTermBase):
                 features = l3_points.view(B, 1024)
                 return features
 
-        self._point_encoder = PointNet2Encoder(classifier).cuda().eval()        
+        self._point_encoder = PointNet2Encoder(classifier).cuda().eval()
+            
 
 
 """
@@ -1470,3 +1435,7 @@ def generated_commands(env: ManagerBasedRLEnv, command_name: str) -> torch.Tenso
     # print("obs4 m:",(env.command_manager.get_command(command_name)).mean().item())
     # print("obs4 s:",(env.command_manager.get_command(command_name)).std().item())
     return env.command_manager.get_command(command_name)
+
+
+
+
