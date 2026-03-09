@@ -20,28 +20,35 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-def get_active_object_states(env, object_cfg=SceneEntityCfg("object_pool")):
+## Help Function to get the states of active object from the object pool
+def get_active_object_states(env: ManagerBasedRLEnv, object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")):
+    """
+    Helper function to get states of active objects from object pool.
+    
+    Returns:
+        pos_w: (num_envs, 3) - World positions of active objects
+        quat_w: (num_envs, 4) - World orientations of active objects [w, x, y, z]
+    """
     from isaaclab.assets import RigidObjectCollection
-
+    
     object_collection: RigidObjectCollection = env.scene[object_cfg.name]
-
-    # --- lazy init: allow call during ObservationManager shape inference ---
-    if not hasattr(env, "active_object_indices") or env.active_object_indices is None:
-        # default: pick object 0 for all envs
-        env.active_object_indices = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
-
-    active_indices = env.active_object_indices.to(dtype=torch.long, device=env.device)
-
-    # safety clamp (in case something weird happens)
-    num_objects = object_collection.data.object_pos_w.shape[1]
-    active_indices = torch.clamp(active_indices, 0, num_objects - 1)
-
+    
+    # Get active object indices for each environment
+    if not hasattr(env, 'active_object_indices'):
+        raise RuntimeError("active_object_indices not found. Ensure randomize_object_pool_selection has been called.")
+    
+    active_indices = env.active_object_indices  # (num_envs,)
+    
+    # Get all object states: (num_envs, num_objects, state_dim)
+    all_pos_w = object_collection.data.object_pos_w  # (num_envs, num_objects, 3)
+    all_quat_w = object_collection.data.object_quat_w  # (num_envs, num_objects, 4)
+    
+    # Index to get only active objects
+    # Use advanced indexing: env_indices = [0, 1, 2, ...], object_indices = active_indices
     env_indices = torch.arange(env.num_envs, device=env.device)
-    all_pos_w = object_collection.data.object_pos_w
-    all_quat_w = object_collection.data.object_quat_w
-
-    active_pos_w = all_pos_w[env_indices, active_indices]
-    active_quat_w = all_quat_w[env_indices, active_indices]
+    active_pos_w = all_pos_w[env_indices, active_indices]  # (num_envs, 3)
+    active_quat_w = all_quat_w[env_indices, active_indices]  # (num_envs, 4)
+    
     return active_pos_w, active_quat_w
 
 
@@ -80,7 +87,6 @@ def object_is_lifted_linear(
     reward = torch.square(normalized)
     
     return reward
-
 
 
 def object_is_lifted_with_contact(
@@ -260,33 +266,6 @@ def clamp_object(
     return reward
 
 
-
-# OPTIONAL: Add this helper function to track gripper state for debugging
-def debug_gripper_state(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """
-    Debug function to log gripper state.
-    Add this to your rewards with weight=0.0 to enable logging without affecting training.
-    """
-    if env.common_step_counter % 100 == 0:
-        joint_positions = env.scene['robot'].data.joint_pos_target
-        gripper_opening = (torch.abs(joint_positions[:, 5]) + torch.abs(joint_positions[:, 6])) / 2.0
-
-        object = env.scene['object']
-        ee_frame = env.scene['ee_frame']
-        distance = torch.norm(
-            object.data.root_pos_w - ee_frame.data.target_pos_w[..., 0, :],
-            dim=1
-        )
-
-        print(f"\n=== Step {env.common_step_counter} ===")
-        print(f"Gripper opening: {gripper_opening.mean():.3f} (0=closed, 0.5=open)")
-        print(f"Object-EE distance: {distance.mean():.3f}")
-        print(f"Object height: {object.data.root_pos_w[:, 2].mean():.3f}")
-
-    return torch.zeros(env.num_envs, device=env.device)
-
-
-
 def penalize_m0_after_lift(
     env: ManagerBasedRLEnv,
     minimal_height: float,
@@ -390,6 +369,49 @@ def debug_pcd_cache(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros(env.num_envs, device=env.device)
 
 
+def get_excluded_object_mask(
+    env: ManagerBasedRLEnv,
+    excluded_objects: list[str],
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+) -> torch.Tensor:
+    """
+    Get a boolean mask indicating which environments have excluded objects active.
+
+    Args:
+        env: Environment
+        excluded_objects: List of object name patterns to exclude (e.g., ["slipper", "shoe"])
+                         Uses substring matching - "slipper" matches "slippers", "slippers_m5_0", etc.
+        object_cfg: Object pool configuration
+
+    Returns:
+        Boolean tensor (num_envs,) - True for environments with excluded objects
+    """
+    if not excluded_objects:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    # Get object pool and names
+    object_collection = env.scene[object_cfg.name]
+    object_names = object_collection.object_names  # List of object names
+
+    # Get active object indices
+    active_indices = env.active_object_indices  # (num_envs,)
+
+    # Build exclusion mask
+    excluded_mask = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    for env_idx in range(env.num_envs):
+        obj_idx = active_indices[env_idx].item()
+        obj_name = object_names[obj_idx]
+
+        # Check if object name matches any exclusion pattern (substring match)
+        for pattern in excluded_objects:
+            if pattern.lower() in obj_name.lower():
+                excluded_mask[env_idx] = True
+                break
+
+    return excluded_mask
+
+
 def pcd_contain_object(
     env: ManagerBasedRLEnv,
     sensor_cfg_name: str = "depth_camera",
@@ -404,6 +426,9 @@ def pcd_contain_object(
     contact_z_threshold: float = 0.7,
     contact_force_threshold: float = 1.5,
     require_both_contacts: bool = True,
+    excluded_objects: list[str] | None = None,
+    max_sphere_radius: float = 0.015,
+    sphere_z_offset: float = 0.01,
 ) -> torch.Tensor:
     """
     Reward based on point cloud density in the gripper sphere.
@@ -423,11 +448,20 @@ def pcd_contain_object(
         contact_z_threshold: Maximum Z-component value for contact sensors (default: 0.7)
         contact_force_threshold: Minimum Y-axis force to consider contact (Newtons)
         require_both_contacts: If True, both fingers must contact. If False, at least one.
+        excluded_objects: List of object name patterns to exclude (e.g., ["slipper", "shoe"]).
+                         Uses substring matching. Returns zero reward for these objects.
 
     Returns:
         Reward tensor (num_envs,)
     """
     from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
+
+    # Check for excluded objects - return zero for those environments
+    if excluded_objects:
+        excluded_mask = get_excluded_object_mask(env, excluded_objects)
+        if excluded_mask.all():
+            # All environments have excluded objects
+            return torch.zeros(env.num_envs, device=env.device)
 
     # 1. Check contact sensors first - if Y threshold satisfied, return max reward immediately
     left_sensor = env.scene.sensors[left_sensor_cfg.name]
@@ -469,8 +503,9 @@ def pcd_contain_object(
                 right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
 
                 sphere_center = (left_finger_cam + right_finger_cam) / 2.0
+                sphere_center[:, 2] -= sphere_z_offset
                 finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-                sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003)
+                sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003, max=max_sphere_radius)
 
                 density, num_points = calculate_pointcloud_density_in_sphere(
                     pointcloud, sphere_center, sphere_radius
@@ -506,6 +541,11 @@ def pcd_contain_object(
                     torch.where(all_conditions_met, density_reward, torch.zeros_like(density_reward))
                 )
 
+        # Zero out reward for excluded objects
+        if excluded_objects:
+            excluded_mask = get_excluded_object_mask(env, excluded_objects)
+            reward = torch.where(excluded_mask, torch.zeros_like(reward), reward)
+
         return reward
 
     # 2. If no contact force satisfied, continue with normal density-based logic
@@ -520,8 +560,9 @@ def pcd_contain_object(
     right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
 
     sphere_center = (left_finger_cam + right_finger_cam) / 2.0
+    sphere_center[:, 2] -= sphere_z_offset
     finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-    sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003)
+    sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003, max=max_sphere_radius)
 
     density, num_points = calculate_pointcloud_density_in_sphere(
         pointcloud, sphere_center, sphere_radius
@@ -556,8 +597,12 @@ def pcd_contain_object(
         torch.zeros_like(density_reward)
     )
 
-    return reward
+    # Zero out reward for excluded objects
+    if excluded_objects:
+        excluded_mask = get_excluded_object_mask(env, excluded_objects)
+        reward = torch.where(excluded_mask, torch.zeros_like(reward), reward)
 
+    return reward
 
 
 def penalty_if_gripper_closed_far(
@@ -590,172 +635,6 @@ def penalty_if_gripper_closed_far(
     return penalty
 
 
-
-def pcd_clamp_object(
-    env: ManagerBasedRLEnv,
-    sensor_cfg_name: str = "depth_camera",
-    density_threshold: float = 0.09,
-    density_scale: float = 1.0,
-    min_ee_robot_distance: float = 0.15,
-    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    gripper_closed_threshold: float = 0.02,
-    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
-    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
-    contact_z_threshold: float = 0.7,
-    contact_force_threshold: float = 1.5,
-    require_both_contacts: bool = True,
-) -> torch.Tensor:
-    """
-    Combined reward for clamping with gripper closed and object detected.
-    If Y-axis contact forces exceed threshold, always returns maximum reward.
-    Otherwise, gives reward when all other conditions are met.
-
-    Args:
-        env: Environment
-        sensor_cfg_name: Name of depth camera sensor
-        density_threshold: Minimum density to consider object detected
-        density_scale: Reward value when all conditions met (also max reward when contact satisfied)
-        min_ee_robot_distance: Minimum EE-robot distance
-        ee_frame_cfg: End-effector frame configuration
-        robot_cfg: Robot configuration
-        gripper_closed_threshold: Maximum joint position to consider gripper closed
-        left_sensor_cfg: Left contact sensor configuration
-        right_sensor_cfg: Right contact sensor configuration
-        contact_z_threshold: Maximum Z-component value for contact sensors (default: 0.7)
-        contact_force_threshold: Minimum Y-axis force to consider contact (Newtons)
-        require_both_contacts: If True, both fingers must contact. If False, at least one.
-
-    Returns:
-        Reward tensor (num_envs,)
-    """
-
-    from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
-
-    # 1. Check contact sensors first - if Y threshold satisfied, return max reward immediately
-    left_sensor = env.scene.sensors[left_sensor_cfg.name]
-    right_sensor = env.scene.sensors[right_sensor_cfg.name]
-
-    contact_force_satisfied = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-
-    if left_sensor.data.net_forces_w is not None and right_sensor.data.net_forces_w is not None:
-        left_y_force = torch.abs(left_sensor.data.net_forces_w[:, 0, 1])
-        right_y_force = torch.abs(right_sensor.data.net_forces_w[:, 0, 1])
-
-        left_contact = left_y_force > contact_force_threshold
-        right_contact = right_y_force > contact_force_threshold
-
-        if require_both_contacts:
-            contact_force_satisfied = left_contact & right_contact
-        else:
-            contact_force_satisfied = left_contact | right_contact
-
-    # If contact force satisfied, return maximum reward
-    if contact_force_satisfied.any():
-        reward = torch.where(
-            contact_force_satisfied,
-            torch.full((env.num_envs,), density_scale, device=env.device),
-            torch.zeros(env.num_envs, device=env.device)
-        )
-
-        # For envs where contact not satisfied, compute normal logic
-        if not contact_force_satisfied.all():
-            pointcloud, valid = get_cached_pointcloud(env)
-            if valid and pointcloud is not None:
-                joint_positions = env.scene['robot'].data.joint_pos_target
-                finger_joint_1 = joint_positions[:, 5]
-                finger_joint_2 = joint_positions[:, 6]
-                gripper_closed = (torch.abs(finger_joint_1) < gripper_closed_threshold) & \
-                                 (torch.abs(finger_joint_2) < gripper_closed_threshold)
-
-                left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
-                right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
-
-                left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, sensor_cfg_name)
-                right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
-                sphere_center = (left_finger_cam + right_finger_cam) / 2.0
-                finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-                sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003)
-
-                density, num_points = calculate_pointcloud_density_in_sphere(
-                    pointcloud, sphere_center, sphere_radius
-                )
-                object_detected = density > density_threshold
-
-                ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
-                ee_w = ee_frame.data.target_pos_w[..., 0, :]
-                robot = env.scene[robot_cfg.name]
-                robot_base_pos = robot.data.root_pos_w
-                ee_robot_distance = torch.norm(ee_w - robot_base_pos, dim=1)
-                distance_mask = ee_robot_distance >= min_ee_robot_distance
-
-                left_z = left_sensor.data.net_forces_w[:, 0, 2]
-                right_z = right_sensor.data.net_forces_w[:, 0, 2]
-                contact_z_valid = (left_z < contact_z_threshold) & (right_z < contact_z_threshold)
-
-                all_conditions_met = gripper_closed & object_detected & distance_mask & contact_z_valid
-
-                # Update reward for non-contact-satisfied envs
-                reward = torch.where(
-                    contact_force_satisfied,
-                    reward,  # Keep max reward
-                    torch.where(all_conditions_met, torch.full((env.num_envs,), density_scale, device=env.device), torch.zeros(env.num_envs, device=env.device))
-                )
-
-        return reward
-
-    # 2. If no contact force satisfied, continue with normal logic
-    pointcloud, valid = get_cached_pointcloud(env)
-    if not valid or pointcloud is None:
-        return torch.zeros(env.num_envs, device=env.device)
-
-    joint_positions = env.scene['robot'].data.joint_pos_target
-    finger_joint_1 = joint_positions[:, 5]
-    finger_joint_2 = joint_positions[:, 6]
-    gripper_closed = (torch.abs(finger_joint_1) < gripper_closed_threshold) & \
-                     (torch.abs(finger_joint_2) < gripper_closed_threshold)
-
-    left_finger_pos_w = env.scene["finger_frame_1"].data.target_pos_w[:, 0, :]
-    right_finger_pos_w = env.scene["finger_frame_2"].data.target_pos_w[:, 0, :]
-
-    camera = env.scene.sensors[sensor_cfg_name]
-    camera_pos_w = camera.data.pos_w
-    camera_quat_w = camera.data.quat_w_ros
-    camera_quat_w_isaac = torch.cat([camera_quat_w[:, 3:4], camera_quat_w[:, :3]], dim=-1)
-
-    left_finger_cam = transform_world_to_camera(left_finger_pos_w, env, sensor_cfg_name)
-    right_finger_cam = transform_world_to_camera(right_finger_pos_w, env, sensor_cfg_name)
-    sphere_center = (left_finger_cam + right_finger_cam) / 2.0
-    finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-    sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003)
-
-    density, num_points = calculate_pointcloud_density_in_sphere(
-        pointcloud, sphere_center, sphere_radius
-    )
-    object_detected = density > density_threshold
-
-    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
-    ee_w = ee_frame.data.target_pos_w[..., 0, :]
-    robot = env.scene[robot_cfg.name]
-    robot_base_pos = robot.data.root_pos_w
-    ee_robot_distance = torch.norm(ee_w - robot_base_pos, dim=1)
-    distance_mask = ee_robot_distance >= min_ee_robot_distance
-
-    left_z = left_sensor.data.net_forces_w[:, 0, 2]
-    right_z = right_sensor.data.net_forces_w[:, 0, 2]
-    contact_z_valid = (left_z < contact_z_threshold) & (right_z < contact_z_threshold)
-
-    all_conditions_met = gripper_closed & object_detected & distance_mask & contact_z_valid
-
-    reward = torch.where(
-        all_conditions_met,
-        torch.full((env.num_envs,), density_scale, device=env.device),
-        torch.zeros(env.num_envs, device=env.device)
-    )
-
-    return reward
-
-
 def contact_clamp_object(
     env: ManagerBasedRLEnv,
     contact_force_threshold: float = 1.5,
@@ -780,24 +659,27 @@ def contact_clamp_object(
     if left_sensor.data.net_forces_w is None or right_sensor.data.net_forces_w is None:
         return torch.zeros(env.num_envs, device=env.device)
 
-    # Y-axis forces
-    left_y = torch.abs(left_sensor.data.net_forces_w[:, 0, 1])
-    right_y = torch.abs(right_sensor.data.net_forces_w[:, 0, 1])
+    # Y-axis forces (raw values)
+    left_y_raw = left_sensor.data.net_forces_w[:, 0, 1]
+    right_y_raw = right_sensor.data.net_forces_w[:, 0, 1]
+    
+    # Check opposite signs (clamping from opposite directions)
+    opposite_forces = (left_y_raw * right_y_raw) < 0
 
-    # Average force check
+    # Average force magnitude check
+    left_y = torch.abs(left_y_raw)
+    right_y = torch.abs(right_y_raw)
     avg_force = (left_y + right_y) / 2.0
     good_grasp = avg_force > contact_force_threshold
 
-    # Binary reward
+    # Binary reward - all conditions must be met
     reward = torch.where(
-        gripper_closed & good_grasp,
+        gripper_closed & good_grasp & opposite_forces,
         torch.ones(env.num_envs, device=env.device) * reward_value,
         torch.zeros(env.num_envs, device=env.device)
     )
 
     return reward
-
-
 
 
 def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -823,7 +705,7 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
             # Calculate sphere
             sphere_center = (left_finger_cam + right_finger_cam) / 2.0
             finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-            sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003)
+            sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003, max=max_sphere_radius)
 
             # Calculate density
             density, num_points = calculate_pointcloud_density_in_sphere(
@@ -837,7 +719,6 @@ def debug_pcd_density(env: ManagerBasedRLEnv) -> torch.Tensor:
             print("=" * 50)
 
     return torch.zeros(env.num_envs, device=env.device)
-
 
 
 def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -866,8 +747,9 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
             
             # Calculate sphere
             sphere_center = (left_finger_cam + right_finger_cam) / 2.0
+            sphere_center[:, 2] -= 0.01  # TODO: match sphere_z_offset from pcd_contain_object
             finger_distance = torch.norm(left_finger_cam - right_finger_cam, dim=-1)
-            sphere_radius = torch.clamp(finger_distance *0.22, min=0.003)
+            sphere_radius = torch.clamp(finger_distance * 0.22, min=0.003, max=0.015)
 
             # Get points inside sphere
             env_id = 0
@@ -949,36 +831,6 @@ def visualize_pcd_sphere(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.zeros(env.num_envs, device=env.device)
 
 
-
-def debug_contact_forces(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Minimal contact force debug - just XYZ components."""
-
-    if env.common_step_counter % 1 == 0:
-        left_sensor = env.scene.sensors["contact_forces_left"]
-        right_sensor = env.scene.sensors["contact_forces_right"]
-        middle_sensor = env.scene.sensors['contact_forces_middle']
-
-        if left_sensor.data.net_forces_w is not None:
-            left_force = left_sensor.data.net_forces_w[0].cpu().numpy().flatten()
-        else:
-            left_force = [0, 0, 0]
-
-        if right_sensor.data.net_forces_w is not None:
-            right_force = right_sensor.data.net_forces_w[0].cpu().numpy().flatten()
-        else:
-            right_force = [0, 0, 0]
-
-        if middle_sensor.data.net_forces_w is not None:
-            middle_force = middle_sensor.data.net_forces_w[0].cpu().numpy().flatten()
-        else:
-            middle_force = [0, 0, 0]
-
-        # print(f"[Step {env.common_step_counter}] Left: [{left_force[0]:.3f}, {left_force[1]:.3f}, {left_force[2]:.3f}] | Right: [{right_force[0]:.3f}, {right_force[1]:.3f}, {right_force[2]:.3f}]")
-        print(f"[Step {env.common_step_counter}] Middle: [{middle_force[0]:.3f}, {middle_force[1]:.3f}, {middle_force[2]:.3f}]")
-
-    return torch.zeros(env.num_envs, device=env.device)
-
-
 def base_orientation_penalty_exp(
     env: ManagerBasedRLEnv,
     std: float = 0.1,
@@ -1027,202 +879,25 @@ def penalize_m5_movement_after_alignment(
 
 def wrist_object_orientation_alignment(
     env: ManagerBasedRLEnv,
-    std: float = 0.5,
+    std: float = 0.2,  # 越小越严格（单位：弧度），0.2rad≈11.5°
     object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    debug: bool = True,
+    debug: bool = False,
 ) -> torch.Tensor:
+    _, active_quat_w = get_active_object_states(env, object_cfg)
 
-    active_pos_w, active_quat_w = get_active_object_states(env, object_cfg)
-
+    # object yaw in world
     w, x, y, z = active_quat_w[:, 0], active_quat_w[:, 1], active_quat_w[:, 2], active_quat_w[:, 3]
     object_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
-    # Get M5 joint angle
     robot = env.scene[asset_cfg.name]
     m5_idx = robot.joint_names.index("M5")
-    m5_angle = robot.data.joint_pos[:, m5_idx]
+    wrist_yaw = robot.data.joint_pos[:, m5_idx]
 
-    angle_diff = torch.abs(object_yaw + m5_angle)
-    # print(angle_diff)
+    diff = object_yaw + wrist_yaw   # 你原来是 +，如果物理上应是减号就改成 object_yaw - wrist_yaw
+    diff = torch.atan2(torch.sin(diff), torch.cos(diff))  # wrap to [-pi, pi]
+    angle_diff = torch.abs(diff)
 
-    reward = torch.pow(torch.cos(angle_diff), 6)
-    # print(f"reward for current step: {reward}")
+    reward = torch.exp(-0.5 * (angle_diff / std) ** 2)
 
     return reward
-
-
-def _quat_mul_wxyz(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    # Hamilton product, both (...,4) [w,x,y,z]
-    aw, ax, ay, az = a.unbind(-1)
-    bw, bx, by, bz = b.unbind(-1)
-    w = aw*bw - ax*bx - ay*by - az*bz
-    x = aw*bx + ax*bw + ay*bz - az*by
-    y = aw*by - ax*bz + ay*bw + az*bx
-    z = aw*bz + ax*by - ay*bx + az*bw
-    return torch.stack([w, x, y, z], dim=-1)
-
-
-def _quat_conj_wxyz(q: torch.Tensor) -> torch.Tensor:
-    # q: (...,4) [w,x,y,z]
-    w, x, y, z = q.unbind(-1)
-    return torch.stack([w, -x, -y, -z], dim=-1)
-
-
-def _quat_rotate_wxyz(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-    # q: (...,4) [w,x,y,z], v: (...,3) -> rotated v in world
-    zeros = torch.zeros_like(v[..., :1])
-    vq = torch.cat([zeros, v], dim=-1)                 # (...,4)
-    return _quat_mul_wxyz(_quat_mul_wxyz(q, vq), _quat_conj_wxyz(q))[..., 1:]  # (...,3)
-
-
-def fingerline_align_object_y(
-    env,
-    std: float = 0.25,
-    in_range_deg: float | None = None,  # None: 连续 exp shaping；否则阈值内=1
-    symmetry: bool = True,              # True: 连线方向正反等价，用 |dot|
-    project_to_xy: bool = True,         # True: 只对齐水平朝向（推荐，抗 roll/pitch 噪声）
-    eps: float = 1e-6,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
-    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
-) -> torch.Tensor:
-    """
-    Align: v_gripper = (finger2 - finger1)  with  v_obj_y = R(q_obj) * [0,1,0].
-    Reward ↑ when angle ↓.
-    """
-    # --- active object pose ---
-    _, obj_quat_w = get_active_object_states(env, object_cfg)   # (N,4) wxyz
-
-    # object y-axis in world
-    y_local = torch.tensor([0.0, 1.0, 0.0], device=env.device).expand(env.num_envs, 3)
-    obj_y_w = _quat_rotate_wxyz(obj_quat_w, y_local)            # (N,3)
-
-    # --- gripper "y-axis" as the line between finger frames ---
-    f1 = env.scene[finger_frame_1_cfg.name].data.target_pos_w[:, 0, :]  # (N,3)
-    f2 = env.scene[finger_frame_2_cfg.name].data.target_pos_w[:, 0, :]  # (N,3)
-    grip_v = f2 - f1                                                   # (N,3)
-
-    if project_to_xy:
-        obj_y_w = obj_y_w.clone()
-        grip_v = grip_v.clone()
-        obj_y_w[:, 2] = 0.0
-        grip_v[:, 2] = 0.0
-
-    # normalize
-    grip_n = torch.norm(grip_v, dim=1).clamp_min(eps)
-    obj_n = torch.norm(obj_y_w, dim=1).clamp_min(eps)
-    grip_hat = grip_v / grip_n.unsqueeze(1)
-    obj_hat = obj_y_w / obj_n.unsqueeze(1)
-
-    dot = torch.sum(grip_hat * obj_hat, dim=1).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
-    if symmetry:
-        dot = dot.abs()
-
-    theta = torch.acos(dot)  # [0, pi] or [0, pi/2] if symmetry=True
-
-    if in_range_deg is not None:
-        thr = float(in_range_deg) * math.pi / 180.0
-        return (theta <= thr).to(dtype=torch.float32)
-
-    std = max(float(std), 1e-6)
-    return torch.exp(-0.5 * (theta / std) ** 2)
-
-
-def get_stable_grasp_mask(
-    env,
-    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
-    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
-    contact_force_threshold: float = 1.5,
-    require_both_contacts: bool = True,
-    stable_steps: int = 8,
-    release_steps: int = 2,
-) -> torch.Tensor:
-    """Return (num_envs,) bool: stable grasp detected, with hysteresis & per-step cache."""
-
-    step = int(getattr(env, "common_step_counter", 0))
-
-    # --- init buffers ---
-    if not hasattr(env, "_grasp_cache_step"):
-        env._grasp_cache_step = -1
-        env._grasp_cnt = torch.zeros(env.num_envs, device=env.device, dtype=torch.int32)
-        env._grasp_rel_cnt = torch.zeros(env.num_envs, device=env.device, dtype=torch.int32)
-        env._grasp_stable = torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
-
-    # --- cache: update only once per sim step ---
-    if env._grasp_cache_step == step:
-        return env._grasp_stable
-
-    env._grasp_cache_step = step
-
-    left = env.scene.sensors[left_sensor_cfg.name]
-    right = env.scene.sensors[right_sensor_cfg.name]
-
-    if left.data.net_forces_w is None or right.data.net_forces_w is None:
-        env._grasp_stable[:] = False
-        env._grasp_cnt[:] = 0
-        env._grasp_rel_cnt[:] = 0
-        return env._grasp_stable
-
-    left_y = torch.abs(left.data.net_forces_w[:, 0, 1])
-    right_y = torch.abs(right.data.net_forces_w[:, 0, 1])
-
-    if require_both_contacts:
-        contact = (left_y > contact_force_threshold) & (right_y > contact_force_threshold)
-    else:
-        contact = (left_y > contact_force_threshold) | (right_y > contact_force_threshold)
-
-    # update hold counter
-    env._grasp_cnt = torch.where(contact, env._grasp_cnt + 1, torch.zeros_like(env._grasp_cnt))
-    newly_stable = env._grasp_cnt >= int(stable_steps)
-
-    # hysteresis: once stable, only drop after release_steps of no-contact
-    env._grasp_rel_cnt = torch.where(~contact, env._grasp_rel_cnt + 1, torch.zeros_like(env._grasp_rel_cnt))
-    drop = env._grasp_rel_cnt >= int(release_steps)
-
-    env._grasp_stable = (env._grasp_stable | newly_stable) & (~drop)
-
-    return env._grasp_stable
-
-
-def fingerline_align_object_y_until_grasp(
-    env,
-    post_grasp_scale: float = 0.0,  # 夹稳后把这项关掉；想“夹住后也保持对齐”可设 0.2~1.0
-    # ---- grasp gating ----
-    left_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_left"),
-    right_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces_right"),
-    contact_force_threshold: float = 1.5,
-    require_both_contacts: bool = True,
-    stable_steps: int = 8,
-    release_steps: int = 2,
-    # ---- base reward params ----
-    std: float = 0.25,
-    in_range_deg: float | None = None,
-    symmetry: bool = True,
-    project_to_xy: bool = True,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    finger_frame_1_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_1"),
-    finger_frame_2_cfg: SceneEntityCfg = SceneEntityCfg("finger_frame_2"),
-) -> torch.Tensor:
-    base = fingerline_align_object_y(
-        env,
-        std=std,
-        in_range_deg=in_range_deg,
-        symmetry=symmetry,
-        project_to_xy=project_to_xy,
-        object_cfg=object_cfg,
-        finger_frame_1_cfg=finger_frame_1_cfg,
-        finger_frame_2_cfg=finger_frame_2_cfg,
-    )
-
-    stable = get_stable_grasp_mask(
-        env,
-        left_sensor_cfg=left_sensor_cfg,
-        right_sensor_cfg=right_sensor_cfg,
-        contact_force_threshold=contact_force_threshold,
-        require_both_contacts=require_both_contacts,
-        stable_steps=stable_steps,
-        release_steps=release_steps,
-    )
-    scale = torch.where(stable, torch.full_like(base, post_grasp_scale), torch.ones_like(base))
-    return base * scale

@@ -1072,9 +1072,6 @@ def reset_root_state_uniform(
     asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
 
 
-
-
-
 def reset_object_pool_state_uniform(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
@@ -1801,15 +1798,15 @@ def _randomize_prop_by_op(
 #             )
 
 
-
 def randomize_object_pool_selection(
     env: ManagerBasedRLEnv,
     env_ids: torch.Tensor | None,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    balanced: bool = True,
 ):
-    """Randomize object selection and deactivate unused objects."""
+
     import omni.usd
-    from pxr import UsdGeom
+    from pxr import UsdGeom, UsdPhysics, PhysxSchema
 
     if env_ids is None:
         env_ids = torch.arange(env.num_envs, device=env.device)
@@ -1821,8 +1818,27 @@ def randomize_object_pool_selection(
     if not hasattr(env, 'active_object_indices'):
         env.active_object_indices = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
 
-    for env_idx in env_ids:
-        active_idx = torch.randint(0, num_objects, (1,), device=env.device).item()
+    num_env_ids = len(env_ids)
+
+    if balanced and num_env_ids > 1:
+        # Balanced sampling: ensure approximately equal distribution
+        base_count = num_env_ids // num_objects
+        remainder = num_env_ids % num_objects
+        assignments = []
+        for obj_idx in range(num_objects):
+            count = base_count + (1 if obj_idx < remainder else 0)
+            assignments.extend([obj_idx] * count)
+
+        assignments = torch.tensor(assignments, device=env.device, dtype=torch.long)
+        perm = torch.randperm(len(assignments), device=env.device)
+        assignments = assignments[perm]
+    else:
+        # Pure random selection
+        assignments = torch.randint(0, num_objects, (num_env_ids,), device=env.device)
+
+    # Apply assignments to each environment
+    for i, env_idx in enumerate(env_ids):
+        active_idx = assignments[i].item()
         env.active_object_indices[env_idx] = active_idx
 
         for obj_idx in range(num_objects):
@@ -1833,17 +1849,35 @@ def randomize_object_pool_selection(
             obj_prim = stage.GetPrimAtPath(obj_prim_path)
 
             if obj_idx == active_idx:
+                # Enable active object
                 if obj_prim.IsValid():
                     obj_prim.SetActive(True)
                     UsdGeom.Imageable(obj_prim).MakeVisible()
 
+                    rigid_body_api = UsdPhysics.RigidBodyAPI(obj_prim)
+                    if rigid_body_api:
+                        rigid_body_api.GetRigidBodyEnabledAttr().Set(True)
+
+                    collision_api = UsdPhysics.CollisionAPI(obj_prim)
+                    if collision_api:
+                        collision_api.GetCollisionEnabledAttr().Set(True)
+
                 pos = torch.tensor([0.28, 0.0, 0.0], device=env.device)
             else:
+                # Disable inactive object
                 if obj_prim.IsValid():
-                    obj_prim.SetActive(False)  # Key change
+                    obj_prim.SetActive(False)
                     UsdGeom.Imageable(obj_prim).MakeInvisible()
+                    
+                    rigid_body_api = UsdPhysics.RigidBodyAPI(obj_prim)
+                    if rigid_body_api:
+                        rigid_body_api.GetRigidBodyEnabledAttr().Set(False)
+                    
+                    collision_api = UsdPhysics.CollisionAPI(obj_prim)
+                    if collision_api:
+                        collision_api.GetCollisionEnabledAttr().Set(False)
 
-                pos = torch.tensor([100.0, 100.0, -10.0], device=env.device)  # Fallback
+                pos = torch.tensor([100.0, 100.0, -10.0], device=env.device)
 
             root_state = object_collection.data.default_object_state[env_idx, obj_idx].clone()
             root_state[:3] = pos + env.scene.env_origins[env_idx]
@@ -1855,7 +1889,6 @@ def randomize_object_pool_selection(
                 env_ids=torch.tensor([env_idx], device=env.device),
                 object_ids=torch.tensor([obj_idx], device=env.device)
             )
-
 
 
 def initialize_point_cloud_cache(
@@ -1962,6 +1995,99 @@ def randomize_multiple_sphere_lights(
                 light_prim.GetAttribute("inputs:color").Set(color)
             else:
                 print(f"[Warning] SphereLight_{i} not found for env {env_id}")
+
+
+def randomize_global_sphere_lights(
+    env: "ManagerBasedEnv",
+    env_ids: torch.Tensor,
+    light_paths: list[str],
+    intensity_range: tuple[float, float] = (50000.0, 1000000.0),
+    temperature_range: tuple[float, float] = (2500.0, 11000.0),
+    color_variation: float = 0.3,
+    position_variation: tuple[float, float, float] = (5.0, 5.0, 3.0),
+) -> None:
+    """Randomize global sphere light properties (intensity, color temperature, color, position).
+
+    This function randomizes global lights that are shared across all environments,
+    which is more memory efficient than per-environment lights.
+
+    Best used with mode="interval" and is_global_time=True for time-based randomization.
+
+    Args:
+        env: Environment instance.
+        env_ids: Environment indices.
+        light_paths: List of USD paths to the global sphere lights.
+        intensity_range: Min and max intensity values for randomization.
+        temperature_range: Min and max color temperature values (Kelvin).
+            - 2500K: warm candlelight
+            - 5500K: daylight
+            - 11000K: cool blue sky
+        color_variation: Maximum deviation from white (1.0) for RGB color channels.
+        position_variation: Max offset (x, y, z) from original position for each light.
+    """
+    try:
+        import omni.usd
+        from pxr import Gf
+
+        stage = omni.usd.get_context().get_stage()
+
+        # Base positions for each light (matching the config)
+        base_positions = {
+            "/World/GlobalLight_0": (0.0, 0.0, 25.0),
+            "/World/GlobalLight_1": (-20.0, -20.0, 20.0),
+            "/World/GlobalLight_2": (20.0, 20.0, 20.0),
+        }
+
+        for light_path in light_paths:
+            light_prim = stage.GetPrimAtPath(light_path)
+
+            if not light_prim.IsValid():
+                print(f"[Warning] Global light not found at {light_path}")
+                continue
+
+            # Randomize intensity (dramatic range: dim to very bright)
+            intensity = float(np.random.uniform(intensity_range[0], intensity_range[1]))
+            intensity_attr = light_prim.GetAttribute("inputs:intensity")
+            if intensity_attr:
+                intensity_attr.Set(intensity)
+
+            # Ensure color temperature is enabled
+            enable_temp_attr = light_prim.GetAttribute("inputs:enableColorTemperature")
+            if enable_temp_attr:
+                enable_temp_attr.Set(True)
+
+            # Randomize color temperature (warm orange to cool blue)
+            temp = float(np.random.uniform(temperature_range[0], temperature_range[1]))
+            temp_attr = light_prim.GetAttribute("inputs:colorTemperature")
+            if temp_attr:
+                temp_attr.Set(temp)
+
+            # Randomize color with more dramatic variation
+            color = (
+                float(np.clip(np.random.uniform(1.0 - color_variation, 1.0 + color_variation * 0.5), 0.5, 1.0)),
+                float(np.clip(np.random.uniform(1.0 - color_variation, 1.0 + color_variation * 0.5), 0.5, 1.0)),
+                float(np.clip(np.random.uniform(1.0 - color_variation, 1.0 + color_variation * 0.5), 0.5, 1.0)),
+            )
+            color_attr = light_prim.GetAttribute("inputs:color")
+            if color_attr:
+                color_attr.Set(Gf.Vec3f(*color))
+
+            # Randomize position around base position
+            if light_path in base_positions:
+                base_pos = base_positions[light_path]
+                new_pos = Gf.Vec3d(
+                    base_pos[0] + np.random.uniform(-position_variation[0], position_variation[0]),
+                    base_pos[1] + np.random.uniform(-position_variation[1], position_variation[1]),
+                    base_pos[2] + np.random.uniform(-position_variation[2], position_variation[2]),
+                )
+                translate_attr = light_prim.GetAttribute("xformOp:translate")
+                if translate_attr:
+                    translate_attr.Set(new_pos)
+
+    except Exception as e:
+        print(f"[Warning] Global sphere light randomization failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def log_object_distribution(
