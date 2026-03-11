@@ -248,9 +248,9 @@ class ResNet18ObservationCfg:
                 "asset_cfg": SceneEntityCfg("robot", joint_names=["M[345]", "M6_.*"]),
                 "action_name": "gripper_action",
                 "action_index": 0,
-                "m6_open_value": 0.65,
-                "m6_close_value": 0.02,
-                "toggle_threshold": 0.02,
+                "m6_open_value": 1,
+                "m6_close_value": 0,
+                "toggle_threshold": 0,
                 "debug": False,
                 "debug_every": 200,
             },
@@ -297,12 +297,13 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": (0.02, 0.1),
+                "x": (-0.03, 0.05),
+                # "x": (-0.03, 0.1),
                 "y": (-0.015, 0.015),
                 "z": (0.0, 0.0),
                 "roll": (0.0, 0.0),
                 "pitch": (0, 0),
-                "yaw": (-1.0, 0.0),
+                "yaw": (-3.0, 0.15),
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object_pool"),
@@ -335,7 +336,7 @@ class RewardsCfg:
         func=mdp.object_ee_distance,
         params={"std": 0.1},
         # weight=20.0,
-        weight=2.0,
+        weight=5.0,
     )
 
     lifting_object_linear = RewTerm(
@@ -394,7 +395,7 @@ class RewardsCfg:
         params={
             "std": 0.5,  # Smaller = sharper reward peak (more precise alignment required)
         },
-        weight=3.0,  # Positive reward for good alignment
+        weight=5.0,  # Positive reward for good alignment
     )
 
 
@@ -454,8 +455,6 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         self.sim.dt = 0.01  # 100Hz
         self.decimation = 40  # 2 20 48
-        # self.sim.dt = 0.03  # 100Hz
-        # self.decimation = 40  # 2 20 48
         self.episode_length_s = 10 * self.decimation * self.sim.dt
 
         # self.decimation = 1

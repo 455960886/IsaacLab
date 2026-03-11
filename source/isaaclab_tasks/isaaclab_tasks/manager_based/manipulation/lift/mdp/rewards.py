@@ -895,6 +895,9 @@ def wrist_object_orientation_alignment(
     wrist_yaw = robot.data.joint_pos[:, m5_idx]
 
     # ✅ 关键：用 wrap-to-pi 得到最短角差（并且用“差”而不是 cos 的偶次方）
+    # print(f"object_yaw: {object_yaw}")
+    # print(f"wrist_yaw: {wrist_yaw}")
+    # print(f"raw diff: {object_yaw + wrist_yaw}")  # 你原来是 +，如果物理上应是减号就改成 object_yaw - wrist_yaw
     diff = object_yaw + wrist_yaw   # 你原来是 +，如果物理上应是减号就改成 object_yaw - wrist_yaw
     diff = torch.atan2(torch.sin(diff), torch.cos(diff))  # wrap to [-pi, pi]
     angle_diff = torch.abs(diff)
