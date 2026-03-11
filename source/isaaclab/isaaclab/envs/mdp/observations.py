@@ -660,7 +660,6 @@ class image_features(ManagerTermBase):
 
         self._frame_counter = 0
 
-
     def reset(self, env_ids: torch.Tensor | None = None):
         # reset the model if a reset function is provided
         # this might be useful when the model has a state that needs to be reset
@@ -668,7 +667,7 @@ class image_features(ManagerTermBase):
         if self._reset_fn is not None:
             self._reset_fn(self._model, env_ids)
 
-    def depth_to_pointcloud(self,depth_image, fx, fy, cx, cy, rgb_image=None, output_path="pointcloud.ply"):
+    def depth_to_pointcloud(self, depth_image, fx, fy, cx, cy, rgb_image=None, output_path="pointcloud.ply"):
         """
         将深度图转换为点云（可选带颜色）
         
@@ -720,7 +719,7 @@ class image_features(ManagerTermBase):
             # 保存为 PLY 文件
             o3d.io.write_point_cloud(output_path, pcd)
             print(f"✅ 点云已保存到: {output_path}")
-        
+
         # save_ply(points, colors=None, output_path=output_path.replace(".ply","_0.ply"))
         theta = np.deg2rad(0.5)
         R_x = np.array([
@@ -777,7 +776,6 @@ class image_features(ManagerTermBase):
         points = voxel_down_sample_fixed(points, voxel_size=2.0)
         # save_ply(points, colors=None, output_path=output_path.replace(".ply","_downsampled8.ply"))
         return points
-    
 
     # GPU-accelerated version for batch processing
     def depth_to_pointcloud_batch_gpu(self, depth_batch, fx, fy, cx, cy, num_points=1024, 
@@ -946,7 +944,6 @@ class image_features(ManagerTermBase):
         
         return result
 
-
     def _apply_domain_randomization(
         self,
         images: torch.Tensor,
@@ -1064,7 +1061,6 @@ class image_features(ManagerTermBase):
 
         cv2.imwrite(save_path, img_bgr)
         print(f"✅ Saved image: {save_path}")
-
 
     def __call__(
         self,
