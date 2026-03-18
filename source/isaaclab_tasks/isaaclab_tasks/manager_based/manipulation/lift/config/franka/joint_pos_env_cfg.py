@@ -106,21 +106,21 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         # Set CoarseArm as robot
         self.scene.robot = MY_ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-        self.actions.arm_action = mdp.RelativeJointPositionActionCfg(
-            asset_name="robot",
-            joint_names=["M[0345]"],
-            scale={
-                # "M0": 0.08,
-                "M3": 0.1,
-                "M4": 0.1,
-                # "M5": 0.08
-            }
-        )
-        # self.actions.arm_action = mdp.JointPositionActionCfg(
+        # self.actions.arm_action = mdp.RelativeJointPositionActionCfg(
         #     asset_name="robot",
-        #     joint_names=["M[345]"],
-        #     use_default_offset=True,
+        #     joint_names=["M[0345]"],
+        #     scale={
+        #         # "M0": 0.08,
+        #         "M3": 0.1,
+        #         "M4": 0.1,
+        #         # "M5": 0.08
+        #     }
         # )
+        self.actions.arm_action = mdp.JointPositionActionCfg(
+            asset_name="robot",
+            joint_names=["M[345]"],
+            use_default_offset=True,
+        )
 
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
@@ -185,7 +185,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                             articulation_enabled=False,  # CRITICAL: Disable articulation
                         ),
                     ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.00, 0.0)),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, 0.00, 0.0)),
                 ),
 
                 "slippers": RigidObjectCfg(
@@ -209,33 +209,33 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                             articulation_enabled=False,  # CRITICAL: Disable articulation
                         ),
                     ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.01, 0.06)),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.01, 0.06)),
                 ),
 
-                # "slippers_m5_0": RigidObjectCfg(
-                #     prim_path="{ENV_REGEX_NS}/slippers_m5_0_you_shang",
-                #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper_top/slipper.usdc",
-                #         scale=(1.0, 1.0, 1.0),
-                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                #             solver_position_iteration_count=64,
-                #             solver_velocity_iteration_count=32,
-                #             # max_depenetration_velocity=10.0,  # CRITICAL: Limit depenetration speed
-                #             disable_gravity=False,
-                #         ),
-                #         mass_props=sim_utils.MassPropertiesCfg(
-                #             mass=0.001,  
-                #         ),
-                #         # collision_props=sim_utils.CollisionPropertiesCfg(
-                #         #     contact_offset=0.002,  # Start collision detection at 2mm
-                #         #     rest_offset=0.0,       # Rest at surface contact
-                #         # ),
-                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                #             articulation_enabled=False,  # CRITICAL: Disable articulation
-                #         ),
-                #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.0, 0.08), rot=(0.7071, 0, 0, -0.7071)),
-                # ),
+                "slippers_m5_0": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/slippers_m5_0_you_shang",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper_top/slipper.usdc",
+                        scale=(1.0, 1.0, 1.0),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
+                            # max_depenetration_velocity=10.0,  # CRITICAL: Limit depenetration speed
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.001,  
+                        ),
+                        # collision_props=sim_utils.CollisionPropertiesCfg(
+                        #     contact_offset=0.002,  # Start collision detection at 2mm
+                        #     rest_offset=0.0,       # Rest at surface contact
+                        # ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.0, 0.08), rot=(0.7071, 0, 0, -0.7071)),
+                ),
 
                 "lego": RigidObjectCfg(
                     prim_path="{ENV_REGEX_NS}/lego",

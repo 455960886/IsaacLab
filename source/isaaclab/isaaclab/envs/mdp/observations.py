@@ -1177,7 +1177,6 @@ class image_features(ManagerTermBase):
     Helper functions.
     """
 
-
     def voxelize_pointcloud_batch(
         self,
         points: torch.Tensor,

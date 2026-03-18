@@ -288,7 +288,7 @@ class EventCfg:
 
     object_pool_spawn = EventTerm(
         func=mdp.randomize_object_pool_selection,
-        mode="reset",
+        mode="startup",
         params={"asset_cfg": SceneEntityCfg("object_pool")},
     )
 
@@ -297,8 +297,7 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": (-0.03, 0.1),
-                # "x": (-0.03, 0.1),
+                "x": (0.01, 0.1),
                 "y": (-0.015, 0.015),
                 "z": (0.0, 0.0),
                 "roll": (0.0, 0.0),

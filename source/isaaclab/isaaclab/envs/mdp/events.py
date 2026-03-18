@@ -1072,7 +1072,135 @@ def reset_root_state_uniform(
     asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
 
 
+def _sample_balanced_1d(
+    num_samples: int,
+    ranges: list[tuple[float, float]],
+    device: torch.device | str,
+    weights: list[float] | None = None,
+) -> torch.Tensor:
+    """Sample 1D values by first balancing across ranges, then uniformly sampling inside each range."""
+    if len(ranges) == 0:
+        raise ValueError("ranges must not be empty.")
+
+    num_bins = len(ranges)
+
+    if weights is None:
+        weights_t = torch.ones(num_bins, device=device, dtype=torch.float32) / num_bins
+    else:
+        if len(weights) != num_bins:
+            raise ValueError(f"weights length {len(weights)} must match ranges length {num_bins}.")
+        weights_t = torch.tensor(weights, device=device, dtype=torch.float32)
+        weights_t = weights_t / weights_t.sum()
+
+    raw_counts = weights_t * num_samples
+    counts = torch.floor(raw_counts).to(torch.long)
+
+    remainder = num_samples - int(counts.sum().item())
+    if remainder > 0:
+        frac = raw_counts - counts.float()
+        order = torch.argsort(frac, descending=True)
+        counts[order[:remainder]] += 1
+
+    # build bin ids
+    bin_ids = []
+    for i in range(num_bins):
+        if counts[i] > 0:
+            bin_ids.append(torch.full((counts[i].item(),), i, device=device, dtype=torch.long))
+
+    if len(bin_ids) == 0:
+        raise RuntimeError("No samples allocated to any bin.")
+
+    bin_ids = torch.cat(bin_ids, dim=0)
+
+    # shuffle so env order doesn't encode near/far pattern
+    perm = torch.randperm(bin_ids.shape[0], device=device)
+    bin_ids = bin_ids[perm]
+
+    lows = torch.tensor([r[0] for r in ranges], device=device, dtype=torch.float32)
+    highs = torch.tensor([r[1] for r in ranges], device=device, dtype=torch.float32)
+
+    low = lows[bin_ids]
+    high = highs[bin_ids]
+
+    return low + torch.rand(num_samples, device=device) * (high - low)
+
+
 def reset_object_pool_state_uniform(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    pose_range: dict[str, tuple[float, float]],
+    velocity_range: dict[str, tuple[float, float]],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+    x_balance_ranges: list[tuple[float, float]] | None = None,
+    x_balance_weights: list[float] | None = None,
+):
+    """Reset active objects in object pool to random position and velocity uniformly within given ranges.
+
+    If x_balance_ranges is provided, x will be sampled in a balanced/weighted way across the given sub-ranges.
+    Other pose dimensions still use standard uniform sampling.
+    """
+    from isaaclab.assets import RigidObjectCollection
+    import isaaclab.utils.math as math_utils
+
+    object_collection: RigidObjectCollection = env.scene[asset_cfg.name]
+
+    if not hasattr(env, 'active_object_indices'):
+        raise RuntimeError("active_object_indices not found")
+
+    num_resets = len(env_ids)
+    device = object_collection.device
+
+    # 先正常采样所有 pose 维度
+    pose_range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    pose_ranges = torch.tensor(pose_range_list, device=device)
+    pose_rand_samples = math_utils.sample_uniform(
+        pose_ranges[:, 0], pose_ranges[:, 1], (num_resets, 6), device=device
+    )
+
+    # 只替换 x 维度为“均衡采样”
+    if x_balance_ranges is not None:
+        pose_rand_samples[:, 0] = _sample_balanced_1d(
+            num_samples=num_resets,
+            ranges=x_balance_ranges,
+            device=device,
+            weights=x_balance_weights,
+        )
+
+    # if x_balance_ranges is not None and len(x_balance_ranges) == 2:
+    #     split = x_balance_ranges[0][1]
+    #     near_count = (pose_rand_samples[:, 0] < split).sum().item()
+    #     far_count = (pose_rand_samples[:, 0] >= split).sum().item()
+    #     print(f"[reset_object_position] near={near_count}, far={far_count}")
+
+    # velocity 保持原样
+    vel_range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    vel_ranges = torch.tensor(vel_range_list, device=device)
+    vel_rand_samples = math_utils.sample_uniform(
+        vel_ranges[:, 0], vel_ranges[:, 1], (num_resets, 6), device=device
+    )
+
+    for idx, env_idx in enumerate(env_ids):
+        active_obj_idx = env.active_object_indices[env_idx].item()
+
+        root_state = object_collection.data.default_object_state[env_idx, active_obj_idx].clone()
+
+        position = root_state[0:3] + env.scene.env_origins[env_idx] + pose_rand_samples[idx, 0:3]
+        orientation_delta = math_utils.quat_from_euler_xyz(
+            pose_rand_samples[idx, 3], pose_rand_samples[idx, 4], pose_rand_samples[idx, 5]
+        )
+        orientation = math_utils.quat_mul(root_state[3:7], orientation_delta)
+
+        velocity = root_state[7:13] + vel_rand_samples[idx]
+
+        new_state = torch.cat([position, orientation, velocity], dim=-1)
+        object_collection.write_object_state_to_sim(
+            new_state.unsqueeze(0),
+            env_ids=torch.tensor([env_idx], device=device),
+            object_ids=torch.tensor([active_obj_idx], device=device)
+        )
+
+
+def reset_object_pool_state_uniform1(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     pose_range: dict[str, tuple[float, float]],
