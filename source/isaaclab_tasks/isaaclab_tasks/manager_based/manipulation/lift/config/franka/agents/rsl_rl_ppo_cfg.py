@@ -14,7 +14,7 @@ class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 50000
     save_interval = 10
     experiment_name = "coarse_arm_lift"
-    empirical_normalization = True
+    empirical_normalization = False
     # empirical_normalization = True
 
     policy = RslRlPpoActorCriticCfg(

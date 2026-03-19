@@ -288,7 +288,7 @@ class EventCfg:
 
     object_pool_spawn = EventTerm(
         func=mdp.randomize_object_pool_selection,
-        mode="startup",
+        mode="reset",
         params={"asset_cfg": SceneEntityCfg("object_pool")},
     )
 
@@ -297,7 +297,8 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": (0.01, 0.1),
+                "x": (0.02, 0.1),
+                # "x": (-0.05, 0.1),
                 "y": (-0.015, 0.015),
                 "z": (0.0, 0.0),
                 "roll": (0.0, 0.0),
@@ -439,7 +440,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=128, env_spacing=4)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=4)
     observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()
@@ -454,13 +455,15 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         self.sim.dt = 0.01  # 100Hz
         self.decimation = 40  # 2 20 48
-        self.episode_length_s = 10 * self.decimation * self.sim.dt
+        # self.sim.dt = 0.03  # 100Hz
+        # self.decimation = 40  # 2 20 48
+        self.episode_length_s = 5 * self.decimation * self.sim.dt
 
         # self.decimation = 1
         # self.episode_length_s = 10
 
-        self.sim.render_interval = self.decimation
-        # self.sim.render_interval = 1
+        # self.sim.render_interval = self.decimation
+        self.sim.render_interval = 1
 
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4

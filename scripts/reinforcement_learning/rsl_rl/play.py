@@ -29,6 +29,9 @@ parser.add_argument(
 parser.add_argument("--sleep", type=float, default=0.0,
                     help="Extra sleep seconds after each step (e.g., 0.05 means 50ms).")
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument("--export_onnx", action="store_true", default=False, help="Export ONNX policy.")
+parser.add_argument("--export_jit", action="store_true", default=False, help="Export JIT policy.")
+
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -225,61 +228,88 @@ def main():
         # version 2.2 and below
         policy_nn = ppo_runner.alg.actor_critic
 
-    # export policy to onnx/jit
-    # export_model_dir = os.path.join(os.path.dirname(resume_path), "exported2")
-    # export_policy_as_jit(policy_nn, ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.pt")
-    # export_policy_as_onnx(
-    #     policy_nn, normalizer=ppo_runner.obs_normalizer, path=export_model_dir, filename="policy1905.onnx"
-    # )
-    export_model_dir = os.path.join(os.path.dirname(resume_path), "exported2")
-    os.makedirs(export_model_dir, exist_ok=True)
+    do_export_onnx = args_cli.export_onnx
+    do_export_jit = args_cli.export_jit
 
-    # 关键：用环境真实输出的 obs 作为 example input（shape 会是 [1, 1541]）
-    obs, _ = env.get_observations()
-    obs = obs.to(device)
+    if do_export_onnx or do_export_jit:
+        export_model_dir = os.path.join(os.path.dirname(resume_path), "exported2")
+        os.makedirs(export_model_dir, exist_ok=True)
 
-    dummy = obs[0:1].detach().to("cpu")
-    print("[EXPORT] dummy obs shape =", tuple(dummy.shape))  # 应该是 (1, 1541)
+        # 用环境真实输出的原始 obs 作为 example input
+        obs, _ = env.get_observations()
+        obs = obs.to(device)
 
-    # ⚠️ 关键：不要对 runner 里的对象原地 .to("cpu")，否则后面推理会 device mismatch
-    # 用 deepcopy 拷贝一份做导出即可
-    policy_nn_cpu = copy.deepcopy(policy_nn).to("cpu").eval()
-    normalizer_cpu = copy.deepcopy(ppo_runner.obs_normalizer).to("cpu").eval()
+        dummy = obs[0:1].detach().to("cpu")
+        print("[EXPORT] raw dummy obs shape =", tuple(dummy.shape))  # 应该是 (1, 3589)
 
-    class ActorWithNorm(nn.Module):
-        def __init__(self, policy, normalizer):
-            super().__init__()
-            self.policy = policy
-            self.normalizer = normalizer
+        # 不要原地改 runner 里的 policy/normalizer，拷贝一份到 CPU 专门用于导出
+        policy_nn_cpu = copy.deepcopy(policy_nn).to("cpu").eval()
+        normalizer_cpu = copy.deepcopy(ppo_runner.obs_normalizer).to("cpu").eval()
 
-        def forward(self, x):
-            x = self.normalizer(x)
-            # policy 可能是 ActorCritic(有 .actor)，也可能本身就是 actor
-            if hasattr(self.policy, "actor"):
-                return self.policy.actor(x)
-            return self.policy(x)
+        class PolicyInferenceWithNorm(nn.Module):
+            def __init__(self, policy, normalizer):
+                super().__init__()
+                self.policy = policy
+                self.normalizer = normalizer
 
-    export_module = ActorWithNorm(policy_nn_cpu, normalizer_cpu).eval()
+            def forward(self, x):
+                x = self.normalizer(x)
 
-    onnx_path = os.path.join(export_model_dir, "policy1905.onnx")
-    torch.onnx.export(
-        export_module,
-        dummy,
-        onnx_path,
-        input_names=["obs"],
-        output_names=["actions"],
-        opset_version=17,
-        do_constant_folding=True,
-        dynamic_axes={"obs": {0: "batch"}, "actions": {0: "batch"}},
-    )
-    print("[INFO] Exported ONNX to:", onnx_path)
+                # 必须走 act_inference，这样才会进入 _encode_observations()
+                if hasattr(self.policy, "act_inference"):
+                    return self.policy.act_inference(x)
 
-    # 如果你还想导出 jit：
-    jit_path = os.path.join(export_model_dir, "policy.pt")
-    traced = torch.jit.trace(export_module, dummy)
-    traced.save(jit_path)
-    print("[INFO] Exported JIT to:", jit_path)
+                # 兜底逻辑
+                if hasattr(self.policy, "_encode_observations") and hasattr(self.policy, "actor"):
+                    x = self.policy._encode_observations(x)
+                    return self.policy.actor(x)
 
+                if hasattr(self.policy, "actor"):
+                    return self.policy.actor(x)
+
+                return self.policy(x)
+
+        export_module = PolicyInferenceWithNorm(policy_nn_cpu, normalizer_cpu).eval()
+
+        # 先做一次本地前向，确认维度正确
+        with torch.no_grad():
+            test_actions = export_module(dummy)
+        print("[EXPORT] test action shape =", tuple(test_actions.shape))
+
+        if do_export_onnx:
+            try:
+                onnx_path = os.path.join(export_model_dir, "policy1905.onnx")
+                torch.onnx.export(
+                    export_module,
+                    dummy,
+                    onnx_path,
+                    input_names=["obs"],
+                    output_names=["actions"],
+                    opset_version=17,
+                    do_constant_folding=True,
+                    dynamic_axes={"obs": {0: "batch"}, "actions": {0: "batch"}},
+                )
+                print("[INFO] Exported ONNX to:", onnx_path)
+            except Exception as e:
+                print("=" * 120)
+                print("[WARN] ONNX export failed.")
+                print("[WARN] Reason:", repr(e))
+                print("[WARN] PointNet2 FPS/sample_and_group is not ONNX-friendly.")
+                print("[WARN] Continue to play.")
+                print("=" * 120)
+
+        if do_export_jit:
+            try:
+                jit_path = os.path.join(export_model_dir, "policy.pt")
+                traced = torch.jit.trace(export_module, dummy)
+                traced.save(jit_path)
+                print("[INFO] Exported JIT to:", jit_path)
+            except Exception as e:
+                print("=" * 120)
+                print("[WARN] JIT export failed.")
+                print("[WARN] Reason:", repr(e))
+                print("[WARN] Continue to play.")
+                print("=" * 120)
 
     dt = env.unwrapped.step_dt
     # img_bgr = cv2.imread('/home/roborock/下载/9.png')

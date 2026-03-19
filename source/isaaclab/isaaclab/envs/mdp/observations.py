@@ -38,7 +38,6 @@ if TYPE_CHECKING:
 """
 Root state.
 """
-
 def base_pos_z(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Root height in the simulation world frame."""
     # extract the used quantities (to enable type-hinting)
@@ -208,134 +207,13 @@ def joint_pos_with_binary_m6_latched(
 
     return q
 
-    # asset: Articulation = env.scene[asset_cfg.name]
-
-    # # 原始 joint pos（只取配置里选中的那些关节：比如 M[345], M6_.*）
-    # q = asset.data.joint_pos[:, asset_cfg.joint_ids].clone()  # (num_envs, n_selected)
-
-    # # 拿 joint 名字，用于定位选中关节里哪些是 M6_*
-    # if hasattr(asset, "joint_names") and asset.joint_names is not None:
-    #     all_joint_names = asset.joint_names
-    # elif hasattr(asset.data, "joint_names") and asset.data.joint_names is not None:
-    #     all_joint_names = asset.data.joint_names
-    # else:
-    #     raise RuntimeError("Cannot access joint names from articulation to locate M6 joints.")
-
-    # sel_names = [all_joint_names[j] for j in asset_cfg.joint_ids]
-    # m6_cols = [i for i, n in enumerate(sel_names) if isinstance(n, str) and n.startswith("M6_")]
-
-    # # 如果 selection 里没包含 M6，就退化成普通 joint_pos
-    # if len(m6_cols) == 0:
-    #     return q
-
-    # # -----------------------------
-    # # 1) 初始化/维护每个 env 的 M6 二值状态（latch）
-    # # -----------------------------
-    # # 我们把它挂到 env 上，名字不与 IsaacLab 冲突即可
-    # # state: 0=close, 1=open（与你 C++ 完全一致）
-    # state_attr = "_m6_binary_state_obs"  # (num_envs,) int64 on device
-
-    # need_init = (not hasattr(env, state_attr))
-    # if not need_init:
-    #     s = getattr(env, state_attr)
-    #     # 设备/shape 不对也重建
-    #     if (not torch.is_tensor(s)) or (s.shape[0] != env.num_envs) or (s.device != q.device):
-    #         need_init = True
-
-    # # 用当前仿真 M6 的连续 qpos 做“只用于初始化”的推断，避免 reset 后状态乱掉
-    # # （不改变 latch 更新规则，只是 reset/首次时给一个合理初值）
-    # def _infer_state_from_joint():
-    #     # 用第一根 M6 finger 的绝对值判断 open/close
-    #     mid = 0.5 * (m6_open_value + m6_close_value)
-    #     m6_abs = q[:, m6_cols[0]].abs()
-    #     return (m6_abs > mid).to(torch.int64)
-
-    # if need_init:
-    #     setattr(env, state_attr, _infer_state_from_joint())
-    # else:
-    #     # 尝试检测 reset：如果能找到 episode_length_buf 或 reset_buf，就在 reset 的 env 上重置 state
-    #     reset_mask = None
-    #     if hasattr(env, "episode_length_buf") and torch.is_tensor(env.episode_length_buf):
-    #         reset_mask = (env.episode_length_buf == 0)
-    #     elif hasattr(env, "reset_buf") and torch.is_tensor(env.reset_buf):
-    #         reset_mask = env.reset_buf.bool()
-
-    #     if reset_mask is not None and reset_mask.any():
-    #         s = getattr(env, state_attr)
-    #         s[reset_mask] = _infer_state_from_joint()[reset_mask]
-    #         setattr(env, state_attr, s)
-
-    # s = getattr(env, state_attr)  # (num_envs,) int64, 0/1
-
-    # # -----------------------------
-    # # 2) 按 C++：用 action 符号触发翻转（close->open / open->close）
-    # # -----------------------------
-    # a = last_action(env, action_name)
-    # if a.ndim == 2:
-    #     if a.shape[1] <= action_index:
-    #         raise RuntimeError(
-    #             f"action_index {action_index} out of range for action '{action_name}' with dim {a.shape[1]}"
-    #         )
-    #     a1 = a[:, action_index]
-    # else:
-    #     a1 = a
-
-    # open_cmd = a1 > float(toggle_threshold)
-    # close_cmd = a1 < -float(toggle_threshold)
-
-    # # close->open: s==0 & open_cmd
-    # to_open = (s == 0) & open_cmd
-    # # open->close: s==1 & close_cmd
-    # to_close = (s == 1) & close_cmd
-
-    # if to_open.any() or to_close.any():
-    #     s = s.clone()
-    #     s[to_open] = 1
-    #     s[to_close] = 0
-    #     setattr(env, state_attr, s)
-
-    # # -----------------------------
-    # # 3) 按 C++ 三目：state->固定值，并覆盖 selection 里的 M6_*
-    # # -----------------------------
-    # m6_1 = torch.where(
-    #     s == 1,
-    #     torch.tensor(m6_open_value, device=q.device, dtype=q.dtype),
-    #     torch.tensor(m6_close_value, device=q.device, dtype=q.dtype),
-    # )
-    # m6_2 = -m6_1
-
-    # for col in m6_cols:
-    #     name = sel_names[col]
-    #     # 约定：M6_2 是第二根 finger -> 取负号
-    #     if isinstance(name, str) and ("M6_2" in name or "right" in name or "Right" in name):
-    #         q[:, col] = m6_2
-    #     else:
-    #         q[:, col] = m6_1
-
-    # # debug
-    # if debug:
-    #     step = getattr(env, "common_step_counter", 0)
-    #     if int(step) % int(debug_every) == 0:
-    #         print(
-    #             f"[m6_obs] step={int(step)} a0={a1[0].item():.3f} "
-    #             f"s0={int(s[0].item())} m6_1={m6_1[0].item():.3f} m6_2={m6_2[0].item():.3f}"
-    #         )
-
-    # return q
-
 
 def joint_pos_rel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """The joint positions of the asset w.r.t. the default joint positions.
 
     Note: Only the joints configured in :attr:`asset_cfg.joint_ids` will have their positions returned.
     """
-    # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
-    # with open('output_5142.txt', 'a') as f:
-    #     f.write(f"obs1 m: {(asset.data.joint_pos[:, asset_cfg.joint_ids] - asset.data.default_joint_pos[:, asset_cfg.joint_ids]).mean().item()}\n")
-    #     f.write(f"obs1 s: {(asset.data.joint_pos[:, asset_cfg.joint_ids] - asset.data.default_joint_pos[:, asset_cfg.joint_ids]).std().item()}\n")
-    # print("obs1 m: ",(asset.data.joint_pos[:, asset_cfg.joint_ids] - asset.data.default_joint_pos[:, asset_cfg.joint_ids]).mean().item())
-    # print("obs1 s: ",(asset.data.joint_pos[:, asset_cfg.joint_ids] - asset.data.default_joint_pos[:, asset_cfg.joint_ids]).std().item())
     return asset.data.joint_pos[:, asset_cfg.joint_ids] - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
 
 
@@ -372,11 +250,6 @@ def joint_vel_rel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityC
     """
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
-    # with open('output_5142.txt', 'a') as f:
-    #     f.write(f"obs2 m: {(asset.data.joint_vel[:, asset_cfg.joint_ids] - asset.data.default_joint_vel[:, asset_cfg.joint_ids]).mean().item()}\n")
-    #     f.write(f"obs2 s: {(asset.data.joint_vel[:, asset_cfg.joint_ids] - asset.data.default_joint_vel[:, asset_cfg.joint_ids]).std().item()}\n")
-    # print("obs2 m:",(asset.data.joint_vel[:, asset_cfg.joint_ids] - asset.data.default_joint_vel[:, asset_cfg.joint_ids]).mean().item())
-    # print("obs2 s:",(asset.data.joint_vel[:, asset_cfg.joint_ids] - asset.data.default_joint_vel[:, asset_cfg.joint_ids]).std().item())
     return asset.data.joint_vel[:, asset_cfg.joint_ids] - asset.data.default_joint_vel[:, asset_cfg.joint_ids]
 
 
@@ -488,48 +361,11 @@ def image(
 
     # obtain the input image
     images = sensor.data.output[data_type]
-    # depth image conversion
-    # images = images[:, :, images.shape[2] // 2:, :]
-
-    # obs_image = torch.tensor(images).float().squeeze(0).cpu().numpy()  # Convert to tensor and float type
-    # obs_bgr = cv2.cvtColor(obs_image, cv2.COLOR_RGB2BGR)
-    # os.makedirs("IMAGES2", exist_ok=True)
-    # # os.makedirs("IMAGES17", exist_ok=True)
     step = 0
     step +=1
-    # # cv2.imwrite(f"./IMAGES16/observation_{time1}.png", obs_image)
-    # cv2.imwrite(f"/home/roborock/下载/{step}.png", images)
-    # import pdb
-    # pdb.set_trace()
-    # with open('output_formres9.txt', 'a') as f:
-    #     f.write(f"observation_{time1}.png\n")
-    # print(f"./IMAGES2/observation_{time1}.png")
     depth = env.scene.sensors[depth_cfg.name].data.output["distance_to_image_plane"]
-    # print("depth shape:",depth.shape)
-    # depth_np = depth.squeeze(0).squeeze(-1).cpu().numpy()  # shape [H, W]
-
-    # # 归一化到 0~255
-    # depth_norm = (depth_np - depth_np.min()) / (depth_np.max() - depth_np.min())
-    # depth_uint8 = (depth_norm * 255).astype(np.uint8)
-
-    # os.makedirs("depth_images", exist_ok=True)
-    # timestamp = time.time()
-    # cv2.imwrite(f"depth_images/depth_{timestamp}.png", depth_uint8)
     if (data_type == "distance_to_camera") and convert_perspective_to_orthogonal:
         images = math_utils.orthogonalize_perspective_depth(images, sensor.data.intrinsic_matrices)
-    # obs_np = rgb_image_tensor.squeeze(0).cpu().numpy() 
-    # # act_np = actions.cpu().numpy() 
-    # # os.makedirs(act_log_dir, exist_ok=True)
-    # # np.save(os.path.join(act_log_dir, f"act_step_{t}.npy"), act_np)
-    # if obs_np.dtype == np.float32 or obs_np.max() <= 1.0:
-    #     obs_np = (obs_np * 255).astype(np.uint8)
-
-    # # RGB 转 BGR 再保存
-    # obs_bgr = cv2.cvtColor(obs_np, cv2.COLOR_RGB2BGR)
-    # os.makedirs("IMAGES1", exist_ok=True)
-    # cv2.imwrite(f"./IMAGES1/observation_{cnt}.png", obs_bgr)
-    # print(f"./IMAGES1/observation_{cnt}.png")
-    # rgb/depth image normalization
     if normalize:
         # print(f"Normalizing images of type: {data_type}")
         if data_type == "rgb":
@@ -537,26 +373,12 @@ def image(
             mean_tensor = torch.mean(images, dim=(1, 2), keepdim=True)
             images -= mean_tensor
             
-            # images = images.float()
-
-            # obs_np2 = images.squeeze(0).cpu().numpy() 
-            # # act_np = actions.cpu().numpy() 
-            # # os.makedirs(act_log_dir, exist_ok=True)
-            # # np.save(os.path.join(act_log_dir, f"act_step_{t}.npy"), act_np)
-            # if obs_np2.dtype == np.float32 or obs_np2.max() <= 1.0:
-            #     obs_np2 = (obs_np2 * 255).astype(np.uint8)
-
-            # # RGB 转 BGR 再保存
-            # obs_bgr2 = cv2.cvtColor(obs_np2, cv2.COLOR_RGB2BGR)
-            # os.makedirs("IMAGES13", exist_ok=True)
-            # cv2.imwrite(f"./IMAGES13/observation_{time.time()}.png", obs_np2)
-            
             pass
         elif "distance_to" in data_type or "depth" in data_type:
             images[images == float("inf")] = 0
     # print("image shape11:",images.shape)
     # 深度图与RGB图拼接
-    images = torch.cat((images,depth),dim=-1)
+    images = torch.cat((images, depth), dim=-1)
     # print("image shape22:",images.shape)
     return images.clone()
 
@@ -651,19 +473,11 @@ class image_features(ManagerTermBase):
         self._model = model_config["model"]()
         self._reset_fn = model_config.get("reset")
         self._inference_fn = model_config["inference"]
-        self._prepare_pointnet_model()
-        # self.fx, self.fy = 525.0, 525.0
-        # self.cx, self.cy = 319.5, 239.5
-
-        # self.fx, self.fy = 117.78, 124.95
-        # self.cx, self.cy = 200.0, 150.0
+        # self._prepare_pointnet_model()
 
         self._frame_counter = 0
 
     def reset(self, env_ids: torch.Tensor | None = None):
-        # reset the model if a reset function is provided
-        # this might be useful when the model has a state that needs to be reset
-        # for example: video transformers
         if self._reset_fn is not None:
             self._reset_fn(self._model, env_ids)
 
@@ -884,19 +698,11 @@ class image_features(ManagerTermBase):
             points_trans = trans_points[env_id].cpu().numpy()
             save_ply(points_trans, "1_rotated")
 
-        # Apply distance filtering
-        # mask1 = rotated_points[:, :, 2] < 0.21
-        # mask2 = rotated_points[:, :, 1] > -0.0628
-        # mask3 = rotated_points[:, :, 1] < 0.0428
-
         rand_thresh = np.random.uniform(0.005, 0.01)
         # rand_thresh = np.random.uniform(-0.0003, 0.002)
         mask2 = trans_points[:,:, 0] <=0.42
-        # mask3 = trans_points[:,:, 2] >= -0.0003
         mask3 = trans_points[:,:, 2] >= rand_thresh
 
-        # mask4 = trans_points[:,:, 1] <=0.20
-        # mask5 = trans_points[:,:, 1] >=-0.20
         mask = mask2 & mask3
         # Save Stage 2: After filtering
         # if save_ply_debug:
@@ -926,13 +732,6 @@ class image_features(ManagerTermBase):
         if save_ply_debug:
             points_final = result[env_id].cpu().numpy()
             save_ply(points_final, "3_downsampled")
-        
-        # from .pointcloud_noise import add_noise
-
-        # for b in range(B):
-        #     result[b] = add_noise(result[b])
-        #         # Save Stage 3: Final downsampled
-        
         # if save_ply_debug:
         #     points_final = result[env_id].cpu().numpy()
         #     save_ply(points_final, "4_noised")
@@ -1075,14 +874,6 @@ class image_features(ManagerTermBase):
         inference_kwargs: dict | None = None,
         save_augmentation_debug: bool = False,
     ) -> torch.Tensor:
-        # obtain the images from the sensor
-        # image_data = image(
-        #     env=env,
-        #     sensor_cfg=sensor_cfg,
-        #     data_type=data_type,
-        #     convert_perspective_to_orthogonal=convert_perspective_to_orthogonal,
-        #     normalize=False,  # we pre-process based on model
-        # )
         sensor: TiledCamera | Camera | RayCasterCamera = env.scene.sensors[sensor_cfg.name]
 
         # obtain the input image
@@ -1143,35 +934,15 @@ class image_features(ManagerTermBase):
         env.point_cloud_cache = batch_points_tensor.detach()
         env._pcd_cache_step = env.common_step_counter
 
-        pts_input = batch_points_tensor.permute(0, 2, 1).contiguous()
+        pc_flat = batch_points_tensor.reshape(batch_points_tensor.shape[0], -1)   # [B, 1024*3]
+        # 缓存点云，reward/debug 继续可用
+        env.point_cloud_cache = batch_points_tensor.detach()
+        env._pcd_cache_step = env.common_step_counter
 
-        with torch.no_grad():
-            depth_features_batch = self._point_encoder(pts_input)
+        # 这里先让 ResNet 继续 freeze，所以 detach 掉图像特征是可以的
+        features = torch.cat((features.detach(), pc_flat.detach()), dim=-1)
 
-        # # Change grid_size parameter
-        # depth_features_batch = self.voxelize_pointcloud_batch(
-        #     batch_points_tensor,
-        #     grid_size=16,
-        #     x_range=(0.15, 0.5),  # Adjust these to fit your workspace
-        #     y_range=(-0.04, 0.04),
-        #     z_range=(-0.0004, 0.085),
-        #     save_debug=False,  # ← EVERY 10 STEPS
-        #     # save_debug=(self._frame_counter % 1 == 0),  # ← EVERY 10 STEPS
-        #     frame_counter=self._frame_counter
-        # )
-        
-        # import pdb
-        # pdb.set_trace()
-        
-        img_feat_norm = torch.nn.functional.normalize(features, p=2, dim=1)
-        # import pdb
-        # pdb.set_trace()
-        pc_feat_norm = torch.nn.functional.normalize(depth_features_batch, p=2, dim=1)
-        
-        features = torch.cat((features, depth_features_batch), dim=-1)
-        # features = torch.cat((img_feat_norm,pc_feat_norm), dim=-1)
-        
-        return features.detach().to(image_device)
+        return features.to(image_device)
 
     """
     Helper functions.
@@ -1235,7 +1006,6 @@ class image_features(ManagerTermBase):
         
         # Flatten spatial dimensions [B, D, H, W] -> [B, D*H*W]
         return voxels.flatten(start_dim=1)
-
 
     def _save_voxel_visualization(self, voxels: torch.Tensor, grid_size: int, frame_counter: int):
         """
@@ -1303,9 +1073,6 @@ class image_features(ManagerTermBase):
         plt.close()
         print(f"Saved voxel visualization: {save_path}")
 
-
-
-
     def _prepare_theia_transformer_model(self, model_name: str, model_device: str) -> dict:
         """Prepare the Theia transformer model for inference.
 
@@ -1349,7 +1116,6 @@ class image_features(ManagerTermBase):
         # return the model, preprocess and inference functions
         return {"model": _load_model, "inference": _inference}
 
-
     def _prepare_resnet_model(self, model_name: str, model_device: str) -> dict:
         """Prepare the ResNet model for inference.
 
@@ -1387,26 +1153,6 @@ class image_features(ManagerTermBase):
             Returns:
                 The extracted features tensor. Shape is (num_envs, feature_dim).
             """
-    #         def load_image(img_path, input_size=(224, 224)):
-    # # 读取图片
-    #             img = cv2.imread(img_path)
-    #             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    #             # resize 到模型的输入尺寸
-    #             img = cv2.resize(img, input_size)
-
-    #             # HWC -> CHW
-    #             img = img.transpose(2, 0, 1).astype(np.float32) / 255.0  # 归一化到 [0,1]
-
-    #             # ResNet ImageNet 预处理
-    #             mean = np.array([0.485, 0.456, 0.406]).reshape(3,1,1)
-    #             std  = np.array([0.229, 0.224, 0.225]).reshape(3,1,1)
-    #             img = (img - mean) / std
-
-    #             # 增加 batch 维度 (1,3,H,W)
-    #             img = np.expand_dims(img, axis=0).astype(np.float32)
-
-    #             return img
             # img = load_image("/home/roborock/docker_images_v1.8.x/docker_bushu/1.png", input_size=(224, 224))
             # images = torch.from_numpy(img)
             # move the image to the model device
@@ -1425,53 +1171,6 @@ class image_features(ManagerTermBase):
 
         # return the model, preprocess and inference functions
         return {"model": _load_model, "inference": _inference}
-
-    def _prepare_pointnet_model(self) :
-        
-        import torch.nn as nn
-
-        experiment_dir = '/home/robo/code/IsaacLab'
-        ckpt_path = f"{experiment_dir}/best_model.pth"
-
-        # ✅ 模型输入通道：原模型是 normal_channel=True（6 通道）
-        classifier = PointNet2ClsMsg(num_class=40, normal_channel=False).cuda()  
-
-        # ✅ 加载 checkpoint
-        checkpoint = torch.load(ckpt_path, map_location='cuda', weights_only=False)
-
-        # 拿出权重字典
-        state_dict = checkpoint['model_state_dict']
-
-        # ✅ 加载修正后的权重
-        classifier.load_state_dict(state_dict, strict=False)
-        # print("[INFO] Missing keys:", missing)
-        # print("[INFO] Unexpected keys:", unexpected)
-
-        classifier.eval()
-
-        # ✅ 仅保留特征提取部分（encoder）
-        class PointNet2Encoder(nn.Module):
-            def __init__(self, base_model):
-                super().__init__()
-                self.normal_channel = True  # 我们只输入 XYZ
-                self.sa1 = base_model.sa1
-                self.sa2 = base_model.sa2
-                self.sa3 = base_model.sa3
-
-            def forward(self, xyz):
-                B, _, _ = xyz.shape
-                norm = None
-                l1_xyz, l1_points = self.sa1(xyz, norm)
-                # import pdb
-                # pdb.set_trace()
-                l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
-                l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-                features = l3_points.view(B, 1024)
-                return features
-
-        self._point_encoder = PointNet2Encoder(classifier).cuda().eval()
-            
-
 
 """
 Actions.
@@ -1502,7 +1201,6 @@ def randomize_pointcloud_batch_torch(
         offset = torch.rand(num_outliers, device=device, dtype=pts.dtype) * outlier_max_offset
         pts[b].index_add_(0, idx, torch.stack([offset, torch.zeros_like(offset), torch.zeros_like(offset)], dim=1))
 
-
     jitter = torch.randn_like(pts) * surface_jitter
     pts = pts + jitter
 
@@ -1516,18 +1214,8 @@ def last_action(env: ManagerBasedEnv, action_name: str | None = None) -> torch.T
     entire action tensor is returned.
     """
     if action_name is None:
-        # with open('output_5142.txt', 'a') as f:
-        #     f.write(f"obs5 m: {(env.action_manager.action).mean().item()}\n")
-        #     f.write(f"obs5 s: {(env.action_manager.action).std().item()}\n")
-        # print("obs5 m:",(env.action_manager.action).mean().item())
-        # print("obs5 s:",(env.action_manager.action).std().item())
         return env.action_manager.action
     else:
-        # with open('output_5142.txt', 'a') as f:
-        #     f.write(f"obs5 m: {(env.action_manager.get_term(action_name).raw_actions).mean().item()}\n")
-        #     f.write(f"obs5 s: {(env.action_manager.get_term(action_name).raw_actions).std().item()}\n")
-        # print("obs5 m:",(env.action_manager.get_term(action_name).raw_actions).mean().item())
-        # print("obs5 s:",(env.action_manager.get_term(action_name).raw_actions).std().item())
         return env.action_manager.get_term(action_name).raw_actions
 
 
@@ -1538,14 +1226,4 @@ Commands.
 
 def generated_commands(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
     """The generated command from command term in the command manager with the given name."""
-
-    # with open('output_5142.txt', 'a') as f:
-    #     f.write(f"obs4 m: {(env.command_manager.get_command(command_name)).mean().item()}\n")
-    #     f.write(f"obs4 s: {(env.command_manager.get_command(command_name)).std().item()}\n")
-    # print("obs4 m:",(env.command_manager.get_command(command_name)).mean().item())
-    # print("obs4 s:",(env.command_manager.get_command(command_name)).std().item())
     return env.command_manager.get_command(command_name)
-
-
-
-

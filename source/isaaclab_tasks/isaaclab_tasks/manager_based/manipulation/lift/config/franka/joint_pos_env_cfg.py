@@ -212,30 +212,30 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.01, 0.06)),
                 ),
 
-                "slippers_m5_0": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/slippers_m5_0_you_shang",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper_top/slipper.usdc",
-                        scale=(1.0, 1.0, 1.0),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            # max_depenetration_velocity=10.0,  # CRITICAL: Limit depenetration speed
-                            disable_gravity=False,
-                        ),
-                        mass_props=sim_utils.MassPropertiesCfg(
-                            mass=0.001,  
-                        ),
-                        # collision_props=sim_utils.CollisionPropertiesCfg(
-                        #     contact_offset=0.002,  # Start collision detection at 2mm
-                        #     rest_offset=0.0,       # Rest at surface contact
-                        # ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.0, 0.08), rot=(0.7071, 0, 0, -0.7071)),
-                ),
+                # "slippers_m5_0": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/slippers_m5_0_you_shang",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper_top/slipper.usdc",
+                #         scale=(1.0, 1.0, 1.0),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=32,
+                #              # max_depenetration_velocity=10.0,  # CRITICAL: Limit depenetration speed
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.001,  
+                #         ),
+                #         # collision_props=sim_utils.CollisionPropertiesCfg(
+                #         #     contact_offset=0.002,  # Start collision detection at 2mm
+                #         #     rest_offset=0.0,       # Rest at surface contact
+                #         # ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.0, 0.08), rot=(0.7071, 0, 0, -0.7071)),
+                # ),
 
                 "lego": RigidObjectCfg(
                     prim_path="{ENV_REGEX_NS}/lego",
@@ -257,7 +257,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "renzituo": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/renzituo",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/renzituo/renzituo.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/renzituo/renzituo.usdc",
                 #         scale=(1.0, 1.0, 1.3),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -276,7 +276,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "slippers": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/slippers",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/slipper/slipper.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/slipper/slipper.usdc",
                 #         scale=(1.0, 1.1, 1.3),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -300,7 +300,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "baisetuoxie": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/baisetuoxie",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
                 #         scale=(1.0, 1.0, 1.0),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -319,7 +319,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "baiseyundongxie": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/baiseyundongxie",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/baiseyundongxie/baiseyundongxie.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baiseyundongxie/baiseyundongxie.usdc",
                 #         scale=(1.0, 1.0, 1.0),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -338,7 +338,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "zongsepixie": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/fensemiantuo",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/zongsepixie/zongsepixie.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/zongsepixie/zongsepixie.usdc",
                 #         scale=(1.0, 1.0, 1.0),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -359,7 +359,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "fensemiantuo": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/fensemiantuo",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/fensemiantuo/fensemiantuo.usdc",
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/fensemiantuo/fensemiantuo.usdc",
                 #         scale=(1.0, 1.0, 1.0),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,

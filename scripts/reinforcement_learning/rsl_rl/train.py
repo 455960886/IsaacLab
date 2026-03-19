@@ -38,6 +38,20 @@ parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy 
 parser.add_argument(
     "--distributed", action="store_true", default=False, help="Run training with multiple GPUs or nodes."
 )
+parser.add_argument(
+    "--finetune_compat_load",
+    action="store_true",
+    default=False,
+    help="Partially load checkpoint for finetuning when model structure changed. "
+         "Only matched model weights are loaded; optimizer and iteration are not restored.",
+)
+parser.add_argument(
+    "--stagewise_pointnet_finetune",
+    action="store_true",
+    default=False,
+    help="Load model weights strictly but skip optimizer state, for stage-wise PointNet finetuning.",
+)
+
 # append RSL-RL cli arguments
 # 加入 RSL-RL 库中定义的一些标准训练参数（比如 policy 网络结构、优化器配置等）。
 cli_args.add_rsl_rl_args(parser)
@@ -195,8 +209,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # load the checkpoint
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
-        # load previously trained model
-        runner.load(resume_path)
+
+        if args_cli.stagewise_pointnet_finetune:
+            print("[INFO]: Using stagewise PointNet finetune load mode.")
+            print("[INFO]: Model weights will be loaded strictly.")
+            print("[INFO]: Optimizer state will NOT be loaded.")
+            print("[INFO]: Iteration counter will be restored from checkpoint.")
+            runner.load_for_stagewise_pointnet_finetune(resume_path, keep_iteration=True)
+        else:
+            print("[INFO]: Using normal resume load mode.")
+            runner.load(resume_path)
 
     # dump the configuration into log-directory
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
