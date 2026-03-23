@@ -433,46 +433,53 @@ class image_features(ManagerTermBase):
         self.model_zoo_cfg: dict = cfg.params.get("model_zoo_cfg")  # type: ignore
         self.model_name: str = cfg.params.get("model_name", "resnet18")  # type: ignore
         self.model_device: str = cfg.params.get("model_device", env.device)  # type: ignore
+        self.output_raw_image: bool = cfg.params.get("output_raw_image", False)  # type: ignore
+        self.raw_image_size: tuple[int, int] = tuple(cfg.params.get("raw_image_size", (360, 640)))  # type: ignore
 
-        # List of Theia models - These are configured through `_prepare_theia_transformer_model` function
-        default_theia_models = [
-            "theia-tiny-patch16-224-cddsv",
-            "theia-tiny-patch16-224-cdiv",
-            "theia-small-patch16-224-cdiv",
-            "theia-base-patch16-224-cdiv",
-            "theia-small-patch16-224-cddsv",
-            "theia-base-patch16-224-cddsv",
-        ]
-        # List of ResNet models - These are configured through `_prepare_resnet_model` function
-        default_resnet_models = ["resnet18", "resnet34", "resnet50", "resnet101"]
+        if not self.output_raw_image:
+            # List of Theia models - These are configured through `_prepare_theia_transformer_model` function
+            default_theia_models = [
+                "theia-tiny-patch16-224-cddsv",
+                "theia-tiny-patch16-224-cdiv",
+                "theia-small-patch16-224-cdiv",
+                "theia-base-patch16-224-cdiv",
+                "theia-small-patch16-224-cddsv",
+                "theia-base-patch16-224-cddsv",
+            ]
+            # List of ResNet models - These are configured through `_prepare_resnet_model` function
+            default_resnet_models = ["resnet18", "resnet34", "resnet50", "resnet101"]
 
-        # Check if model name is specified in the model zoo configuration
-        if self.model_zoo_cfg is not None and self.model_name not in self.model_zoo_cfg:
-            raise ValueError(
-                f"Model name '{self.model_name}' not found in the provided model zoo configuration."
-                " Please add the model to the model zoo configuration or use a different model name."
-                f" Available models in the provided list: {list(self.model_zoo_cfg.keys())}."
-                "\nHint: If you want to use a default model, consider using one of the following models:"
-                f" {default_theia_models + default_resnet_models}. In this case, you can remove the"
-                " 'model_zoo_cfg' parameter from the observation term configuration."
-            )
-        if self.model_zoo_cfg is None:
-            if self.model_name in default_theia_models:
-                model_config = self._prepare_theia_transformer_model(self.model_name, self.model_device)
-            elif self.model_name in default_resnet_models:
-                model_config = self._prepare_resnet_model(self.model_name, self.model_device)
-            else:
+            # Check if model name is specified in the model zoo configuration
+            if self.model_zoo_cfg is not None and self.model_name not in self.model_zoo_cfg:
                 raise ValueError(
-                    f"Model name '{self.model_name}' not found in the default model zoo configuration."
-                    f" Available models: {default_theia_models + default_resnet_models}."
+                    f"Model name '{self.model_name}' not found in the provided model zoo configuration."
+                    " Please add the model to the model zoo configuration or use a different model name."
+                    f" Available models in the provided list: {list(self.model_zoo_cfg.keys())}."
+                    "\nHint: If you want to use a default model, consider using one of the following models:"
+                    f" {default_theia_models + default_resnet_models}. In this case, you can remove the"
+                    " 'model_zoo_cfg' parameter from the observation term configuration."
                 )
-        else:
-            model_config = self.model_zoo_cfg[self.model_name]
+            if self.model_zoo_cfg is None:
+                if self.model_name in default_theia_models:
+                    model_config = self._prepare_theia_transformer_model(self.model_name, self.model_device)
+                elif self.model_name in default_resnet_models:
+                    model_config = self._prepare_resnet_model(self.model_name, self.model_device)
+                else:
+                    raise ValueError(
+                        f"Model name '{self.model_name}' not found in the default model zoo configuration."
+                        f" Available models: {default_theia_models + default_resnet_models}."
+                    )
+            else:
+                model_config = self.model_zoo_cfg[self.model_name]
 
-        # Retrieve the model, preprocess and inference functions
-        self._model = model_config["model"]()
-        self._reset_fn = model_config.get("reset")
-        self._inference_fn = model_config["inference"]
+            # Retrieve the model, preprocess and inference functions
+            self._model = model_config["model"]()
+            self._reset_fn = model_config.get("reset")
+            self._inference_fn = model_config["inference"]
+        else:
+            self._model = None
+            self._reset_fn = None
+            self._inference_fn = None
         # self._prepare_pointnet_model()
 
         self._frame_counter = 0
@@ -873,6 +880,8 @@ class image_features(ManagerTermBase):
         model_device: str | None = None,
         inference_kwargs: dict | None = None,
         save_augmentation_debug: bool = False,
+        output_raw_image: bool = False,
+        raw_image_size: tuple[int, int] = (360, 640),
     ) -> torch.Tensor:
         sensor: TiledCamera | Camera | RayCasterCamera = env.scene.sensors[sensor_cfg.name]
 
@@ -899,21 +908,19 @@ class image_features(ManagerTermBase):
         save_ply_debug = False  # <-- Set this to True/False to control all debug output
 
         # Apply domain randomization with unified debug flag
-        images = self._apply_domain_randomization(
-            images,
-            save_debug=save_ply_debug,  # Use unified flag
-            step_counter=self._frame_counter,
-            env_id=0,
-            save_dir="debug_pointclouds"
-        )
+        # images = self._apply_domain_randomization(
+        #     images,
+        #     save_debug=save_ply_debug,  # Use unified flag
+        #     step_counter=self._frame_counter,
+        #     env_id=0,
+        #     save_dir="debug_pointclouds"
+        # )
 
         # import pdb
         # pdb.set_trace()
 
         # store the device of the image
         image_device = images.device
-        # forward the images through the model
-        features = self._inference_fn(self._model, images, **(inference_kwargs or {}))
 
         # Generate point clouds on GPU in one batch
         batch_points_tensor = self.depth_to_pointcloud_batch_gpu(
@@ -939,9 +946,19 @@ class image_features(ManagerTermBase):
         env.point_cloud_cache = batch_points_tensor.detach()
         env._pcd_cache_step = env.common_step_counter
 
-        # 这里先让 ResNet 继续 freeze，所以 detach 掉图像特征是可以的
-        features = torch.cat((features.detach(), pc_flat.detach()), dim=-1)
+        if output_raw_image:
+            images_nchw = images.permute(0, 3, 1, 2).float()
+            if tuple(images_nchw.shape[-2:]) != tuple(raw_image_size):
+                images_nchw = torchvision.transforms.functional.resize(
+                    images_nchw,
+                    list(raw_image_size),
+                    antialias=True,
+                )
+            img_obs = images_nchw.permute(0, 2, 3, 1).contiguous().reshape(images.shape[0], -1)
+        else:
+            img_obs = self._inference_fn(self._model, images, **(inference_kwargs or {}))
 
+        features = torch.cat((img_obs.detach(), pc_flat.detach()), dim=-1)
         return features.to(image_device)
 
     """

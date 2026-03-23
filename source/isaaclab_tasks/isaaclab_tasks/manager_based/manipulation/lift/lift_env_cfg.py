@@ -154,6 +154,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         width=243,
         height=90,
         debug_vis=False,
+        update_period=0.4,
     )
 
     gripper_camera: TiledCameraCfg = TiledCameraCfg(
@@ -173,7 +174,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         width=640,
         height=480,
         debug_vis=False,
-        update_period=0.15,
+        update_period=0.4,
     )
 
     contact_forces_left = ContactSensorCfg(
@@ -231,7 +232,7 @@ class ResNet18ObservationCfg:
 
     @configclass
     class ResNet18FeaturesCameraPolicyCfg(ObsGroup):
-        """Observations for policy group with features extracted from RGB images with a frozen ResNet18."""
+        """Observations for policy group with RGB images encoded by a policy-side ResNet18."""
 
         image = ObsTerm(
             func=mdp.image_features,
@@ -240,6 +241,8 @@ class ResNet18ObservationCfg:
                 "data_type": "rgb",
                 "model_name": "resnet18",
                 "depth_cfg": SceneEntityCfg("depth_camera"),
+                "output_raw_image": True,
+                "raw_image_size": (360, 640),
             },
         )
         joint_pos = ObsTerm(
@@ -288,7 +291,7 @@ class EventCfg:
 
     object_pool_spawn = EventTerm(
         func=mdp.randomize_object_pool_selection,
-        mode="reset",
+        mode="startup",
         params={"asset_cfg": SceneEntityCfg("object_pool")},
     )
 
@@ -313,7 +316,7 @@ class EventCfg:
     randomize_lighting_interval = EventTerm(
         func=mdp.randomize_global_sphere_lights,
         mode="interval",
-        interval_range_s=(0.3, 0.3),  # Randomize every 0.1 seconds
+        interval_range_s=(1.5, 1.5),  # Randomize every 0.1 seconds
         is_global_time=True,
         params={
             "light_paths": ["/World/GlobalLight_0", "/World/GlobalLight_1", "/World/GlobalLight_2"],
@@ -440,7 +443,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=64, env_spacing=4)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=32, env_spacing=4)
     observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()

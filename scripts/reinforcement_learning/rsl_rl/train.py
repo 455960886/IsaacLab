@@ -210,7 +210,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
 
-        if args_cli.stagewise_pointnet_finetune:
+        if args_cli.finetune_compat_load:
+            print("[INFO]: Using finetune compatibility load mode.")
+            print("[INFO]: Only matched model weights will be loaded.")
+            print("[INFO]: Optimizer state will NOT be loaded.")
+            print("[INFO]: Iteration counter will be reset for finetuning.")
+            runner.load_for_finetune(resume_path, reset_iteration=True)
+        elif args_cli.stagewise_pointnet_finetune:
             print("[INFO]: Using stagewise PointNet finetune load mode.")
             print("[INFO]: Model weights will be loaded strictly.")
             print("[INFO]: Optimizer state will NOT be loaded.")
