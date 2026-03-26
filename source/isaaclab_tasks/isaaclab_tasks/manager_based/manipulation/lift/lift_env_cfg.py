@@ -255,17 +255,31 @@ class ResNet18ObservationCfg:
                 "debug_every": 200,
             },
         )
-        # joint_pos = ObsTerm(
-        #     func=mdp.joint_pos,
-        #     params={
-        #         "asset_cfg": SceneEntityCfg(
-        #             "robot",
-        #             joint_names=["M[345]", "M6_.*"],
-        #         )
-        #     },
-        # )
+
+    @configclass
+    class CriticPrivilegedObsCfg(ObsGroup):
+        """Low-dimensional privileged observations for critic only."""
+
+        joint_pos = ObsTerm(
+            func=mdp.joint_pos_with_binary_m6_latched,
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=["M[345]", "M6_.*"]),
+                "action_name": "gripper_action",
+                "action_index": 0,
+                "m6_open_value": 1,
+                "m6_close_value": 0,
+                "toggle_threshold": 0,
+                "debug": False,
+                "debug_every": 200,
+            },
+        )
+        object_yaw = ObsTerm(
+            func=mdp.active_object_yaw,
+            params={"object_cfg": SceneEntityCfg("object_pool")},
+        )
 
     policy: ObsGroup = ResNet18FeaturesCameraPolicyCfg()
+    critic: ObsGroup = CriticPrivilegedObsCfg()
 
 
 @configclass
