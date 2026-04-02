@@ -5,6 +5,8 @@
 
 from dataclasses import MISSING
 
+import math
+
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, DeformableObjectCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
@@ -222,6 +224,7 @@ class CommandsCfg:
 class ActionsCfg:
     """Action specifications for the MDP."""
     arm_action: mdp.RelativeJointPositionActionCfg | mdp.DifferentialInverseKinematicsActionCfg | mdp.JointPositionActionCfg = MISSING
+    wrist_action: mdp.JointPositionActionCfg | None = None
     gripper_action: mdp.BinaryJointPositionActionCfg = MISSING
 
 
@@ -302,7 +305,7 @@ class EventCfg:
 
     object_pool_spawn = EventTerm(
         func=mdp.randomize_object_pool_selection,
-        mode="startup",
+        mode="reset",
         params={"asset_cfg": SceneEntityCfg("object_pool")},
     )
 
@@ -311,14 +314,94 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": (-0.03, 0.05),
+                "x": (-0.03, 0.02),
                 # "x": (-0.03, 0.1),
                 "y": (-0.015, 0.015),
                 "z": (0.0, 0.0),
                 "roll": (0.0, 0.0),
                 "pitch": (0, 0),
-                "yaw": (-3.0, 0.15),
+                "yaw": (-3.0, 0.015),
             },
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("object_pool"),
+        },
+    )
+
+    # reset_object_position_slippers_m5_top1 = EventTerm(
+    #     func=mdp.reset_object_pool_state_uniform_for_object1,
+    #     mode="reset",
+    #     params={
+    #         "object_names": ["baisetuoxie"],
+    #         "pose_range": {
+    #             "x": (0.02, 0.05),
+    #             "y": (-0.04, -0.01),
+    #             "z": (0.0, 0.0),
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0, 0),
+    #             "yaw": (0.0, 0.0),
+    #         },
+    #         # "yaw_ranges": [(-1.0, 0.0), (-6.28, -5.28)],  # Two separate yaw ranges to encourage top-down and side orientations
+    #         "yaw_ranges": [(-1.0, 0.0)],
+    #         "velocity_range": {},
+    #         "asset_cfg": SceneEntityCfg("object_pool"),
+    #     },
+    # )
+
+    # reset_object_position_slippers_m5_top2 = EventTerm(
+    #     func=mdp.reset_object_pool_state_uniform_for_object2,
+    #     mode="reset",
+    #     params={
+    #         "object_names": ["fensemiantuo"],
+    #         "pose_range": {
+    #             "x": (0.02, 0.05),
+    #             "y": (-0.02, 0.01),
+    #             "z": (0.0, 0.0),
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0, 0),
+    #             "yaw": (0.0, 0.0),
+    #         },
+    #         "yaw_ranges": [(-1.0, 0.0), (-6.28, -5.28)],  # Two separate yaw ranges to encourage top-down and side orientations
+    #         # "yaw_ranges": [(-1.0, 0.0)],
+    #         "velocity_range": {},
+    #         "asset_cfg": SceneEntityCfg("object_pool"),
+    #     },
+    # )
+
+    # reset_object_position_slippers_m5_top3 = EventTerm(
+    #     func=mdp.reset_object_pool_state_uniform_for_object3,
+    #     mode="reset",
+    #     params={
+    #         "object_names": ["slippers_m5_0"],
+    #         "pose_range": {
+    #             "x": (-0.01, 0.03),
+    #             "y": (-0.01, 0.01),
+    #             "z": (0.0, 0.0),
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0, 0),
+    #             "yaw": (0.0, 0.0),
+    #         },
+    #         "yaw_ranges": [(-0.5, 0.0), (-6.1, -5.6)],  # Two separate yaw ranges to encourage top-down and side orientations
+    #         # "yaw_ranges": [(-1.1, 0.0)],
+    #         "velocity_range": {},
+    #         "asset_cfg": SceneEntityCfg("object_pool"),
+    #     },
+    # )
+
+    reset_object_position_slippers_m5_top4 = EventTerm(
+        func=mdp.reset_object_pool_state_uniform_for_object4,
+        mode="reset",
+        params={
+            "object_names": ["slippers"],
+            "pose_range": {
+                "x": (-0.05, 0.01),
+                "y": (-0.01, 0.01),
+                "z": (0.0, 0.0),
+                "roll": (0.0, 0.0),
+                "pitch": (0, 0),
+                "yaw": (0.0, 0.0),
+            },
+            "yaw_ranges": [(-0.8, 0.0), (-6.1, -5.5)],  # Two separate yaw ranges to encourage top-down and side orientations
+            # "yaw_ranges": [(-1.1, 0.0)],
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object_pool"),
         },
@@ -408,6 +491,8 @@ class RewardsCfg:
         func=mdp.wrist_object_orientation_alignment,
         params={
             "std": 0.5,  # Smaller = sharper reward peak (more precise alignment required)
+            "peak_shift_object_names": ["baisetuoxie", "fensemiantuo"],  # Objects that benefit from a specific wrist orientation
+            "peak_shift_value": math.pi / 2,
         },
         weight=5.0,  # Positive reward for good alignment
     )

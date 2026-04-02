@@ -85,12 +85,20 @@ if args_cli.distributed and version.parse(installed_version) < version.parse(RSL
 """Rest everything follows."""
 
 import gymnasium as gym
+import pathlib
 import os
 import torch
 from datetime import datetime
 
+import git
+
 # RSL-RL 的训练循环逻辑（rsl_rl/runners/on_policy_runner.py）
 from rsl_rl.runners import OnPolicyRunner
+import rsl_rl.runners.on_policy_runner as rsl_on_policy_runner
+
+from positive_m5_actor_critic import PositiveM5ActorCritic
+
+rsl_on_policy_runner.PositiveM5ActorCritic = PositiveM5ActorCritic
 
 from isaaclab.envs import (
     DirectMARLEnv,
@@ -109,6 +117,37 @@ from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
 # PLACEHOLDER: Extension template (do not remove this comment)
+
+
+def _store_code_state_safe(logdir: str, repositories: list[str]) -> list[str]:
+    """Store git state without failing on surrogate bytes returned by GitPython."""
+    git_log_dir = os.path.join(logdir, "git")
+    os.makedirs(git_log_dir, exist_ok=True)
+    file_paths = []
+
+    for repository_file_path in repositories:
+        try:
+            repo = git.Repo(repository_file_path, search_parent_directories=True)
+            commit_tree = repo.head.commit.tree
+        except Exception:
+            print(f"Could not find git repository in {repository_file_path}. Skipping.")
+            continue
+
+        repo_name = pathlib.Path(repo.working_dir).name
+        diff_file_name = os.path.join(git_log_dir, f"{repo_name}.diff")
+        if os.path.isfile(diff_file_name):
+            continue
+
+        print(f"Storing git diff for '{repo_name}' in: {diff_file_name}")
+        content = f"--- git status ---\n{repo.git.status()} \n\n\n--- git diff ---\n{repo.git.diff(commit_tree)}"
+        with open(diff_file_name, "w", encoding="utf-8", errors="backslashreplace") as file:
+            file.write(content)
+        file_paths.append(diff_file_name)
+
+    return file_paths
+
+
+rsl_on_policy_runner.store_code_state = _store_code_state_safe
 
 
 # hydra_task_config 会从配置文件加载环境 & agent 配置。
@@ -190,8 +229,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # create runner from rsl-rl
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
-    # write git state to logs
-    runner.add_git_repo_to_log(__file__)
+    # Optionally skip git snapshots for tasks that opt out of code-state logging.
+    if getattr(agent_cfg, "store_code_state", True):
+        runner.add_git_repo_to_log(__file__)
+    else:
+        runner.git_status_repos = []
     # load the checkpoint
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")

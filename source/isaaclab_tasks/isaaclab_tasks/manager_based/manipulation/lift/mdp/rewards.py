@@ -412,6 +412,30 @@ def get_excluded_object_mask(
     return excluded_mask
 
 
+def get_active_object_name_mask(
+    env: ManagerBasedRLEnv,
+    object_names: list[str] | None,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+) -> torch.Tensor:
+    """Return a mask for environments whose active object matches any exact name in ``object_names``."""
+    if not object_names:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    object_collection = env.scene[object_cfg.name]
+    active_indices = env.active_object_indices
+
+    matched_ids = [
+        object_collection.object_names.index(name)
+        for name in object_names
+        if name in object_collection.object_names
+    ]
+    if not matched_ids:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    matched_ids_tensor = torch.tensor(matched_ids, dtype=torch.long, device=env.device)
+    return (active_indices[:, None] == matched_ids_tensor[None, :]).any(dim=1)
+
+
 def pcd_contain_object(
     env: ManagerBasedRLEnv,
     sensor_cfg_name: str = "depth_camera",
@@ -882,6 +906,8 @@ def wrist_object_orientation_alignment(
     std: float = 0.2,  # 越小越严格（单位：弧度），0.2rad≈11.5°
     object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    peak_shift_object_names: list[str] | None = None,
+    peak_shift_value: float = math.pi / 2,
     debug: bool = False,
 ) -> torch.Tensor:
     _, active_quat_w = get_active_object_states(env, object_cfg)
@@ -891,18 +917,120 @@ def wrist_object_orientation_alignment(
     object_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     robot = env.scene[asset_cfg.name]
+
     m5_idx = robot.joint_names.index("M5")
     wrist_yaw = robot.data.joint_pos[:, m5_idx]
 
-    # ✅ 关键：用 wrap-to-pi 得到最短角差（并且用“差”而不是 cos 的偶次方）
-    # print(f"object_yaw: {object_yaw}")
-    # print(f"wrist_yaw: {wrist_yaw}")
-    # print(f"raw diff: {object_yaw + wrist_yaw}")  # 你原来是 +，如果物理上应是减号就改成 object_yaw - wrist_yaw
-    diff = object_yaw + wrist_yaw   # 你原来是 +，如果物理上应是减号就改成 object_yaw - wrist_yaw
-    diff = torch.atan2(torch.sin(diff), torch.cos(diff))  # wrap to [-pi, pi]
-    angle_diff = torch.abs(diff)
+    # M5 only moves in [0, pi]. Use the active object yaw as the nominal wrist target,
+    # then optionally shift the Gaussian peak for a configured subset of objects.
+    target_wrist_yaw = -object_yaw
 
-    # 高斯奖励：在 0 处峰值为 1，偏差越大衰减越快；std 控制“严格程度”
+    raw_diff = wrist_yaw - target_wrist_yaw
+    peak_shift = torch.where(
+        get_active_object_name_mask(env, peak_shift_object_names, object_cfg),
+        torch.full_like(raw_diff, peak_shift_value),
+        torch.zeros_like(raw_diff),
+    )
+
+    slippers_mask = get_active_object_name_mask(env, ["slippers"], object_cfg)
+    slippers_peak_shift = torch.where(
+        target_wrist_yaw < 0,
+        torch.full_like(raw_diff, math.pi),
+        torch.zeros_like(raw_diff),
+    )
+    peak_shift = torch.where(slippers_mask, slippers_peak_shift, peak_shift)
+
+    centered_diff = torch.atan2(torch.sin(raw_diff - peak_shift), torch.cos(raw_diff - peak_shift))  # wrap to [-pi, pi]
+    angle_diff = torch.abs(centered_diff)
+
+    # 高斯奖励：默认在 diff=0 处峰值为 1；特殊物体可通过 peak_shift_value 将峰值平移。
     reward = torch.exp(-0.5 * (angle_diff / std) ** 2)
 
+    if debug:
+        peak_raw_diff = peak_shift
+        peak_raw_diff_deg = peak_raw_diff * (180.0 / math.pi)
+        angle_diff_deg = angle_diff * (180.0 / math.pi)
+        std_deg = std * (180.0 / math.pi)
+        print(
+            f"[腕部朝向奖励调试]\n"
+            f"1. 原始角差公式: raw_diff = wrist_yaw - target_wrist_yaw\n"
+            f"   target_wrist_yaw = {target_wrist_yaw}\n"
+            f"   wrist_yaw        = {wrist_yaw}\n"
+            f"   raw_diff         = {raw_diff}\n"
+            f"2. reward 峰值对应的原始角差: raw_diff_peak = peak_shift\n"
+            f"   peak_shift       = {peak_raw_diff} rad ({peak_raw_diff_deg} deg)\n"
+            f"   含义: 当 raw_diff 接近这个值时，reward 最大。\n"
+            f"3. 真正用于奖励的角差:\n"
+            f"   centered_diff = wrap_to_pi(raw_diff - peak_shift)\n"
+            f"   centered_diff   = {centered_diff}\n"
+            f"   |centered_diff| = {angle_diff} rad ({angle_diff_deg} deg)\n"
+            f"4. 奖励公式:\n"
+            f"   reward = exp(-0.5 * (|centered_diff| / {std:.4f})^2)\n"
+            f"   当前 reward     = {reward}\n"
+            f"   当前 std        = {std:.4f} rad ({std_deg:.2f} deg)\n"
+            f"5. 参考尺度:\n"
+            f"   |centered_diff| = 0        -> reward = 1.000\n"
+            f"   |centered_diff| = 1 * std  -> reward = {math.exp(-0.5):.3f}\n"
+            f"   |centered_diff| = 2 * std  -> reward = {math.exp(-2.0):.3f}\n"
+            f"   |centered_diff| = 3 * std  -> reward = {math.exp(-4.5):.3f}",
+            flush=True,
+        )
+
     return reward
+
+
+def debug_m5_episode_range(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Debug helper: print per-episode M5 min/max and runtime limits."""
+    robot = env.scene[asset_cfg.name]
+    m5_idx = robot.joint_names.index("M5")
+    m5 = robot.data.joint_pos[:, m5_idx]
+
+    min_attr = "_debug_m5_ep_min"
+    max_attr = "_debug_m5_ep_max"
+
+    ep_min = getattr(env, min_attr, None)
+    ep_max = getattr(env, max_attr, None)
+
+    need_init = (
+        (not torch.is_tensor(ep_min))
+        or (not torch.is_tensor(ep_max))
+        or (ep_min.shape != (env.num_envs,))
+        or (ep_max.shape != (env.num_envs,))
+        or (ep_min.device != env.device)
+        or (ep_max.device != env.device)
+    )
+
+    if need_init:
+        ep_min = m5.clone()
+        ep_max = m5.clone()
+    else:
+        first_step_mask = env.episode_length_buf <= 1
+        ep_min = torch.where(first_step_mask, m5, torch.minimum(ep_min, m5))
+        ep_max = torch.where(first_step_mask, m5, torch.maximum(ep_max, m5))
+
+    reset_mask = getattr(env, "reset_buf", None)
+    if torch.is_tensor(reset_mask) and reset_mask.any():
+        soft_limits = robot.data.soft_joint_pos_limits[:, m5_idx, :]
+        done_ids = reset_mask.nonzero(as_tuple=False).squeeze(-1)
+        for env_id in done_ids.tolist():
+            m5_min = ep_min[env_id].item()
+            m5_max = ep_max[env_id].item()
+            low = soft_limits[env_id, 0].item()
+            high = soft_limits[env_id, 1].item()
+            ep_len = int(env.episode_length_buf[env_id].item())
+            print(
+                f"[M5 DEBUG] env={env_id} ep_len={ep_len} "
+                f"min={m5_min:.4f} rad ({m5_min * 57.2958:.1f} deg) "
+            )
+
+        ep_min = ep_min.clone()
+        ep_max = ep_max.clone()
+        ep_min[done_ids] = m5[done_ids]
+        ep_max[done_ids] = m5[done_ids]
+
+    setattr(env, min_attr, ep_min)
+    setattr(env, max_attr, ep_max)
+    return torch.zeros(env.num_envs, device=env.device)
