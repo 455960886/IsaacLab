@@ -52,6 +52,11 @@ import copy
 import torch
 import cv2
 from rsl_rl.runners import OnPolicyRunner
+import rsl_rl.runners.on_policy_runner as rsl_on_policy_runner
+
+from positive_m5_actor_critic import PositiveM5ActorCritic
+
+rsl_on_policy_runner.PositiveM5ActorCritic = PositiveM5ActorCritic
 import numpy as np
 
 from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
@@ -288,7 +293,7 @@ def main():
     # obs = img_tensor.unsqueeze(0)
     # 推理阶段继续使用与 env 一致的 device（不要重新覆盖）
     # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # save_dir = "/home/roborock/下载/"
+    save_dir = "/home/roborock/下载/"
     # reset environment
     obs, _ = env.get_observations()
     obs = obs.to(device)
@@ -321,21 +326,24 @@ def main():
             )
 
             obs, _, dones, infos = env.step(actions)
+            env0 = 0
+            tail5 = obs[env0, -5:].detach().float().cpu().numpy()
+            print(f"[OBS] env={env0} last5 = {tail5}")
 
             # step 计数更新：每一步所有 env 的 ep_step 都 +1
             ep_step += 1
             global_step += 1
 
             # 如果某些 env done，打印并对这些 env 重置 ep_step，ep_id+1
-            if torch.any(dones):
-                done_ids = torch.nonzero(dones, as_tuple=False).squeeze(-1).cpu().numpy()
-                for eid in done_ids:
-                    print(f"[PLAY] env={eid} episode结束：ep={ep_id[eid]} 总步数={ep_step[eid]}")
-                    ep_id[eid] += 1
-                    ep_step[eid] = 0
+            # if torch.any(dones):
+            #     done_ids = torch.nonzero(dones, as_tuple=False).squeeze(-1).cpu().numpy()
+            #     for eid in done_ids:
+            #         print(f"[PLAY] ✅ env={eid} episode结束：ep={ep_id[eid]} 总步数={ep_step[eid]}")
+            #         ep_id[eid] += 1
+            #         ep_step[eid] = 0
 
         # # time delay for real-time evaluation
-        time.sleep(0.6)
+        # time.sleep(0.6)
 
     # close the simulator
     env.close()

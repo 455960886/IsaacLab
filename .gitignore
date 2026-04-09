@@ -72,3 +72,4 @@ tests/
 *.zip
 *.txt
 assets1/
+assets/toy1/toy.obj
