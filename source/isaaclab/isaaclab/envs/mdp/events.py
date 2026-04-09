@@ -1802,16 +1802,11 @@ def randomize_object_pool_selection(
     asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
     balanced: bool = True,
 ):
-
-    import omni.usd
-    from pxr import UsdGeom, UsdPhysics, PhysxSchema
-
     if env_ids is None:
         env_ids = torch.arange(env.num_envs, device=env.device)
 
     object_collection = env.scene[asset_cfg.name]
     num_objects = len(object_collection.object_names)
-    stage = omni.usd.get_context().get_stage()
 
     if not hasattr(env, 'active_object_indices'):
         env.active_object_indices = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
@@ -1840,40 +1835,40 @@ def randomize_object_pool_selection(
         env.active_object_indices[env_idx] = active_idx
 
         for obj_idx in range(num_objects):
-            obj_name = object_collection.object_names[obj_idx]
-            obj_cfg = list(env.cfg.scene.object_pool.rigid_objects.values())[obj_idx]
-            obj_prim_path = obj_cfg.prim_path.replace("{ENV_REGEX_NS}", f"/World/envs/env_{env_idx}")
+            # obj_name = object_collection.object_names[obj_idx]
+            # obj_cfg = list(env.cfg.scene.object_pool.rigid_objects.values())[obj_idx]
+            # obj_prim_path = obj_cfg.prim_path.replace("{ENV_REGEX_NS}", f"/World/envs/env_{env_idx}")
 
-            obj_prim = stage.GetPrimAtPath(obj_prim_path)
+            # obj_prim = stage.GetPrimAtPath(obj_prim_path)
 
             if obj_idx == active_idx:
-                # Enable active object
-                if obj_prim.IsValid():
-                    obj_prim.SetActive(True)
-                    UsdGeom.Imageable(obj_prim).MakeVisible()
+                # # Enable active object
+                # if obj_prim.IsValid():
+                #     obj_prim.SetActive(True)
+                #     UsdGeom.Imageable(obj_prim).MakeVisible()
 
-                    rigid_body_api = UsdPhysics.RigidBodyAPI(obj_prim)
-                    if rigid_body_api:
-                        rigid_body_api.GetRigidBodyEnabledAttr().Set(True)
+                #     rigid_body_api = UsdPhysics.RigidBodyAPI(obj_prim)
+                #     if rigid_body_api:
+                #         rigid_body_api.GetRigidBodyEnabledAttr().Set(True)
 
-                    collision_api = UsdPhysics.CollisionAPI(obj_prim)
-                    if collision_api:
-                        collision_api.GetCollisionEnabledAttr().Set(True)
+                #     collision_api = UsdPhysics.CollisionAPI(obj_prim)
+                #     if collision_api:
+                #         collision_api.GetCollisionEnabledAttr().Set(True)
 
                 pos = torch.tensor([0.28, 0.0, 0.0], device=env.device)
             else:
-                # Disable inactive object
-                if obj_prim.IsValid():
-                    obj_prim.SetActive(False)
-                    UsdGeom.Imageable(obj_prim).MakeInvisible()
+                # # Disable inactive object
+                # if obj_prim.IsValid():
+                #     obj_prim.SetActive(False)
+                #     UsdGeom.Imageable(obj_prim).MakeInvisible()
                     
-                    rigid_body_api = UsdPhysics.RigidBodyAPI(obj_prim)
-                    if rigid_body_api:
-                        rigid_body_api.GetRigidBodyEnabledAttr().Set(False)
+                #     rigid_body_api = UsdPhysics.RigidBodyAPI(obj_prim)
+                #     if rigid_body_api:
+                #         rigid_body_api.GetRigidBodyEnabledAttr().Set(False)
                     
-                    collision_api = UsdPhysics.CollisionAPI(obj_prim)
-                    if collision_api:
-                        collision_api.GetCollisionEnabledAttr().Set(False)
+                #     collision_api = UsdPhysics.CollisionAPI(obj_prim)
+                #     if collision_api:
+                #         collision_api.GetCollisionEnabledAttr().Set(False)
 
                 pos = torch.tensor([100.0, 100.0, -10.0], device=env.device)
 

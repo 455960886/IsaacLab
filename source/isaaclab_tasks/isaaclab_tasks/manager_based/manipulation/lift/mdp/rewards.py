@@ -949,30 +949,12 @@ def wrist_object_orientation_alignment(
     if debug:
         peak_raw_diff = peak_shift
         peak_raw_diff_deg = peak_raw_diff * (180.0 / math.pi)
-        angle_diff_deg = angle_diff * (180.0 / math.pi)
-        std_deg = std * (180.0 / math.pi)
         print(
             f"[腕部朝向奖励调试]\n"
-            f"1. 原始角差公式: raw_diff = wrist_yaw - target_wrist_yaw\n"
             f"   target_wrist_yaw = {target_wrist_yaw}\n"
             f"   wrist_yaw        = {wrist_yaw}\n"
             f"   raw_diff         = {raw_diff}\n"
-            f"2. reward 峰值对应的原始角差: raw_diff_peak = peak_shift\n"
-            f"   peak_shift       = {peak_raw_diff} rad ({peak_raw_diff_deg} deg)\n"
-            f"   含义: 当 raw_diff 接近这个值时，reward 最大。\n"
-            f"3. 真正用于奖励的角差:\n"
-            f"   centered_diff = wrap_to_pi(raw_diff - peak_shift)\n"
-            f"   centered_diff   = {centered_diff}\n"
-            f"   |centered_diff| = {angle_diff} rad ({angle_diff_deg} deg)\n"
-            f"4. 奖励公式:\n"
-            f"   reward = exp(-0.5 * (|centered_diff| / {std:.4f})^2)\n"
-            f"   当前 reward     = {reward}\n"
-            f"   当前 std        = {std:.4f} rad ({std_deg:.2f} deg)\n"
-            f"5. 参考尺度:\n"
-            f"   |centered_diff| = 0        -> reward = 1.000\n"
-            f"   |centered_diff| = 1 * std  -> reward = {math.exp(-0.5):.3f}\n"
-            f"   |centered_diff| = 2 * std  -> reward = {math.exp(-2.0):.3f}\n"
-            f"   |centered_diff| = 3 * std  -> reward = {math.exp(-4.5):.3f}",
+            f"   peak_shift       = {peak_raw_diff} rad ({peak_raw_diff_deg} deg)\n",
             flush=True,
         )
 

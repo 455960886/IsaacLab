@@ -129,7 +129,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         self.actions.wrist_action = mdp.JointPositionActionCfg(
             asset_name="robot",
             joint_names=["M5"],
-            scale=1.5,  # Scale up from policy output to encourage more wrist movement
+            scale=1.0,  # Scale up from policy output to encourage more wrist movement
             offset=0.0,
             use_default_offset=False,
             clip={"M5": (0.0, math.pi)},
@@ -201,30 +201,6 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.00, 0.0)),
                 ),
 
-                "slippers": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/slippers_zuo",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper/slipper.usdc",
-                        scale=(1.0, 1.1, 1.3),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        # mass_props=sim_utils.MassPropertiesCfg(
-                        #     mass=0.001,  
-                        # ),
-                        # collision_props=sim_utils.CollisionPropertiesCfg(
-                        #     contact_offset=0.002,  # Start collision detection at 2mm
-                        #     rest_offset=0.0,       # Rest at surface contact
-                        # ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.01, 0.06)),
-                ),
-
                 "lego": RigidObjectCfg(
                     prim_path="{ENV_REGEX_NS}/lego",
                     spawn=sim_utils.UsdFileCfg(
@@ -241,6 +217,110 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                     ),
                     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.01), rot=(1, 0, 0, 0)),
                 ),
+                "cylinder": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/cylinder",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/cylinder/cylinder.usdc",
+                        scale=(0.8, 1.1, 1.1),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
+                            disable_gravity=False,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.01), rot=(1, 0, 0, 0)),
+                ),
+                "ur10_wrist_3": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/ur10_wrist_3",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/ur10_wrist_3/ur10_wrist_3.usd",
+                        scale=(0.8, 0.8, 0.8),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
+                            disable_gravity=False,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.01), rot=(1, 0, 0, 0)),
+                ),
+                "bear": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/bear",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/teddybear1/bear1.usdc",
+                        scale=(0.4, 0.4, 0.4),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
+                            disable_gravity=False,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.26, -0.005, 0.01)),
+                ),
+                "toy1": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/toy1",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/toy1/toy1.usdc",
+                        scale=(0.08, 0.05, 0.05),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
+                            disable_gravity=False,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.26, -0.005, 0.01)),
+                ),
+                "car": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/car",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/car/car1.usdc",
+                        scale=(1, 1, 1),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
+                            disable_gravity=False,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.26, -0.005, 0.01)),
+                ),
+
+                # "slippers": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/slippers_zuo",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper/slipper.usdc",
+                #         scale=(1.0, 1.1, 1.3),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=32,
+                #             disable_gravity=False,
+                #         ),
+                #         # mass_props=sim_utils.MassPropertiesCfg(
+                #         #     mass=0.001,  
+                #         # ),
+                #         # collision_props=sim_utils.CollisionPropertiesCfg(
+                #         #     contact_offset=0.002,  # Start collision detection at 2mm
+                #         #     rest_offset=0.0,       # Rest at surface contact
+                #         # ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.01, 0.06)),
+                # ),
                 # "slippers_m5_0": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/slippers_m5_0_you_shang",
                 #     spawn=sim_utils.UsdFileCfg(
@@ -382,7 +462,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     prim_path="/World/envs/env_.*/cube",
                 #     spawn=sim_utils.UsdFileCfg(
                 #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cube1.usd",
-                #         # scale=(0.25, 0.25, 0.25),
+                #         scale=(2, 2, 2),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
                 #             solver_velocity_iteration_count=32,

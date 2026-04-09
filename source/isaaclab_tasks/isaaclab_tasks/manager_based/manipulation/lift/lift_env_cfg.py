@@ -10,7 +10,6 @@ import math
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, DeformableObjectCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
-from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -19,18 +18,13 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransformerCfg
-from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
+from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
-from isaaclab.sensors import TiledCameraCfg, CameraCfg, ContactSensorCfg
+from isaaclab.sensors import TiledCameraCfg, ContactSensorCfg
 
-from isaaclab.sensors.ray_caster import RayCasterCfg, patterns
 
-from isaaclab.sensors.camera.utils import create_pointcloud_from_depth
 # from isaaclab.sensors.ray_caster.patterns.patterns_cfg import LidarPatternCfg
 
-import torch
-import torch.nn as nn
 # from .custom_ray_caster import FixedRayCaster
 
 from . import mdp
@@ -294,6 +288,20 @@ class EventCfg:
         mode="startup"
     )
 
+    randomize_object_pool_scale = EventTerm(
+        func=mdp.randomize_object_pool_scale_prestartup,
+        mode="prestartup",
+        params={
+            "scale_factor_range": (0.95, 1.05),
+            "asset_cfg": SceneEntityCfg("object_pool"),
+            # 是否打印每个 env 的每个物体最终 scale。
+            # 当前任务是 128 个 env * 8 个物体，会输出 1024 行。
+            # 这里只做尺寸随机化和缓存，不在这里逐环境打印。
+            "log_per_env_scales": False,
+
+        },
+    )
+
     randomize_floor = EventTerm(
         func=mdp.randomize_floor_texture,
         mode="reset",
@@ -305,9 +313,16 @@ class EventCfg:
 
     object_pool_spawn = EventTerm(
         func=mdp.randomize_object_pool_selection,
-        mode="reset",
+        mode="startup",
         params={"asset_cfg": SceneEntityCfg("object_pool")},
     )
+
+    # 注意这里要放在 object_pool_spawn 后面，确保 active_object_indices 已经确定
+    # log_active_object_pool_scale = EventTerm(
+    #     func=mdp.log_active_object_pool_scale,
+    #     mode="startup",
+    #     params={"asset_cfg": SceneEntityCfg("object_pool")},
+    # )
 
     reset_object_position = EventTerm(
         func=mdp.reset_object_pool_state_uniform,
@@ -387,30 +402,30 @@ class EventCfg:
     #     },
     # )
 
-    reset_object_position_slippers_m5_top4 = EventTerm(
-        func=mdp.reset_object_pool_state_uniform_for_object4,
-        mode="reset",
-        params={
-            "object_names": ["slippers"],
-            "pose_range": {
-                "x": (-0.05, 0.01),
-                "y": (-0.01, 0.01),
-                "z": (0.0, 0.0),
-                "roll": (0.0, 0.0),
-                "pitch": (0, 0),
-                "yaw": (0.0, 0.0),
-            },
-            "yaw_ranges": [(-0.8, 0.0), (-6.1, -5.5)],  # Two separate yaw ranges to encourage top-down and side orientations
-            # "yaw_ranges": [(-1.1, 0.0)],
-            "velocity_range": {},
-            "asset_cfg": SceneEntityCfg("object_pool"),
-        },
-    )
+    # reset_object_position_slippers_m5_top4 = EventTerm(
+    #     func=mdp.reset_object_pool_state_uniform_for_object4,
+    #     mode="reset",
+    #     params={
+    #         "object_names": ["slippers"],
+    #         "pose_range": {
+    #             "x": (-0.05, 0.01),
+    #             "y": (-0.01, 0.01),
+    #             "z": (0.0, 0.0),
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0, 0),
+    #             "yaw": (0.0, 0.0),
+    #         },
+    #         "yaw_ranges": [(-0.8, 0.0), (-6.1, -5.5)],  # Two separate yaw ranges to encourage top-down and side orientations
+    #         # "yaw_ranges": [(-1.1, 0.0)],
+    #         "velocity_range": {},
+    #         "asset_cfg": SceneEntityCfg("object_pool"),
+    #     },
+    # )
 
     randomize_lighting_interval = EventTerm(
         func=mdp.randomize_global_sphere_lights,
         mode="interval",
-        interval_range_s=(0.3, 0.3),  # Randomize every 0.1 seconds
+        interval_range_s=(1, 1),  # Randomize every 0.1 seconds
         is_global_time=True,
         params={
             "light_paths": ["/World/GlobalLight_0", "/World/GlobalLight_1", "/World/GlobalLight_2"],
@@ -432,14 +447,12 @@ class RewardsCfg:
     reaching_object = RewTerm(
         func=mdp.object_ee_distance,
         params={"std": 0.1},
-        # weight=20.0,
         weight=5.0,
     )
 
     lifting_object_linear = RewTerm(
         func=mdp.object_is_lifted_linear,
         params={"minimal_height": 0.09, "max_height": 0.3},
-        # weight=5.0,   # 1500  150
         weight=50.0,   # 1500  150
     )
 
@@ -539,7 +552,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=128, env_spacing=4)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=128, env_spacing=2)
     observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()
