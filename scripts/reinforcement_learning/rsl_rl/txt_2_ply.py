@@ -5,7 +5,7 @@ def convert_txt_to_ply():
     """Simple script to convert your specific file"""
     
     # Your file path
-    input_file = "/home/roborock/R50_pc/frame_sampled.txt"
+    input_file = "/home/roborock/R50_pc/grab.txt"
     
     # Check if file exists
     if not os.path.exists(input_file):

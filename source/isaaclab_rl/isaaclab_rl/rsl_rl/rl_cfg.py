@@ -183,6 +183,9 @@ class RslRlOnPolicyRunnerCfg:
     wandb_project: str = "isaaclab"
     """The wandb project name. Default is "isaaclab"."""
 
+    store_code_state: bool = True
+    """Whether to store git status and diff snapshots in the run log directory."""
+
     resume: bool = False
     """Whether to resume. Default is False."""
 

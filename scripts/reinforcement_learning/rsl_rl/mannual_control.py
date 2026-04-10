@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import weakref
 import os
+import re
 import matplotlib
 matplotlib.use("Agg")  # 非交互式后端，适合在 Isaac 里跑
 import matplotlib.pyplot as plt
@@ -27,6 +28,51 @@ simulation_app = app_launcher.app
 import gymnasium as gym
 import carb
 import omni.appwindow
+
+
+# ============================================================
+# ✅ 中文调试开关：保证日志“明显中文”，且可控不刷屏
+# ============================================================
+DEBUG_CN_LOG = True          # 总开关：True=打印中文调试
+LOG_EVERY = 1               # 每隔多少步打印一次（1=每步；10=每10步）
+LOG_ENV_ID = 0              # 只打印哪个环境（多环境时避免刷屏）
+LOG_TO_FILE = True          # 是否写入文件
+LOG_FILE = "/tmp/手动调试_action_obs.log"
+
+
+def cn_log(msg: str):
+    if not DEBUG_CN_LOG:
+        return
+    line = f"{msg}\n"
+    print(line, end="", flush=True)
+    if LOG_TO_FILE:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line)
+
+
+def try_extract_policy_tensor(obs):
+    """
+    兼容不同返回结构，尽量拿到 policy 组的拼接向量 tensor：
+    - dict 且 obs["policy"] 是 tensor -> 返回该 tensor
+    - obs 直接是 tensor -> 返回 obs
+    否则返回 None
+    """
+    if isinstance(obs, dict):
+        pol = obs.get("policy", None)
+        if torch.is_tensor(pol):
+            return pol
+        return None
+    if torch.is_tensor(obs):
+        return obs
+    return None
+
+
+def try_extract_joint_tail5_from_policy(obs):
+    """从 policy 拼接向量里取末尾 5 维（通常是 joint_pos: M3,M4,M5,M6_1,M6_2）。"""
+    pol = try_extract_policy_tensor(obs)
+    if pol is None or pol.numel() == 0 or pol.ndim != 2 or pol.shape[1] < 5:
+        return None
+    return pol[LOG_ENV_ID, -5:].detach().cpu().numpy()
 
 
 def try_extract_m0_pos_from_obs(obs):
@@ -244,9 +290,39 @@ def main():
     env = gym.make(args_cli.task, cfg=env_cfg)
     device = env.unwrapped.device
 
+    # ====== 环境/空间信息：帮助确认 action/obs 维度 ======
+    # try:
+    #     cn_log(f"【手动调试】已开启中文日志。日志文件：{LOG_FILE}")
+    #     cn_log(f"【手动调试】env.device = {device}")
+    #     cn_log(f"【手动调试】env.action_space = {env.action_space}")
+    #     cn_log(f"【手动调试】env.observation_space = {env.observation_space}")
+    # except Exception as e:
+    #     cn_log(f"【手动调试】读取 action/observation space 失败（不影响运行）：{e}")
+
+    # ====== 尝试解析 robot 的关节名与 M6 索引（用于打印实际关节状态/target）======
+    base_env = env.unwrapped
+    robot = base_env.scene["robot"]
+    joint_names_all = list(getattr(robot, "joint_names", []))
+
+    def _find_joint_ids(pattern: str):
+        reg = re.compile(pattern)
+        return [i for i, n in enumerate(joint_names_all) if reg.fullmatch(n)]
+
+    m6_ids = _find_joint_ids(r"M6_.*")
+    m345_ids = _find_joint_ids(r"M3|M4|M5")
+    m0_ids = _find_joint_ids(r"M0")
+    # cn_log(f"【手动调试】robot关节总数={len(joint_names_all)} | M0 ids={m0_ids} | M3/4/5 ids={m345_ids} | M6 ids={m6_ids}")
+
     obs, _ = env.reset()
     print("[INFO] Environment reset complete")
     print_m0_pos_from_obs(obs, prefix="[m0_debug][startup]")
+
+    # reset 后打印一次 obs 的 tail5（如果能拿到）
+    tail5 = try_extract_joint_tail5_from_policy(obs)
+    # if tail5 is not None:
+    #     cn_log(f"【手动调试】reset后 | policy输入obs末尾5维(joint_pos)={tail5}（通常顺序=M3,M4,M5,M6_1,M6_2）")
+    # else:
+    #     cn_log("【手动调试】reset后 | 未能从 obs 里解析 policy 拼接向量末尾5维（可能当前 obs 不是拼接结构/版本差异）")
 
     if hasattr(env.unwrapped, 'reward_manager'):
         available_terms = env.unwrapped.reward_manager.active_terms
@@ -282,7 +358,7 @@ def main():
                 total_reward = 0.0
                 step_count = 0
                 print_m0_pos_from_obs(obs, prefix="[m0_debug][after_reset_R]")
-                plot_spawn_distribution(env)
+                # plot_spawn_distribution(env)
                 print("Robot reset complete\n")
                 continue
 
@@ -292,6 +368,11 @@ def main():
             if should_exit:
                 print("\n[INFO] Exit requested by user")
                 break
+   
+            # ====== (A) 打印“你按键产生的 action”（送进 env.step 的 action）======
+            # if DEBUG_CN_LOG and (step_count % LOG_EVERY == 0):
+            #     a0 = action[LOG_ENV_ID].detach().cpu().numpy()
+            #     cn_log(f"【手动调试】步={step_count} | 键盘送入env.step的action={a0} | gripper_open={controller.gripper_open}")
 
             # Step environment
             obs, reward, terminated, truncated, info = env.step(action)
@@ -299,7 +380,50 @@ def main():
             # reward information
             step_count += 1
             reward_value = reward[0].item()  # Get reward from first environment
-            total_reward += reward_value
+            
+            # ====== (B) 打印“环境最终执行的 action / 夹爪项 raw/processed / 关节target”等 ======
+            if DEBUG_CN_LOG and ((step_count - 1) % LOG_EVERY == 0):
+                env0 = LOG_ENV_ID
+                try:
+                    am = base_env.action_manager
+                    # if hasattr(am, "action"):
+                    #     final_act = am.action[env0].detach().cpu().numpy()
+                    #     cn_log(f"【手动调试】步={step_count-1} | ActionManager最终动作向量={final_act}")
+                    # else:
+                    #     cn_log(f"【手动调试】步={step_count-1} | ActionManager没有 action 字段（版本差异）")
+
+                    # 夹爪 action term 细节（字段名因版本不同）
+                    # try:
+                    #     term = am.get_term("gripper_action")
+                    #     if hasattr(term, "raw_actions"):
+                    #         cn_log(f"【手动调试】步={step_count-1} | gripper_action.raw_actions={term.raw_actions[env0].detach().cpu().numpy()}")
+                    #     if hasattr(term, "processed_actions"):
+                    #         cn_log(f"【手动调试】步={step_count-1} | gripper_action.processed_actions={term.processed_actions[env0].detach().cpu().numpy()}")
+                    #     if hasattr(term, "actions"):
+                    #         cn_log(f"【手动调试】步={step_count-1} | gripper_action.actions={term.actions[env0].detach().cpu().numpy()}")
+                    # except Exception as e:
+                    #     cn_log(f"【手动调试】步={step_count-1} | 无法读取 gripper_action term 细节（版本差异）：{e}")
+
+                except Exception as e:
+                    cn_log(f"【手动调试】步={step_count-1} | 读取 ActionManager 信息失败：{e}")
+
+                # 打印机器人真实关节状态（M6 当前 joint_pos / target）
+                # try:
+                #     if m6_ids:
+                #         jp = robot.data.joint_pos[env0, m6_ids].detach().cpu().numpy()
+                #         cn_log(f"【手动调试】步={step_count-1} | 机器人当前M6 joint_pos={jp}")
+                #         if hasattr(robot.data, "joint_pos_target"):
+                #             jt = robot.data.joint_pos_target[env0, m6_ids].detach().cpu().numpy()
+                #             cn_log(f"【手动调试】步={step_count-1} | 机器人当前M6 joint_pos_target={jt}")
+                # except Exception as e:
+                #     cn_log(f"【手动调试】步={step_count-1} | 读取机器人M6关节状态失败：{e}")
+
+                # ====== (C) 打印“policy obs 里 joint_pos 的末尾5维”（你要对齐的输入）======
+                tail5 = try_extract_joint_tail5_from_policy(obs)
+                # if tail5 is not None:
+                #     cn_log(f"【手动调试】步={step_count-1} | policy输入obs末尾5维(joint_pos)={tail5}（通常顺序=M3,M4,M5,M6_1,M6_2）")
+                # else:
+                #     cn_log(f"【手动调试】步={step_count-1} | 未解析到 policy obs 末尾5维（结构/版本差异）")
 
             print(f"Step {step_count:4d} | Reward: {reward_value:+.4f} | Total: {total_reward:+.4f}", end="")
 

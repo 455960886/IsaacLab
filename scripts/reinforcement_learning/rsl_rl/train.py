@@ -13,9 +13,6 @@ print("sys.argv =", sys.argv)
 import argparse
 import sys
 
-import warnings                                                                                                                                                                                                               
-warnings.filterwarnings("ignore", message=".*Ill-formed SdfPath.*")        
-
 from isaaclab.app import AppLauncher
 
 # local imports
@@ -88,12 +85,20 @@ if args_cli.distributed and version.parse(installed_version) < version.parse(RSL
 """Rest everything follows."""
 
 import gymnasium as gym
+import pathlib
 import os
 import torch
 from datetime import datetime
 
+import git
+
 # RSL-RL 的训练循环逻辑（rsl_rl/runners/on_policy_runner.py）
 from rsl_rl.runners import OnPolicyRunner
+import rsl_rl.runners.on_policy_runner as rsl_on_policy_runner
+
+from positive_m5_actor_critic import PositiveM5ActorCritic
+
+rsl_on_policy_runner.PositiveM5ActorCritic = PositiveM5ActorCritic
 
 from isaaclab.envs import (
     DirectMARLEnv,
@@ -113,9 +118,36 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 
 # PLACEHOLDER: Extension template (do not remove this comment)
 
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-torch.backends.cudnn.deterministic = False
+
+def _store_code_state_safe(logdir: str, repositories: list[str]) -> list[str]:
+    """Store git state without failing on surrogate bytes returned by GitPython."""
+    git_log_dir = os.path.join(logdir, "git")
+    os.makedirs(git_log_dir, exist_ok=True)
+    file_paths = []
+
+    for repository_file_path in repositories:
+        try:
+            repo = git.Repo(repository_file_path, search_parent_directories=True)
+            commit_tree = repo.head.commit.tree
+        except Exception:
+            print(f"Could not find git repository in {repository_file_path}. Skipping.")
+            continue
+
+        repo_name = pathlib.Path(repo.working_dir).name
+        diff_file_name = os.path.join(git_log_dir, f"{repo_name}.diff")
+        if os.path.isfile(diff_file_name):
+            continue
+
+        print(f"Storing git diff for '{repo_name}' in: {diff_file_name}")
+        content = f"--- git status ---\n{repo.git.status()} \n\n\n--- git diff ---\n{repo.git.diff(commit_tree)}"
+        with open(diff_file_name, "w", encoding="utf-8", errors="backslashreplace") as file:
+            file.write(content)
+        file_paths.append(diff_file_name)
+
+    return file_paths
+
+
+rsl_on_policy_runner.store_code_state = _store_code_state_safe
 
 
 # hydra_task_config 会从配置文件加载环境 & agent 配置。
@@ -139,29 +171,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # multi-gpu training configuration
     if args_cli.distributed:
-        # --- ADD: print distributed / env cfg info (before gym.make) ---
-        # import os
-        # import torch
-
-        # rank = int(os.environ.get("RANK", "-1"))
-        # local_rank = int(os.environ.get("LOCAL_RANK", str(app_launcher.local_rank)))
-        # world_size = int(os.environ.get("WORLD_SIZE", "1"))
-
-        # # 确保当前进程绑定到对应 GPU（有些环境下 torchrun 会帮你设好）
-        # if torch.cuda.is_available():
-        #     try:
-        #         torch.cuda.set_device(local_rank)
-        #     except Exception:
-        #         pass
-
-        # print(
-        #     f"[ENV-COUNT][rank {rank}/{world_size} | local_rank {local_rank}] "
-        #     f"env_cfg.scene.num_envs={env_cfg.scene.num_envs} "
-        #     f"env_cfg.sim.device={env_cfg.sim.device} "
-        #     f"torch.cuda.current_device={torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'}",
-        #     flush=True,
-        # )
-        # # --- END ADD ---
         env_cfg.sim.device = f"cuda:{app_launcher.local_rank}"
         agent_cfg.device = f"cuda:{app_launcher.local_rank}"
 
@@ -184,18 +193,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
-
-    # --- ADD: print env.unwrapped.num_envs (after gym.make) ---
-    # try:
-    #     print(
-    #         f"[ENV-COUNT][rank {rank}/{world_size} | local_rank {local_rank}] "
-    #         f"env.unwrapped.num_envs={env.unwrapped.num_envs} "
-    #         f"env.unwrapped.device={getattr(env.unwrapped, 'device', 'N/A')}",
-    #         flush=True,
-    #     )
-    # except Exception as e:
-    #     print(f"[ENV-COUNT][rank {rank}/{world_size} | local_rank {local_rank}] print failed: {e}", flush=True)
-    # --- END ADD ---
 
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):
@@ -232,8 +229,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # create runner from rsl-rl
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
-    # write git state to logs
-    runner.add_git_repo_to_log(__file__)
+    # Optionally skip git snapshots for tasks that opt out of code-state logging.
+    if getattr(agent_cfg, "store_code_state", True):
+        runner.add_git_repo_to_log(__file__)
+    else:
+        runner.git_status_repos = []
     # load the checkpoint
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
