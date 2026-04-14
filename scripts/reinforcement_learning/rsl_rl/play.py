@@ -326,6 +326,7 @@ def main():
             )
 
             obs, _, dones, infos = env.step(actions)
+            time.sleep(0.2)
             env0 = 0
             tail5 = obs[env0, -5:].detach().float().cpu().numpy()
             print(f"[OBS] env={env0} last5 = {tail5}")
