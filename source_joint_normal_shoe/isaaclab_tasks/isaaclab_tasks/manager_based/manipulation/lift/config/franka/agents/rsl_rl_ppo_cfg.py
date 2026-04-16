@@ -1,0 +1,46 @@
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+from isaaclab.utils import configclass
+
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
+
+
+@configclass
+class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
+    num_steps_per_env = 32
+    max_iterations = 50000
+    save_interval = 10
+    experiment_name = "coarse_arm_lift"
+    empirical_normalization = True
+    # 将 policy 输出先裁到 [-1, 1]，再交给环境侧做 joint range 映射。
+    # 这是让动作接口“对称、归一化、边界清晰”的关键一步。
+    clip_actions = 1.0
+
+    policy = RslRlPpoActorCriticCfg(
+        # class_name="PositiveM5ActorCritic",
+        class_name="ActorCritic",
+
+        init_noise_std=0.2,
+        actor_hidden_dims=[512, 256, 128, 64],
+        critic_hidden_dims=[512, 256, 128, 64],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.015,
+        num_learning_epochs=5,
+        num_mini_batches=12,
+        learning_rate=3.0e-4,
+        # learning_rate=1.0e-4,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.97,
+        desired_kl=0.01,
+        max_grad_norm=0.5,
+        # max_grad_norm=0.5,
+    )

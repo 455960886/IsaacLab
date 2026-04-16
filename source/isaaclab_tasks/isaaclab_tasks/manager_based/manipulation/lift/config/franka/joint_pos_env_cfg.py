@@ -49,20 +49,26 @@ MY_ROBOT_CFG = ArticulationCfg(
         ),
         # collision_props=sim_utils.CollisionPropertiesCfg(
         #     contact_offset=0.005,  # Increased to 5mm for earlier collision detection
-        #     rest_offset=0.001,     # 1mm air gap to prevent penetration
-        # ),
+        #     rest_offset=0.001,     # 1mm air gap to prevent pene
     ),
+
     init_state=ArticulationCfg.InitialStateCfg(
         joint_pos={
             # "M0": 0,
             "M1": 1.57,
-            "M3": 3.8,
-            "M4": 1.4,
-            "M5": 0.0,
-            "M6_1": 1.57,
-            "M6_2": -1.57,
+            # "M2": 1.57,
+            # "M3": 4.0,  
+            "M3": 3.8,       
+            "M4": 1.3,
+            "M5": 1.57,
+            "M6_1": 0.65,
+            "M6_2": -0.65,
+            # "M6_1": 1.57,
+            # "M6_2": -1.57,
         },
     ),
+
+
     actuators={
         "base": ImplicitActuatorCfg(
             joint_names_expr=["M[0]"],
@@ -88,9 +94,9 @@ MY_ROBOT_CFG = ArticulationCfg(
 
         "hand": ImplicitActuatorCfg(
             joint_names_expr=["M6_.*"],
-            effort_limit=5,      # Reduced to prevent excessive force
-            velocity_limit=4.0,     # Keep same
-            stiffness=300,          # Increased from 15 to reduce penetration
+            effort_limit=50,      # Reduced to prevent excessive force
+            velocity_limit=40,     # Keep same
+            stiffness=500,          # Increased from 15 to reduce penetration
             damping=1.0,           # Increased from 0.001 for better stability
         ),
     },
@@ -115,31 +121,31 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
         #         # "M0": 0.08,
         #         "M3": 0.1,
         #         "M4": 0.1,
-        #         "M5": 0.1
+        #         "M5": 0.5
         #     }
         # )
 
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
-            joint_names=["M[34]"],
+            joint_names=["M[345]"],
             use_default_offset=True,
         )
-        # Keep the M5 action interface aligned with the real robot: the policy's M5 output
-        # is interpreted directly as an absolute wrist angle in [0, pi] radians.
-        self.actions.wrist_action = mdp.JointPositionActionCfg(
-            asset_name="robot",
-            joint_names=["M5"],
-            scale=1.0,  # Scale up from policy output to encourage more wrist movement
-            offset=0.0,
-            use_default_offset=False,
-            clip={"M5": (0.0, math.pi)},
-        )
+
+        # self.actions.wrist_action = mdp.JointPositionActionCfg(
+        #     asset_name="robot",
+        #     joint_names=["M5"],
+        #     scale=1.0,  # Scale up from policy output to encourage more wrist movement
+        #     # offset=0.0,
+        #     use_default_offset=True,
+        #     # clip={"M5": (0.0, math.pi)},
+        # )
 
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
             joint_names=["M6_.*"],
-            open_command_expr={"M6_1": 1.57, "M6_2": -1.57},
-            close_command_expr={"M6_1": 0.0, "M6_2": -0.0},
+            open_command_expr={"M6_1": 0.65, "M6_2": -0.65},
+            # open_command_expr={"M6_1": 1.57, "M6_2": -1.57},
+            close_command_expr={"M6_1": 0.02, "M6_2": -0.02},
         )
 
         self.commands.object_pose.body_name = "M6_1_leftfinger_link"
@@ -161,148 +167,51 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
 
         self.scene.object_pool = RigidObjectCollectionCfg(
             rigid_objects={
-                "paper": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/paper",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cloth/paperball.usdc",
-                        scale=(1.5, 1.0, 1.5),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        mass_props=sim_utils.MassPropertiesCfg(
-                        mass=0.01,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.005, -0.01]),
-                ),
+                # "paper": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/paper",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cloth/paperball.usdc",
+                #         scale=(1.5, 1.0, 1.5),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=32,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #         mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.28, 0.005, -0.01]),
+                # ),
 
-                "bus": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/bus",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/bus_new_usd/bus.usdc",
-                        scale=(0.08, 0.08, 0.08),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        mass_props=sim_utils.MassPropertiesCfg(
-                        mass=0.01,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.00, 0.0)),
-                ),
-
-                "lego": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/lego",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/lego.usdc",
-                        scale=(4.0, 4.0, 8.0),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.01), rot=(1, 0, 0, 0)),
-                ),
-                "cylinder": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/cylinder",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/cylinder/cylinder.usdc",
-                        scale=(0.8, 1.1, 1.1),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.01), rot=(1, 0, 0, 0)),
-                ),
-                "ur10_wrist_3": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/ur10_wrist_3",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/ur10_wrist_3/ur10_wrist_3.usd",
-                        scale=(0.8, 0.8, 0.8),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.01), rot=(1, 0, 0, 0)),
-                ),
-                "bear": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/bear",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/teddybear1/bear1.usdc",
-                        scale=(0.4, 0.4, 0.4),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.26, -0.005, 0.01)),
-                ),
-                "toy1": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/toy1",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/toy1/toy1.usdc",
-                        scale=(0.08, 0.05, 0.05),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.26, -0.005, 0.01)),
-                ),
-                "car": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/car",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/car/car1.usdc",
-                        scale=(1, 1, 1),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=32,
-                            disable_gravity=False,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.26, -0.005, 0.01)),
-                ),
+                # "bus": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/bus",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/bus_new_usd/bus.usdc",
+                #         scale=(0.08, 0.08, 0.08),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=32,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #         mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.00, 0.0)),
+                # ),
 
                 # "slippers": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/slippers_zuo",
                 #     spawn=sim_utils.UsdFileCfg(
                 #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper/slipper.usdc",
-                #         scale=(1.0, 1.1, 1.3),
+                #         scale=(1.0, 1.1, 1.1),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
                 #             solver_velocity_iteration_count=32,
@@ -319,14 +228,32 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #             articulation_enabled=False,  # CRITICAL: Disable articulation
                 #         ),
                 #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.01, 0.06)),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.3, 0.01, 0.04)),
                 # ),
+
+                # "lego": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/lego",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/lego.usdc",
+                #         scale=(4.0, 4.0, 8.0),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=32,
+                #             disable_gravity=False,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.005, 0.01), rot=(1, 0, 0, 0)),
+                # ),
+
                 # "slippers_m5_0": RigidObjectCfg(
-                #     prim_path="{ENV_REGEX_NS}/slippers_m5_0_you_shang",
+                #     prim_path="{ENV_REGEX_NS}/slippers_m5_0",
                 #     spawn=sim_utils.UsdFileCfg(
                 #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/slipper_top/slipper.usdc",
                 #         scale=(1.0, 1.0, 1.0),
-                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg( 
                 #             solver_position_iteration_count=64,
                 #             solver_velocity_iteration_count=32,
                 #             # max_depenetration_velocity=10.0,  # CRITICAL: Limit depenetration speed
@@ -339,27 +266,217 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #             articulation_enabled=False,  # CRITICAL: Disable articulation
                 #         ),
                 #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.0, 0.08), rot=(0.7071, 0, 0, -0.7071)),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.0, 0.08), rot=(0.7071, 0, 0, -0.7071)),
                 # ),
+
                 # "baisetuoxie": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/baisetuoxie",
                 #     spawn=sim_utils.UsdFileCfg(
                 #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
-                #         scale=(1.0, 1.0, 1.0),
+                #         scale=(1.0, 1.0, 1.2),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
-                #             solver_velocity_iteration_count=32,
+                #             solver_velocity_iteration_count=8,
                 #             disable_gravity=False,
                 #         ),
                 #         mass_props=sim_utils.MassPropertiesCfg(
-                #             mass=0.001,
+                #             mass=0.01,
                 #         ),
                 #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 #             articulation_enabled=False,  # CRITICAL: Disable articulation
                 #         ),
                 #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.06)),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
                 # ),
+
+
+                # "baisetuoxie_1": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/baisetuoxie_1",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         scale=(1.1, 1.1, 1.3),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=8,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
+                # ),
+
+
+                # "baisetuoxie_2": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/baisetuoxie_2",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         scale=(0.9, 0.9, 1.1),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=8,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
+                # ),
+
+
+                # "baisetuoxie_3": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/baisetuoxie_3",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         scale=(1.2, 0.9, 1.0),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=8,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
+                # ),
+
+                "baisetuoxie_4": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/baisetuoxie_4",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        scale=(0.6, 0.6, 0.7),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=8,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.27, 0.02, 0.06)),
+                ),
+
+
+                "baisetuoxie_5": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/baisetuoxie_5",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        scale=(1.3, 1.4, 1.2),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=8,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.02, 0.09)),
+                ),
+
+
+                "baisetuoxie_6": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/baisetuoxie_6",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        scale=(0.8, 0.9, 0.7),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=8,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.02, 0.06)),
+                ),
+
+
+                "baisetuoxie_7": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/baisetuoxie_7",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        scale=(1.0, 1.0, 1.3),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=8,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
+                ),
+
+
+                "baisetuoxie_8": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/baisetuoxie_8",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        scale=(0.5, 0.5, 0.6),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=8,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.02, 0.05)),
+                ),
+
+
+                "baisetuoxie_9": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/baisetuoxie_9",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        scale=(1.1, 1.1, 1.1),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=8,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.32, 0.02, 0.08)),
+                ),
+
                 # "fensemiantuo": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/fensemiantuo",
                 #     spawn=sim_utils.UsdFileCfg(
@@ -376,6 +493,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     ),
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.03, 0.06)),
                 # ),
+
                 # ########################################################## 自己的 ###################################################################
                 # "renzituo": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/renzituo",
@@ -462,7 +580,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     prim_path="/World/envs/env_.*/cube",
                 #     spawn=sim_utils.UsdFileCfg(
                 #         usd_path="/home/robo/code/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/assets/cube1.usd",
-                #         scale=(2, 2, 2),
+                #         # scale=(0.25, 0.25, 0.25),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
                 #             solver_velocity_iteration_count=32,

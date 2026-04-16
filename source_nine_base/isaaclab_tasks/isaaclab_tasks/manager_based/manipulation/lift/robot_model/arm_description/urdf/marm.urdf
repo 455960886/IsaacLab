@@ -1,0 +1,320 @@
+<?xml version="1.0" ?>
+<robot name="marm">
+
+<!-- /    COLOR    / -->
+	<material name="Black">
+		<color rgba="0.0 0.0 0.0 1.0"/>
+	</material>
+	<material name="White">
+		<color rgba="1.0 1.0 1.0 1.0"/>
+	</material>
+	<material name="Blue">
+		<color rgba="0.0 0.0 0.9 1.0"/>
+	</material>
+	<material name="Red">
+		<color rgba="1.0 0.0 0.0 1.0"/>
+	</material>
+
+<!-- /    BASE    / -->
+	<link name="base_link">
+		<visual>
+			<origin rpy="0 0 0" xyz="0 0 0"/>
+			<geometry>
+				<cylinder length="0.02" radius="0.05"/>
+			</geometry>
+			<material name="White"/>
+		</visual>
+		<collision>
+		    <origin rpy="0 0 0" xyz="0 0 0"/>
+			<geometry>
+        		<cylinder length="0.02" radius="0.05"/>
+        	</geometry>
+		</collision>
+		<inertial>
+		    <mass value="1"/>
+		    <inertia ixx="0.00065833" ixy="0.0" ixz="0.0" iyy="0.00065833" iyz="0.0" izz="0.00125"/>
+		</inertial>
+	</link>
+
+
+<!-- /   LINK0  // -->
+	<link name="link0">
+		<visual>
+			<origin rpy="0 0 0" xyz="0 0 0.005"/>
+			<geometry>
+				<cylinder length="0.01" radius="0.015"/>
+			</geometry>
+			<material name="White"/>
+		</visual>
+		<collision>
+		    <origin rpy="0 0 0" xyz="0 0 0.005"/>
+		    <geometry>
+				<cylinder length="0.01" radius="0.015"/>
+            </geometry>
+		</collision>
+		<inertial>
+		    <mass value="1"/>
+		    <inertia ixx="0.0000645833333333333" ixy="0.0" ixz="0.0" iyy="0.0000645833333333333" iyz="0.0" izz="0.0001125"/>
+		</inertial>
+	</link>
+
+	<joint name="joint0" type="fixed">
+		<parent link="base_link"/>
+		<child link="link0"/>
+		<origin rpy="0 0 0" xyz="0 0 0.01"/>
+	</joint>
+
+
+
+
+
+<!-- /   LINK1  // -->
+	<link name="link1">
+		<visual>
+			<origin rpy="0 0 0" xyz="0 0 0.025"/>
+			<geometry>
+				<box size="0.02 0.02 0.05"/>
+			</geometry>
+			<material name="White"/>
+		</visual>
+		<collision>
+		    <origin rpy="0 0 0" xyz="0 0 0.025"/>
+		    <geometry>
+				<box size="0.02 0.02 0.05"/>
+            </geometry>
+		</collision>
+		<inertial>
+		    <mass value="1"/>
+		    <inertia ixx="0.0002417" ixy="0.0" ixz="0.0" iyy="0.0002417" iyz="0.0" izz="0.000067"/>
+		</inertial>
+	</link>
+
+	<joint name="joint1" type="revolute">
+		<parent link="link0"/>
+		<child link="link1"/>
+		<origin rpy="0 0 0" xyz="0 0 0.01"/>
+		<axis xyz="0 0 1"/>
+        <limit effort="300" lower="-1.57" upper="1.57" velocity="0"/>
+        <dynamics damping="1.0" friction="0.5"/>
+
+	</joint>
+
+<!-- ///   LINK1_1  // -->
+	<link name="link1_1">
+		<visual>
+			<origin rpy="1.5708 0 0" xyz="0 0 0"/>
+			<geometry>
+				<cylinder length="0.03" radius="0.01"/>
+			</geometry>
+			<material name="White"/>
+		</visual>
+		<collision>
+		    <origin rpy="1.5708 0 0" xyz="0 0 0"/>
+		    <geometry>
+        		<cylinder length="0.03" radius="0.01"/>
+        	</geometry>
+		</collision>
+		<inertial>
+		    <mass value="1"/>
+            <inertia ixx="0.0001" ixy="0.0" ixz="0.0" iyy="0.00005" iyz="0.0" izz="0.0001"/>
+		</inertial>
+	</link>
+
+	<joint name="joint1_1" type="fixed">
+		<parent link="link1"/>
+		<child link="link1_1"/>
+		<origin rpy="0 0 0" xyz="0 0 0.05"/>
+	</joint>
+
+<!-- ///   LINK2  // -->
+	<link name="link2">
+		<visual>
+			<origin rpy="0 0 0" xyz="0 0 0.087"/>
+			<geometry>
+				<box size="0.005 0.02 0.174"/>
+			</geometry>
+			<material name="White"/>
+		</visual>
+		<collision>
+		    <origin rpy="0 0 0" xyz="0 0 0.087"/>
+		    <geometry>
+        	    <box size="0.005 0.02 0.174"/>
+        	</geometry>
+		</collision>
+		<inertial>
+		    <mass value="1"/>
+            <inertia ixx="0.0101253" ixy="0.0" ixz="0.0" iyy="0.0100941" iyz="0.0" izz="0.0000354"/>
+		</inertial>
+	</link>
+
+	<joint name="joint2" type="revolute">
+		<parent link="link1_1"/>
+		<child link="link2"/>
+		<origin rpy="0 0 0" xyz="0 0 0"/>
+		<axis xyz="0 1 0"/>
+		<limit effort="300" lower="0.0" upper="1.570795" velocity="0"/>
+		<dynamics damping="1.0" friction="0.5"/>
+	</joint>
+
+<!-- ///   LINK1_1  // -->
+	<link name="link2_1">
+		<visual>
+			<origin rpy="1.5708 0 0" xyz="0 0 0"/>
+			<geometry>
+				<cylinder length="0.03" radius="0.01"/>
+			</geometry>
+			<material name="White"/>
+		</visual>
+		<collision>
+		    <origin rpy="1.5708 0 0" xyz="0 0 0"/>
+		    <geometry>
+        		<cylinder length="0.03" radius="0.01"/>
+        	</geometry>
+		</collision>
+		<inertial>
+		    <mass value="1"/>
+            <inertia ixx="0.0001" ixy="0.0" ixz="0.0" iyy="0.00005" iyz="0.0" izz="0.0001"/>
+		</inertial>
+	</link>
+
+	<joint name="joint_arm_2" type="fixed">
+		<parent link="link2"/>
+		<child link="link2_1"/>
+		<origin rpy="0 0 0" xyz="0 0 0.174"/>
+	</joint>
+
+
+<!-- /   LINK3  / -->
+	<link name="link3">
+	    <visual>
+	        <origin rpy="0 0 0" xyz="0 0 0.05"/>
+            <geometry>
+                <box size="0.01 0.02 0.10"/>
+            </geometry>
+	        <material name="White"/>
+	    </visual>
+		<collision>
+		    <origin rpy="0 0 0" xyz="0 0 0.05"/>
+		    <geometry>
+        	    <box size="0.01 0.02 0.10"/>
+        	</geometry>
+		</collision>
+		<inertial>
+		    <mass value="1"/>
+            <inertia ixx="0.0008667" ixy="0.0" ixz="0.0" iyy="0.0008417" iyz="0.0" izz="0.0000417"/>
+		</inertial>
+	</link>
+
+	<joint name="joint3" type="revolute">
+		<parent link="link2_1"/>
+		<child link="link3"/>
+		<origin rpy="0 0 0" xyz="0 0 0"/>
+		<axis xyz="0 1 0"/>
+		<limit effort="300" lower="0.0" upper="1.570795" velocity="0"/>
+		<dynamics damping="1.0" friction="0.5"/>
+	</joint>
+
+
+<!-- /   LINK3_up  / -->
+	<link name="link3_up">
+	    <visual>
+	        <origin rpy="0 0 0" xyz="0 0 0.034"/>
+            <geometry>
+                <cylinder length="0.068" radius="0.01"/>
+            </geometry>
+	        <material name="White"/>
+	    </visual>
+		<collision>
+		    <origin rpy="0 0 0" xyz="0 0 0.034"/>
+		    <geometry>
+                <cylinder length="0.068" radius="0.01"/>
+        	</geometry>
+		</collision>
+		<inertial>
+		    <mass value="1"/>
+            <inertia ixx="0.0004103" ixy="0.0" ixz="0.0" iyy="0.0004103" iyz="0.0" izz="0.00005"/>
+		</inertial>
+	</link>
+
+	<joint name="joint3_and_up" type="revolute">
+		<parent link="link3"/>
+		<child link="link3_up"/>
+		<origin rpy="0 0 0" xyz="0 0 0.1"/>
+		<axis xyz="0 0 1"/>
+        <limit effort="300" lower="-1.570795" upper="1.570795" velocity="0"/>
+        <dynamics damping="1.0" friction="0.5"/>
+	</joint>
+
+
+
+<!-- //   GRIPPER   // -->
+	<link name="gripper_finger_link1">
+		<visual>
+			<origin rpy="0 0 0" xyz="0 0 0.008"/>
+			<geometry>
+				<box size="0.01 0.004 0.016"/>
+			</geometry>
+			<material name="White"/>
+		</visual>
+		<collision>
+		    <origin rpy="0 0 0" xyz="0 0 0.008"/>
+			<geometry>
+        		<box size="0.01 0.004 0.016"/>
+        	</geometry>
+		</collision>
+	    <inertial>
+            <mass value="0.1"/>
+            <inertia ixx="2.2667e-6" ixy="0.0" ixz="0.0" iyy="3.0333e-6" iyz="0.0" izz="9.6667e-7"/>
+        </inertial>
+	</link>
+
+	<link name="gripper_finger_link2">
+		<visual>
+			<origin rpy="0 0 0" xyz="0 0 0.008"/>
+			<geometry>
+				<box size="0.01 0.004 0.016"/>
+			</geometry>
+			<material name="White"/>
+		</visual>
+		<collision>
+		    <origin rpy="0 0 0" xyz="0 0 0.008"/>
+			<geometry>
+                <box size="0.01 0.004 0.016"/>
+            </geometry>
+		</collision>
+	    <inertial>
+            <mass value="0.1"/>
+            <inertia ixx="2.2667e-6" ixy="0.0" ixz="0.0" iyy="3.0333e-6" iyz="0.0" izz="9.6667e-7"/>
+        </inertial>
+	</link>
+
+	<joint name="finger_joint1" type="prismatic">
+		<parent link="link3_up"/>
+		<child link="gripper_finger_link1"/>
+		<origin rpy="0 0 0" xyz="0 -0.01 0.068"/>
+		<axis xyz="0 1 0"/>
+		<limit effort="100" lower="0" upper="0.01" velocity="0"/>
+		<dynamics damping="1.0" friction="0.5"/>
+	</joint>
+
+	<joint name="finger_joint2" type="prismatic">
+		<parent link="link3_up"/>
+		<child link="gripper_finger_link2"/>
+		<origin rpy="0 0 0" xyz="0 0.01 0.068"/>
+		<axis xyz="0 -1 0"/>
+        <limit effort="100" lower="0" upper="0.01" velocity="0"/>
+        <dynamics damping="1.0" friction="0.5"/>
+	</joint>
+
+<!-- //   GRASPING FRAME   // -->
+	<link name="grasping_frame"/>
+
+	<joint name="grasping_frame_joint" type="fixed">
+		<parent link="link3_up"/>
+		<child link="grasping_frame"/>
+		<origin rpy="0 0 0" xyz="0.06 0 0"/>
+	</joint>
+
+
+
+</robot>

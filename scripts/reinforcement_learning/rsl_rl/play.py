@@ -321,14 +321,17 @@ def main():
             a0_deg = actions_deg[env0].detach().cpu().numpy()
 
             print(
-                f"[PLAY] env={env0} ep={ep_id[env0]} ep_step={ep_step[env0]} global_step={global_step} | "
-                f"action(rad)={a0_rad} | action(deg)={a0_deg}"
+                # f"[PLAY] env={env0} ep={ep_id[env0]} ep_step={ep_step[env0]} global_step={global_step} | "
+                # f"action(rad)={a0_rad}"
+                f"action(deg)={a0_deg}"
             )
 
             obs, _, dones, infos = env.step(actions)
-            env0 = 0
-            tail5 = obs[env0, -5:].detach().float().cpu().numpy()
-            print(f"[OBS] env={env0} last5 = {tail5}")
+            # print(f"step{global_step} obs[-5:] {obs[0, -5:].cpu().tolist()}")
+            time.sleep(2)
+            # env0 = 0
+            # tail5 = obs[env0, -5:].detach().float().cpu().numpy()
+            # print(f"[OBS] env={env0} last5 = {tail5}")
 
             # step 计数更新：每一步所有 env 的 ep_step 都 +1
             ep_step += 1

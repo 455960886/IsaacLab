@@ -1,0 +1,343 @@
+# params:
+#   seed: 42
+
+#   # environment wrapper clipping
+#   env:
+#     # added to the wrapper
+#     clip_observations: 300
+#     # can make custom wrapper?
+#     clip_actions: 300
+
+#   algo:
+#     name: a2c_continuous
+
+#   model:
+#     name: continuous_a2c_logstd
+
+#   # doesn't have this fine grained control but made it close
+#   network:
+#     name: actor_critic
+#     separate: False
+#     space:
+#       continuous:
+#         mu_activation: None
+#         sigma_activation: None
+
+#         mu_init:
+#           name: default
+#         sigma_init:
+#           name: const_initializer
+#           val: 0
+#         fixed_sigma: True
+#     # cnn:
+#     #   type: conv2d
+#     #   activation: relu
+#     #   initializer:
+#     #       name: default
+#     #   regularizer:
+#     #     name: None
+#     #   convs:
+#     #     - filters: 32
+#     #       kernel_size: 8
+#     #       strides: 4
+#     #       padding: 0
+#     #     - filters: 64
+#     #       kernel_size: 4
+#     #       strides: 2
+#     #       padding: 0
+#     #     - filters: 64
+#     #       kernel_size: 3
+#     #       strides: 1
+#     #       padding: 0
+
+#     cnn:
+#       type: conv2d
+#       activation: relu
+#       initializer:
+#         name: default
+#       regularizer:
+#         name: None
+#       convs:
+#         - filters: 32
+#           kernel_size: 8
+#           strides: 4
+#           padding: 0
+#         - filters: 64
+#           kernel_size: 4
+#           strides: 2
+#           padding: 0
+#         - filters: 64
+#           kernel_size: 3
+#           strides: 1
+#           padding: 0
+#       flatten: true
+#       fc_layers:
+#         - units: 256
+#           activation: relu
+
+
+#     mlp:
+#       units: [256]
+#       activation: elu
+#       initializer:
+#           name: default
+
+#   load_checkpoint: False # flag which sets whether to load the checkpoint
+#   load_path: '' # path to the checkpoint to load
+
+#   config:
+#     name: franka_lift
+#     env_name: rlgpu
+#     device: 'cuda:0'
+#     device_name: 'cuda:0'
+#     multi_gpu: False
+#     ppo: True
+#     mixed_precision: False
+#     normalize_input: False
+#     normalize_value: True
+#     num_actors: -1  # configured from the script (based on num_envs)
+#     reward_shaper:
+#       scale_value: 1.0
+#     normalize_advantage: True
+#     gamma: 0.99
+#     tau : 0.95
+#     learning_rate: 3e-4
+#     lr_schedule: adaptive
+#     kl_threshold: 0.008
+#     score_to_win: 20000
+#     max_epochs: 100000
+#     save_best_after: 50
+#     save_frequency: 100
+#     grad_norm: 1.0
+#     entropy_coef: 0.0
+#     truncate_grads: True
+#     e_clip: 0.2
+#     horizon_length: 64
+#     minibatch_size: 256
+#     mini_epochs: 4
+#     critic_coef: 2
+#     clip_value: True
+#     seq_length: 4
+#     bounds_loss_coef: 0.0001
+
+# params:
+#   seed: 42
+
+#   env:
+#     clip_observations: 300
+#     clip_actions: 300
+
+#   algo:
+#     name: a2c_continuous
+
+#   model:
+#     name: continuous_a2c_logstd
+#     # Add this to enable custom feature extractor
+#     base:
+#       type: nature_cnn  # This matches your registered custom network
+#       separate: False
+
+#   network:
+#     name: actor_critic
+#     separate: False
+#     space:
+#       continuous:
+#         mu_activation: None
+#         sigma_activation: None
+#         mu_init:
+#           name: default
+#         sigma_init:
+#           name: const_initializer
+#           val: 0
+#         fixed_sigma: True
+
+#     # Custom NatureCNN configuration
+#     input_layer:
+#       type: nature_cnn
+#       # CNN parameters (matches your original NatureCNN)
+#       conv_filters: [32, 64, 64]
+#       kernel_sizes: [8, 4, 3]
+#       strides: [4, 2, 1]
+#       padding: [0, 0, 0]
+#       activation: relu
+#       initializer:
+#         name: default
+#       # Post-CNN fully connected layers
+#       fc_layers:
+#         - units: 256
+#           activation: relu
+
+#     # MLP heads for actor and critic
+#     mlp:
+#       units: [256]  # Reduced from original 512 to account for CNN features
+#       activation: elu
+#       initializer:
+#         name: default
+
+#   load_checkpoint: False
+#   load_path: ''
+
+#   config:
+#     name: franka_lift
+#     env_name: rlgpu
+#     device: 'cuda:0'
+#     device_name: 'cuda:0'
+#     multi_gpu: False
+#     ppo: True
+#     mixed_precision: False
+#     normalize_input: True  # Changed to True for image normalization
+#     normalize_value: True
+#     num_actors: -1
+#     reward_shaper:
+#       scale_value: 1.0
+#     normalize_advantage: True
+#     gamma: 0.99
+#     tau: 0.95
+#     learning_rate: 3e-4
+#     lr_schedule: adaptive
+#     kl_threshold: 0.008
+#     score_to_win: 20000
+#     max_epochs: 100000
+#     save_best_after: 50
+#     save_frequency: 100
+#     grad_norm: 1.0
+#     entropy_coef: 0.0
+#     truncate_grads: True
+#     e_clip: 0.2
+#     horizon_length: 64
+#     minibatch_size: 256
+#     mini_epochs: 4
+#     critic_coef: 2
+#     clip_value: True
+#     seq_length: 4
+#     bounds_loss_coef: 0.0001
+
+params:
+  seed: 42
+
+  # === Environment Wrappers ===
+  env:
+    clip_observations: 300
+    clip_actions: 300
+
+  # === Algorithm ===
+  algo:
+    name: a2c_continuous  # A2C base, PPO=True -> PPO used
+
+  # === Use Custom Model ===
+  model:
+    name: continuous_a2c_logstd  # your custom ModelA2C subclass
+  # config.yaml 关键部分
+  separate: False
+  network:
+    name: actor_critic
+      # 必须与注册名称完全一致
+    input_shape: [128, 128, 3]  # 根据你的实际观察空间调整
+    actions_num: 8
+    
+    space:
+      continuous:
+        mu_activation: None
+        sigma_activation: None
+        mu_init:
+          name: default
+          scale: 0.02
+        sigma_init:
+          name: const_initializer
+          val: 0
+        fixed_sigma: True
+
+    cnn:
+      type: conv2d
+      input_shape: [128, 128, 3]  # 你可以根据实际输入调整 HWC
+      permute_input: true       # 转为 CHW 格式
+      initializer:
+        name: orthogonal
+        gain: 1.0
+      activation: relu
+      convs:
+        - filters: 32
+          kernel_size: 8
+          strides: 4
+          padding: 0
+        - filters: 64
+          kernel_size: 4
+          strides: 2
+          padding: 0
+        - filters: 64
+          kernel_size: 3
+          strides: 1
+          padding: 0
+      flatten: true
+
+      # mlp:
+      #   units: [256]
+      #   activation: relu
+      #   initializer:
+      #     name: orthogonal
+      #     gain: 1.0
+
+    mlp1:
+      units: [512]
+      activation: relu
+      initializer:
+        name: orthogonal_initializer
+      regularizer:
+        name: None #'l2_regularizer'
+        #scale: 0.001        # 根据你的动作空间调整
+  # 其他网络参数...
+    mlp2:
+      units: [512]
+      activation: relu
+      initializer:
+        name: orthogonal_initializer
+      regularizer:
+        name: None
+    
+  load_checkpoint: False
+  load_path: ''
+
+  # === Core PPO Config ===
+  config:
+    name: franka_lift
+    env_name: rlgpu
+    device: 'cuda:0'
+    device_name: 'cuda:0'
+    multi_gpu: True
+    ppo: True
+    mixed_precision: False
+
+    normalize_input: False
+    normalize_value: True
+    normalize_advantage: True
+
+    gamma: 0.99
+    tau: 0.95
+
+    learning_rate: 3e-4
+    lr_schedule: adaptive
+    kl_threshold: 0.008
+
+    reward_shaper:
+      scale_value: 1.0
+
+    grad_norm: 1.0
+    entropy_coef: 0.0
+    critic_coef: 2.0
+    e_clip: 0.2
+    clip_value: True
+    truncate_grads: True
+
+    horizon_length: 64
+    minibatch_size: 256
+    mini_epochs: 4
+    seq_length: 4
+
+    bounds_loss_coef: 0.0001
+
+    num_actors: -1
+
+    max_epochs: 100000
+    save_best_after: 50
+    save_frequency: 100
+    score_to_win: 20000
