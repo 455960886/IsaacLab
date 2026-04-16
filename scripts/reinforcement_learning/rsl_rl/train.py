@@ -97,6 +97,15 @@ from datetime import datetime
 
 # RSL-RL 的训练循环逻辑（rsl_rl/runners/on_policy_runner.py）
 from rsl_rl.runners import OnPolicyRunner
+import rsl_rl.runners.on_policy_runner as rsl_on_policy_runner
+
+from positive_m5_actor_critic import (
+    NormalizedM345ActorCritic,
+    PositiveM5ActorCritic,
+)
+
+rsl_on_policy_runner.NormalizedM345ActorCritic = NormalizedM345ActorCritic
+rsl_on_policy_runner.PositiveM5ActorCritic = PositiveM5ActorCritic
 
 from isaaclab.envs import (
     DirectMARLEnv,

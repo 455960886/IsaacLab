@@ -317,7 +317,7 @@ class EventCfg:
         func=mdp.randomize_floor_texture,
         mode="reset",
         params={
-            "texture_txt_path": "/home/roborock/桌面/floor/floor.txt"
+            "texture_txt_path": "/home/robo/code/IsaacLab/assets/Floor/floor.txt"
         },
     )
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")

@@ -30,7 +30,24 @@ from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 
-import math
+
+M3_LOWER = math.radians(180.0)
+M3_UPPER = math.radians(270.0)
+M3_DEFAULT = 0.5 * (M3_LOWER + M3_UPPER)    # 225° = 3.92699 rad
+
+M4_LOWER = math.radians(5.0)
+M4_UPPER = math.radians(150.0)
+M4_DEFAULT = 0.5 * (M4_LOWER + M4_UPPER)    # 77.5° = 1.35263 rad
+
+M5_LOWER = 0.0
+M5_UPPER = math.pi
+M5_DEFAULT = math.pi / 2.0                  # 90° = 1.5708 rad
+
+M345_ACTION_CLIP = {
+    "M3": (M3_LOWER, M3_UPPER),
+    "M4": (M4_LOWER, M4_UPPER),
+    "M5": (M5_LOWER, M5_UPPER),
+}
 
 
 MY_ROBOT_CFG = ArticulationCfg(
@@ -57,10 +74,9 @@ MY_ROBOT_CFG = ArticulationCfg(
             # "M0": 0,
             "M1": 1.57,
             # "M2": 1.57,
-            # "M3": 4.0,  
-            "M3": 3.8,       
-            "M4": 1.3,
-            "M5": 1.57,
+            "M3": M3_DEFAULT,
+            "M4": M4_DEFAULT,
+            "M5": M5_DEFAULT,
             "M6_1": 0.65,
             "M6_2": -0.65,
             # "M6_1": 1.57,
@@ -127,8 +143,10 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
 
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
-            joint_names=["M[345]"],
+            joint_names=["M3", "M4", "M5"],
+            preserve_order=True,
             use_default_offset=True,
+            clip=M345_ACTION_CLIP,
         )
 
         # self.actions.wrist_action = mdp.JointPositionActionCfg(
@@ -272,7 +290,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "baisetuoxie": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/baisetuoxie",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
                 #         scale=(1.0, 1.0, 1.2),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -293,7 +311,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "baisetuoxie_1": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/baisetuoxie_1",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
                 #         scale=(1.1, 1.1, 1.3),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -314,7 +332,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "baisetuoxie_2": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/baisetuoxie_2",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
                 #         scale=(0.9, 0.9, 1.1),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -335,7 +353,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 # "baisetuoxie_3": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/baisetuoxie_3",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
                 #         scale=(1.2, 0.9, 1.0),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
@@ -355,7 +373,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 "baisetuoxie_4": RigidObjectCfg(
                     prim_path="{ENV_REGEX_NS}/baisetuoxie_4",
                     spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
                         scale=(0.6, 0.6, 0.7),
                         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                             solver_position_iteration_count=64,
@@ -376,7 +394,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 "baisetuoxie_5": RigidObjectCfg(
                     prim_path="{ENV_REGEX_NS}/baisetuoxie_5",
                     spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
                         scale=(1.3, 1.4, 1.2),
                         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                             solver_position_iteration_count=64,
@@ -397,7 +415,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 "baisetuoxie_6": RigidObjectCfg(
                     prim_path="{ENV_REGEX_NS}/baisetuoxie_6",
                     spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
                         scale=(0.8, 0.9, 0.7),
                         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                             solver_position_iteration_count=64,
@@ -418,7 +436,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 "baisetuoxie_7": RigidObjectCfg(
                     prim_path="{ENV_REGEX_NS}/baisetuoxie_7",
                     spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
                         scale=(1.0, 1.0, 1.3),
                         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                             solver_position_iteration_count=64,
@@ -439,7 +457,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 "baisetuoxie_8": RigidObjectCfg(
                     prim_path="{ENV_REGEX_NS}/baisetuoxie_8",
                     spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
                         scale=(0.5, 0.5, 0.6),
                         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                             solver_position_iteration_count=64,
@@ -460,7 +478,7 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 "baisetuoxie_9": RigidObjectCfg(
                     prim_path="{ENV_REGEX_NS}/baisetuoxie_9",
                     spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        usd_path="/home/robo/code/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
                         scale=(1.1, 1.1, 1.1),
                         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                             solver_position_iteration_count=64,
