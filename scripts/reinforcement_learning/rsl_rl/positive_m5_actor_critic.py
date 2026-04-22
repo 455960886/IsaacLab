@@ -16,7 +16,7 @@ from rsl_rl.modules.actor_critic import ActorCritic
 class _PositiveM5ActorWrapper(nn.Module):
     """Wrap the base actor so that the M5 output is always in [0, pi]."""
 
-    def __init__(self, base_actor: nn.Module, m5_action_index: int = 2, m5_max: float = math.pi):
+    def __init__(self, base_actor: nn.Module, m5_action_index: int = 2, m5_max: float = math.pi / 2):
         super().__init__()
         self.base_actor = base_actor
         self.m5_action_index = m5_action_index

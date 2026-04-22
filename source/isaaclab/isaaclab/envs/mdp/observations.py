@@ -879,10 +879,10 @@ class image_features(ManagerTermBase):
         # translation = torch.tensor([0.1654, 0.0, 0.0494], device=device)
         translation = torch.tensor([0.1654, 0.0, 0.0494 + 0.013], device=device)
         trans_points = rotated_points +translation
-        # # Save Stage 1: After rotation
-        # if save_ply_debug:
-        #     points_trans = trans_points[env_id].cpu().numpy()
-        #     save_ply(points_trans, "1_rotated")
+        # Save Stage 1: After rotation
+        if save_ply_debug:
+            points_trans = trans_points[env_id].cpu().numpy()
+            save_ply(points_trans, "1_rotated")
 
         # Apply distance filtering
         # mask1 = rotated_points[:, :, 2] < 0.21
@@ -922,10 +922,10 @@ class image_features(ManagerTermBase):
 
         result = torch.stack(sampled_points, dim=0)
 
-        # # Save Stage 3: Final downsampled
-        # if save_ply_debug:
-        #     points_final = result[env_id].cpu().numpy()
-        #     save_ply(points_final, "3_downsampled")
+        # Save Stage 3: Final downsampled
+        if save_ply_debug:
+            points_final = result[env_id].cpu().numpy()
+            save_ply(points_final, "3_downsampled")
         
         # from .pointcloud_noise import add_noise
 
@@ -938,9 +938,9 @@ class image_features(ManagerTermBase):
         #     save_ply(points_final, "4_noised")
         result = randomize_pointcloud_batch_torch(result,dropout_rate=0.02,outlier_ratio=0.02,outlier_max_offset=0.08,surface_jitter=0.001)
         
-        if save_ply_debug:
-            points_final = result[env_id].cpu().numpy()
-            save_ply(points_final, "4_random")
+        # if save_ply_debug:
+        #     points_final = result[env_id].cpu().numpy()
+        #     save_ply(points_final, "4_random")
         
         return result
 
@@ -1305,6 +1305,8 @@ class image_features(ManagerTermBase):
         print(f"Saved voxel visualization: {save_path}")
 
 
+
+
     def _prepare_theia_transformer_model(self, model_name: str, model_device: str) -> dict:
         """Prepare the Theia transformer model for inference.
 
@@ -1477,84 +1479,35 @@ Actions.
 """
 
 
-# def randomize_pointcloud_batch_torch(
-#     pts, 
-#     dropout_rate=0.02, 
-#     outlier_ratio=0.015, 
-#     outlier_max_offset=0.04, 
-#     surface_jitter=0.0005
-# ):
-#     B, N, _ = pts.shape
-#     device = pts.device
-
-#     pts = pts.clone()
-
-#     # 1. Dropout
-#     # dropout_mask = torch.rand(B, N, device=device) > dropout_rate
-#     # pts = pts * dropout_mask.unsqueeze(-1)
-
-#     # 2. Outliers（沿 X 轴正方向）
-#     num_outliers = max(1, int(outlier_ratio * N))
-
-#     for b in range(B):
-#         idx = torch.randperm(N, device=device)[:num_outliers].long()  # 确保是 long
-#         offset = torch.rand(num_outliers, device=device, dtype=pts.dtype) * outlier_max_offset
-#         pts[b].index_add_(0, idx, torch.stack([offset, torch.zeros_like(offset), torch.zeros_like(offset)], dim=1))
-
-#     jitter = torch.randn_like(pts) * surface_jitter
-#     pts = pts + jitter
-
-#     return pts
-
-
 def randomize_pointcloud_batch_torch(
-    pts,
-    dropout_rate=0.02,
-    outlier_ratio=0.015,
-    outlier_max_offset=0.04,
-    surface_jitter=0.0005,
-    scale_min=0.9,
-    scale_max=1.1,
-    skew_max=0.1,
+    pts, 
+    dropout_rate=0.02, 
+    outlier_ratio=0.015, 
+    outlier_max_offset=0.04, 
+    surface_jitter=0.0005
 ):
     B, N, _ = pts.shape
     device = pts.device
 
     pts = pts.clone()
 
-    # 2. Outliers (along +X)
-    num_outliers = max(1, int(outlier_ratio * N))
-    for b in range(B):
-        idx = torch.randperm(N, device=device)[:num_outliers].long()
-        offset = torch.rand(num_outliers, device=device, dtype=pts.dtype) * outlier_max_offset
-        pts[b].index_add_(
-            0, idx,
-            torch.stack([offset, torch.zeros_like(offset), torch.zeros_like(offset)], dim=1)
-        )
+    # 1. Dropout
+    # dropout_mask = torch.rand(B, N, device=device) > dropout_rate
+    # pts = pts * dropout_mask.unsqueeze(-1)
 
-    # 3. Surface jitter
+    # 2. Outliers（沿 X 轴正方向）
+    num_outliers = max(1, int(outlier_ratio * N))
+
+    for b in range(B):
+        idx = torch.randperm(N, device=device)[:num_outliers].long()  # 确保是 long
+        offset = torch.rand(num_outliers, device=device, dtype=pts.dtype) * outlier_max_offset
+        pts[b].index_add_(0, idx, torch.stack([offset, torch.zeros_like(offset), torch.zeros_like(offset)], dim=1))
+
+
     jitter = torch.randn_like(pts) * surface_jitter
     pts = pts + jitter
 
-    # 4. Random scaling about per-batch centroid
-    centroid = pts.mean(dim=1, keepdim=True)                          
-    scale = torch.rand(B, 1, 1, device=device, dtype=pts.dtype) \
-            * (scale_max - scale_min) + scale_min                    
-    pts = (pts - centroid) * scale + centroid
-
-    # 5. Random shear/skew on all axes
-
-    S = (torch.rand(B, 3, 3, device=device, dtype=pts.dtype) * 2 - 1) * skew_max
-    diag_mask = 1 - torch.eye(3, device=device, dtype=pts.dtype)
-    S = S * diag_mask
-    M = torch.eye(3, device=device, dtype=pts.dtype).unsqueeze(0) + S  
-
-    centered = pts - centroid                                      
-    sheared = torch.bmm(centered, M.transpose(1, 2))                   
-    pts = sheared + centroid
-
     return pts
-
 
 
 def last_action(env: ManagerBasedEnv, action_name: str | None = None) -> torch.Tensor:
