@@ -7,8 +7,6 @@ import os
 
 from . import agents
 
-
-
 ##
 # Register Gym environments.
 ##
@@ -39,54 +37,6 @@ gym.register(
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
         "sb3_cfg_entry_point": f"{agents.__name__}:sb3_ppo_cfg.yaml",
-    },
-    disable_env_checker=True,
-)
-
-##
-# Teacher Training (privileged state — for student-teacher distillation)
-##
-
-gym.register(
-    id="Isaac-Lift-Cube-CoarseArm-Teacher-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.joint_pos_env_cfg_teacher:CoarseArmCubeLiftTeacherEnvCfg",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg_teacher:LiftCubeTeacherPPORunnerCfg",
-    },
-    disable_env_checker=True,
-)
-
-gym.register(
-    id="Isaac-Lift-Cube-CoarseArm-Teacher-Play-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.joint_pos_env_cfg_teacher:CoarseArmCubeLiftTeacherEnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg_teacher:LiftCubeTeacherPPORunnerCfg",
-    },
-    disable_env_checker=True,
-)
-
-##
-# Student Distillation (image obs student + frozen privileged-state teacher)
-##
-
-gym.register(
-    id="Isaac-Lift-Cube-CoarseArm-Student-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.joint_pos_env_cfg_student:CoarseArmCubeLiftStudentEnvCfg",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_distillation_cfg:LiftCubeDistillationRunnerCfg",
-    },
-    disable_env_checker=True,
-)
-
-gym.register(
-    id="Isaac-Lift-Cube-CoarseArm-Student-Play-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.joint_pos_env_cfg_student:CoarseArmCubeLiftStudentEnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_distillation_cfg:LiftCubeDistillationRunnerCfg",
     },
     disable_env_checker=True,
 )

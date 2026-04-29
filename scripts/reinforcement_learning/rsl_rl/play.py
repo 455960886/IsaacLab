@@ -5,8 +5,6 @@
 
 """Script to play a checkpoint if an RL agent from RSL-RL."""
 
-
-
 """Launch Isaac Sim Simulator first."""
 from isaaclab.app import AppLauncher
 import argparse
@@ -306,11 +304,6 @@ def main():
     ep_id = np.zeros(num_envs, dtype=np.int64)
     ep_step = np.zeros(num_envs, dtype=np.int64)
 
-    # # --- debug: save M5 wrist velocity plots to files ---
-    # env.unwrapped._debug_wrist_vel = True
-    # env.unwrapped._debug_vel_save_dir = "/home/roborock/gitlab5/drl_manipulation/debug_plots/wrist_vel"
-    # # ------------------------------------------------------
-
     # simulate environment
     while simulation_app.is_running():
         # run everything in inference mode
@@ -327,18 +320,15 @@ def main():
             actions_deg = actions * (180.0 / torch.pi)
             a0_deg = actions_deg[env0].detach().cpu().numpy()
 
-            # print(
-            #     # f"[PLAY] env={env0} ep={ep_id[env0]} ep_step={ep_step[env0]} global_step={global_step} | "
-            #     # f"action(rad)={a0_rad}"
-            #     f"action(deg)={a0_deg}"
-            # )
+            print(
+                f"[PLAY] env={env0} ep={ep_id[env0]} ep_step={ep_step[env0]} global_step={global_step} | "
+                f"action(rad)={a0_rad} | action(deg)={a0_deg}"
+            )
 
             obs, _, dones, infos = env.step(actions)
-            # print(f"step{global_step} obs[-5:] {obs[0, -5:].cpu().tolist()}")
-            # time.sleep(2)
-            # env0 = 0
-            # tail5 = obs[env0, -5:].detach().float().cpu().numpy()
-            # print(f"[OBS] env={env0} last5 = {tail5}")
+            env0 = 0
+            tail5 = obs[env0, -5:].detach().float().cpu().numpy()
+            print(f"[OBS] env={env0} last5 = {tail5}")
 
             # step 计数更新：每一步所有 env 的 ep_step 都 +1
             ep_step += 1

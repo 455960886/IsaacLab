@@ -13,13 +13,14 @@ print("sys.argv =", sys.argv)
 import argparse
 import sys
 
-import warnings                                                                                                                                                                                                               
-warnings.filterwarnings("ignore", message=".*Ill-formed SdfPath.*")        
-
 from isaaclab.app import AppLauncher
 
 # local imports
 import cli_args  # isort: skip
+import torch
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+torch.backends.cudnn.benchmark = True
 
 
 # add argparse arguments
@@ -33,7 +34,6 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
-parser.add_argument("--bc_checkpoint", type=str, default=None, help="Path to a BC pre-trained checkpoint to warm-start PPO actor weights.")
 # 是否用分布式训练（多 GPU 或多机）
 parser.add_argument(
     "--distributed", action="store_true", default=False, help="Run training with multiple GPUs or nodes."
@@ -69,13 +69,7 @@ from packaging import version
 
 # for distributed training, check minimum supported rsl-rl version
 RSL_RL_VERSION = "2.3.1"
-try:
-    installed_version = metadata.version("rsl-rl-lib")
-except metadata.PackageNotFoundError:
-    try:
-        installed_version = metadata.version("rsl_rl")
-    except metadata.PackageNotFoundError:
-        installed_version = RSL_RL_VERSION  # metadata unavailable; skip version check
+installed_version = metadata.version("rsl-rl-lib")
 if args_cli.distributed and version.parse(installed_version) < version.parse(RSL_RL_VERSION):
     if platform.system() == "Windows":
         cmd = [r".\isaaclab.bat", "-p", "-m", "pip", "install", f"rsl-rl-lib=={RSL_RL_VERSION}"]
@@ -91,12 +85,20 @@ if args_cli.distributed and version.parse(installed_version) < version.parse(RSL
 """Rest everything follows."""
 
 import gymnasium as gym
+import pathlib
 import os
 import torch
 from datetime import datetime
 
+import git
+
 # RSL-RL 的训练循环逻辑（rsl_rl/runners/on_policy_runner.py）
 from rsl_rl.runners import OnPolicyRunner
+import rsl_rl.runners.on_policy_runner as rsl_on_policy_runner
+
+from positive_m5_actor_critic import PositiveM5ActorCritic
+
+rsl_on_policy_runner.PositiveM5ActorCritic = PositiveM5ActorCritic
 
 from isaaclab.envs import (
     DirectMARLEnv,
@@ -116,10 +118,36 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 
 # PLACEHOLDER: Extension template (do not remove this comment)
 
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-torch.backends.cudnn.deterministic = False
-torch.backends.cudnn.benchmark = False
+
+def _store_code_state_safe(logdir: str, repositories: list[str]) -> list[str]:
+    """Store git state without failing on surrogate bytes returned by GitPython."""
+    git_log_dir = os.path.join(logdir, "git")
+    os.makedirs(git_log_dir, exist_ok=True)
+    file_paths = []
+
+    for repository_file_path in repositories:
+        try:
+            repo = git.Repo(repository_file_path, search_parent_directories=True)
+            commit_tree = repo.head.commit.tree
+        except Exception:
+            print(f"Could not find git repository in {repository_file_path}. Skipping.")
+            continue
+
+        repo_name = pathlib.Path(repo.working_dir).name
+        diff_file_name = os.path.join(git_log_dir, f"{repo_name}.diff")
+        if os.path.isfile(diff_file_name):
+            continue
+
+        print(f"Storing git diff for '{repo_name}' in: {diff_file_name}")
+        content = f"--- git status ---\n{repo.git.status()} \n\n\n--- git diff ---\n{repo.git.diff(commit_tree)}"
+        with open(diff_file_name, "w", encoding="utf-8", errors="backslashreplace") as file:
+            file.write(content)
+        file_paths.append(diff_file_name)
+
+    return file_paths
+
+
+rsl_on_policy_runner.store_code_state = _store_code_state_safe
 
 
 # hydra_task_config 会从配置文件加载环境 & agent 配置。
@@ -171,12 +199,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = multi_agent_to_single_agent(env)
 
     # save resume path before creating a new log_dir
-    if agent_cfg.algorithm.class_name == "Distillation":
-        # For distillation, load_run is the teacher experiment name (sibling dir, not a subdir of student).
-        # Build the teacher log path: logs/rsl_rl/{load_run}
-        teacher_log_path = os.path.abspath(os.path.join("logs", "rsl_rl", agent_cfg.load_run))
-        resume_path = get_checkpoint_path(teacher_log_path, run_dir=".*", checkpoint=agent_cfg.load_checkpoint)
-    elif agent_cfg.resume:
+    if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
     
     # env.reset()
@@ -206,41 +229,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # create runner from rsl-rl
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
-    # write git state to logs
-    runner.add_git_repo_to_log(__file__)
+    # Optionally skip git snapshots for tasks that opt out of code-state logging.
+    if getattr(agent_cfg, "store_code_state", True):
+        runner.add_git_repo_to_log(__file__)
+    else:
+        runner.git_status_repos = []
     # load the checkpoint
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
         runner.load(resume_path)
-    elif args_cli.bc_checkpoint is not None:
-        # Load BC pre-trained weights.
-        # We do NOT use runner.load() here because:
-        #   1. We don't want to load the BC optimizer into the PPO optimizer.
-        #   2. runner.load() with empirical_normalization=True expects obs_norm_state_dict
-        #      in the standard RSL-RL format which runner.save() writes — our BC checkpoint
-        #      stores it separately so we handle it manually below.
-        print(f"[INFO]: Loading BC pre-trained weights from: {args_cli.bc_checkpoint}")
-        bc_ckpt = torch.load(args_cli.bc_checkpoint, map_location=agent_cfg.device, weights_only=False)
-
-        # 1. Load actor (+ critic) weights
-        missing, unexpected = runner.alg.policy.load_state_dict(bc_ckpt["model_state_dict"], strict=False)
-        if missing:
-            print(f"[BC load] Missing keys (random-init): {missing}")
-        if unexpected:
-            print(f"[BC load] Unexpected keys (ignored): {unexpected}")
-
-        # 2. Restore obs normalizer so PPO sees the same normalized obs that BC was trained on.
-        #    Both obs_normalizer and privileged_obs_normalizer receive the same state because
-        #    your setup has no privileged observations (privileged_obs falls back to obs).
-        if "obs_norm_state_dict" in bc_ckpt and agent_cfg.empirical_normalization:
-            runner.obs_normalizer.load_state_dict(bc_ckpt["obs_norm_state_dict"])
-            runner.privileged_obs_normalizer.load_state_dict(bc_ckpt["obs_norm_state_dict"])
-            print("[BC load] Obs normalizer initialized from BC dataset statistics.")
-        else:
-            print("[BC load] Warning: obs_norm_state_dict not found — normalizer starts from scratch.")
-
-        print("[BC load] Done. PPO optimizer and iteration counter start fresh.")
 
     # dump the configuration into log-directory
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
