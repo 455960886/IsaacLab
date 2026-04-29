@@ -19,6 +19,7 @@ class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
 
     policy = RslRlPpoActorCriticCfg(
         class_name="ActorCritic",
+        # class_name="PositiveM5ActorCritic",
         init_noise_std=0.2,
         actor_hidden_dims=[512, 256, 128, 64],
         critic_hidden_dims=[512, 256, 128, 64],

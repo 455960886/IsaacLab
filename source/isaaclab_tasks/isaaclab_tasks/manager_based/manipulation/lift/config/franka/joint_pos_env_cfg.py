@@ -61,6 +61,8 @@ MY_ROBOT_CFG = ArticulationCfg(
             "M3": 3.8,       
             "M4": 1.3,
             "M5": 1.57,
+            # "M6_1": 0.65,
+            # "M6_2": -0.65,
             "M6_1": 1.57,
             "M6_2": -1.57,
         },
@@ -94,7 +96,7 @@ MY_ROBOT_CFG = ArticulationCfg(
             joint_names_expr=["M6_.*"],
             effort_limit=50,      # Reduced to prevent excessive force
             velocity_limit=40,     # Keep same
-            stiffness=500,          # Increased from 15 to reduce penetration
+            stiffness=5000,          # Increased from 15 to reduce penetration
             damping=1.0,           # Increased from 0.001 for better stability
         ),
     },
@@ -125,23 +127,24 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
 
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
-            joint_names=["M[34]"],
+            joint_names=["M[345]"],
             use_default_offset=True,
         )
 
-        self.actions.wrist_action = mdp.JointPositionActionCfg(
-            asset_name="robot",
-            joint_names=["M5"],
-            scale=1.0,  # Scale up from policy output to encourage more wrist movement
-            # offset=0.0,
-            use_default_offset=True,
-            # clip={"M5": (0.0, math.pi)},
-        )
+        # self.actions.wrist_action = mdp.JointPositionActionCfg(
+        #     asset_name="robot",
+        #     joint_names=["M5"],
+        #     scale=1.0,  # Scale up from policy output to encourage more wrist movement
+        #     # offset=0.0,
+        #     use_default_offset=True,
+        #     # clip={"M5": (0.0, math.pi)},
+        # )
 
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
             joint_names=["M6_.*"],
-            open_command_expr={"M6_1": 0.65, "M6_2": -0.65},
+            # open_command_expr={"M6_1": 0.65, "M6_2": -0.65},
+            open_command_expr={"M6_1": 1.57, "M6_2": -1.57},
             close_command_expr={"M6_1": 0.02, "M6_2": -0.02},
         )
 
@@ -266,126 +269,293 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.0, 0.08), rot=(0.7071, 0, 0, -0.7071)),
                 # ),
 
-                "baisetuoxie": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/baisetuoxie",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
-                        scale=(1.0, 1.0, 1.2),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=8,
-                            disable_gravity=False,
-                        ),
-                        mass_props=sim_utils.MassPropertiesCfg(
-                            mass=0.01,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
-                ),
-
-
-                "baisetuoxie_1": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/baisetuoxie_1",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
-                        scale=(1.1, 1.1, 1.3),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=8,
-                            disable_gravity=False,
-                        ),
-                        mass_props=sim_utils.MassPropertiesCfg(
-                            mass=0.01,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
-                ),
-
-
-                "baisetuoxie_2": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/baisetuoxie_2",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
-                        scale=(0.9, 0.9, 1.1),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=8,
-                            disable_gravity=False,
-                        ),
-                        mass_props=sim_utils.MassPropertiesCfg(
-                            mass=0.01,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
-                ),
-
-
-                "baisetuoxie_3": RigidObjectCfg(
-                    prim_path="{ENV_REGEX_NS}/baisetuoxie_3",
-                    spawn=sim_utils.UsdFileCfg(
-                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie_yonghan/baisetuoxie.usdc",
-                        scale=(1.2, 0.9, 1.0),
-                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                            solver_position_iteration_count=64,
-                            solver_velocity_iteration_count=8,
-                            disable_gravity=False,
-                        ),
-                        mass_props=sim_utils.MassPropertiesCfg(
-                            mass=0.01,
-                        ),
-                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                            articulation_enabled=False,  # CRITICAL: Disable articulation
-                        ),
-                    ),
-                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
-                ),
-
-                # "fensemiantuo": RigidObjectCfg(
-                #     prim_path="{ENV_REGEX_NS}/fensemiantuo",
+                # "baisetuoxie": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/baisetuoxie",
                 #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/roborock/gitlab5/drl_manipulation/assets/fensemiantuo/fensemiantuo.usdc",
-                #         scale=(1.0, 1.0, 1.0),
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         scale=(1.0, 1.0, 1.2),
                 #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 #             solver_position_iteration_count=64,
-                #             solver_velocity_iteration_count=32,
-                #             disable_gravity=False,
-                #         ),
-                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                #             articulation_enabled=False,  # CRITICAL: Disable articulation
-                #         ),
-                #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.03, 0.06)),
-                # ),
-
-                # ########################################################## 自己的 ###################################################################
-                # "renzituo": RigidObjectCfg(
-                #     prim_path="{ENV_REGEX_NS}/renzituo",
-                #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/renzituo/renzituo.usdc",
-                #         scale=(1.0, 1.0, 1.3),
-                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                #             solver_position_iteration_count=64,
-                #             solver_velocity_iteration_count=32,
+                #             solver_velocity_iteration_count=8,
                 #             disable_gravity=False,
                 #         ),
                 #         mass_props=sim_utils.MassPropertiesCfg(
-                #             mass=0.001,
+                #             mass=0.01,
                 #         ),
                 #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 #             articulation_enabled=False,  # CRITICAL: Disable articulation
                 #         ),
                 #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.01, 0.06)),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
                 # ),
+
+
+                # "baisetuoxie_1": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/baisetuoxie_1",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         scale=(1.1, 1.1, 1.3),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=8,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
+                # ),
+
+
+                # "baisetuoxie_2": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/baisetuoxie_2",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         scale=(0.9, 0.9, 1.1),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=8,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
+                # ),
+
+
+                # "baisetuoxie_3": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/baisetuoxie_3",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         scale=(1.2, 0.9, 1.0),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=8,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
+                # ),
+
+                # "baisetuoxie_4": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/baisetuoxie_4",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         scale=(0.6, 0.6, 0.7),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=8,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.27, 0.02, 0.06)),
+                # ),
+
+
+                "baisetuoxie_5": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/baisetuoxie_5",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        scale=(1.1, 1.3, 1.2),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=8,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.02, 0.09)),
+                ),
+
+
+                # "baisetuoxie_6": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/baisetuoxie_6",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         scale=(0.8, 0.9, 0.7),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=8,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.02, 0.06)),
+                # ),
+
+
+                # "baisetuoxie_7": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/baisetuoxie_7",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         scale=(1.0, 1.0, 1.3),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=8,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.09)),
+                # ),
+
+
+                # "baisetuoxie_8": RigidObjectCfg(
+                #     prim_path="{ENV_REGEX_NS}/baisetuoxie_8",
+                #     spawn=sim_utils.UsdFileCfg(
+                #         usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                #         scale=(0.5, 0.5, 0.6),
+                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                #             solver_position_iteration_count=64,
+                #             solver_velocity_iteration_count=8,
+                #             disable_gravity=False,
+                #         ),
+                #         mass_props=sim_utils.MassPropertiesCfg(
+                #             mass=0.01,
+                #         ),
+                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                #             articulation_enabled=False,  # CRITICAL: Disable articulation
+                #         ),
+                #     ),
+                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, 0.02, 0.05)),
+                # ),
+
+
+                "baisetuoxie_9": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/baisetuoxie_9",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baisetuoxie/baisetuoxie.usdc",
+                        scale=(1.1, 1.1, 1.1),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=8,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.31, 0.02, 0.08)),
+                ),
+
+
+                "bokenxie": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/bokenxie",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/bokenxie/bokenxie.usdc",
+                        scale=(0.7, 0.8, 0.85),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=8,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, -0.03, 0.02)),
+                ),
+
+                "chengsetuoxie": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/chengsetuoxie",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/chengsetuoxie/chengsetuoxie.usdc",
+                        scale=(1.0, 1.0, 1.0),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=8,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.01,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.28, -0.03, 0.03)),
+                ),
+
+
+                "fensemiantuo": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/fensemiantuo",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/fensemiantuo/fensemiantuo.usdc",
+                        scale=(1.0, 0.9, 0.8),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
+                            disable_gravity=False,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.0, 0.07)),
+                ),
+
+                "renzituo": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/renzituo",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/renzituo/renzituo.usdc",
+                        scale=(1.0, 1.0, 1.15),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.001,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.0, 0.05)),
+                ),
+
                 # "slippers": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/slippers",
                 #     spawn=sim_utils.UsdFileCfg(
@@ -410,25 +580,27 @@ class CoarseArmCubeLiftEnvCfg(LiftEnvCfg):
                 #     ),
                 #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.01, 0.06)),
                 # ),
-                # "baiseyundongxie": RigidObjectCfg(
-                #     prim_path="{ENV_REGEX_NS}/baiseyundongxie",
-                #     spawn=sim_utils.UsdFileCfg(
-                #         usd_path="/home/robo/code/IsaacLab/assets/baiseyundongxie/baiseyundongxie.usdc",
-                #         scale=(1.0, 1.0, 1.0),
-                #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                #             solver_position_iteration_count=64,
-                #             solver_velocity_iteration_count=32,
-                #             disable_gravity=False,
-                #         ),
-                #         mass_props=sim_utils.MassPropertiesCfg(
-                #             mass=0.001,
-                #         ),
-                #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                #             articulation_enabled=False,  # CRITICAL: Disable articulation
-                #         ),
-                #     ),
-                #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.29, 0.04, 0.06)),
-                # ),
+
+                "baiseyundongxie": RigidObjectCfg(
+                    prim_path="{ENV_REGEX_NS}/baiseyundongxie",
+                    spawn=sim_utils.UsdFileCfg(
+                        usd_path="/home/roborock/data/private/shengmei/IsaacLab/assets/baiseyundongxie/baiseyundongxie.usdc",
+                        scale=(0.8, 1.0, 0.7),
+                        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                            solver_position_iteration_count=64,
+                            solver_velocity_iteration_count=32,
+                            disable_gravity=False,
+                        ),
+                        mass_props=sim_utils.MassPropertiesCfg(
+                            mass=0.001,
+                        ),
+                        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                            articulation_enabled=False,  # CRITICAL: Disable articulation
+                        ),
+                    ),
+                    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, 0.0, 0.065)),
+                ),
+
                 # "zongsepixie": RigidObjectCfg(
                 #     prim_path="{ENV_REGEX_NS}/fensemiantuo",
                 #     spawn=sim_utils.UsdFileCfg(

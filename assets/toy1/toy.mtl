@@ -1,7 +1,0 @@
-# File produced by Open Asset Import Library (http://www.assimp.sf.net)
-# (assimp v5.4.4108939008)
-
-newmtl material_0
-illum 1
-map_Kd ./Image_0_5.png
-

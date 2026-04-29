@@ -33,7 +33,7 @@ from isaaclab_tasks.manager_based.manipulation.lift import mdp
 from isaaclab_tasks.manager_based.manipulation.lift.config.franka.joint_pos_env_cfg import (
     CoarseArmCubeLiftEnvCfg,
 )
-from isaaclab_tasks.manager_based.manipulation.lift.lift_env_cfg import ResNet18ObservationCfg
+from isaaclab_tasks.manager_based.manipulation.lift.lift_env_cfg import PointNetOnlyObservationCfg
 
 
 @configclass
@@ -97,7 +97,7 @@ class StudentDistillationObservationCfg:
 
     # "policy" → student network input — identical instance to the old PPO actor obs group
     # "teacher" → frozen teacher network input (looked up by the distillation runner)
-    policy: ObsGroup = ResNet18ObservationCfg.ResNet18FeaturesCameraPolicyCfg()
+    policy: ObsGroup = PointNetOnlyObservationCfg.PointNetPolicyCfg()
     teacher: ObsGroup = TeacherPrivilegedObsCfg()
 
 

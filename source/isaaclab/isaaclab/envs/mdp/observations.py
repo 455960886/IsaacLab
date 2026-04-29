@@ -1164,13 +1164,16 @@ class image_features(ManagerTermBase):
         # pdb.set_trace()
         
         img_feat_norm = torch.nn.functional.normalize(features, p=2, dim=1)
-        # import pdb
-        # pdb.set_trace()
         pc_feat_norm = torch.nn.functional.normalize(depth_features_batch, p=2, dim=1)
-        
+
+        if self._frame_counter % 200 == 0:
+            resnet_norm = features.norm(dim=1).mean().item()
+            pointnet_norm = depth_features_batch.norm(dim=1).mean().item()
+            print(f"[feat norms] resnet={resnet_norm:.3f}  pointnet={pointnet_norm:.3f}  ratio={pointnet_norm/max(resnet_norm,1e-6):.3f}")
+
         features = torch.cat((features, depth_features_batch), dim=-1)
         # features = torch.cat((img_feat_norm,pc_feat_norm), dim=-1)
-        
+
         return features.detach().to(image_device)
 
     """
@@ -1469,7 +1472,150 @@ class image_features(ManagerTermBase):
                 return features
 
         self._point_encoder = PointNet2Encoder(classifier).cuda().eval()
-            
+
+
+class pointnet_features(image_features):
+    """PointNet-only observation: skips ResNet entirely, returns 1024-dim PointNet features.
+
+    Inherits all depth/pointcloud infrastructure from image_features but does not load
+    or run the ResNet model.
+    """
+
+    def __init__(self, cfg: ObservationTermCfg, env: ManagerBasedEnv):
+        # Skip image_features.__init__ to avoid loading ResNet; call ManagerTermBase directly.
+        ManagerTermBase.__init__(self, cfg, env)
+        self.model_device: str = cfg.params.get("model_device", env.device)
+        self._frame_counter = 0
+        self._prepare_pointnet_model()
+
+    def reset(self, env_ids: torch.Tensor | None = None):
+        pass
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        depth_cfg: SceneEntityCfg = SceneEntityCfg("depth_camera"),
+    ) -> torch.Tensor:
+        depth = env.scene.sensors[depth_cfg.name].data.output["distance_to_image_plane"]
+        cam = env.scene.sensors[depth_cfg.name]
+        K = cam._data.intrinsic_matrices[0]
+        fx, fy, cx, cy = K[0][0], K[1][1], K[0][2], K[1][2]
+
+        depth_tensor = depth.squeeze(-1)
+        self._frame_counter += 1
+
+        batch_points_tensor = self.depth_to_pointcloud_batch_gpu(
+            depth_tensor, fx, fy, cx, cy,
+            num_points=1024,
+            save_ply_debug=False,
+            env_id=0,
+            frame_counter=self._frame_counter,
+            save_dir="debug_pointclouds",
+            env=env,
+        )
+
+        env.point_cloud_cache = batch_points_tensor.detach()
+        env._pcd_cache_step = env.common_step_counter
+
+        pts_input = batch_points_tensor.permute(0, 2, 1).contiguous()
+        with torch.no_grad():
+            features = self._point_encoder(pts_input)
+
+        return features.detach()
+
+
+class pointnet_features_temporal(pointnet_features):
+    """PointNet features with temporal self-attention over the last N timesteps.
+
+    Maintains a rolling buffer of shape (num_envs, history_len, 1024). At each step the
+    newest feature is inserted and multi-head self-attention is applied over the N tokens.
+    The attended representation of the most-recent token is returned (1024-dim), keeping
+    the output shape identical to pointnet_features so nothing downstream needs to change.
+    """
+
+    def __init__(self, cfg: ObservationTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+
+        self._history_len: int = cfg.params.get("history_len", 4)
+        feat_dim = 1024
+        num_heads: int = cfg.params.get("num_heads", 8)
+
+        self._feat_buffer: torch.Tensor | None = None  # lazy-init after first forward
+        self._attn = torch.nn.MultiheadAttention(
+            embed_dim=feat_dim,
+            num_heads=num_heads,
+            batch_first=True,
+        ).to(env.device)
+
+    def reset(self, env_ids: torch.Tensor | None = None):
+        if self._feat_buffer is None:
+            return
+        if env_ids is None:
+            self._feat_buffer.zero_()
+        else:
+            self._feat_buffer[env_ids] = 0.0
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        depth_cfg: SceneEntityCfg = SceneEntityCfg("depth_camera"),
+        history_len: int = 4,
+        num_heads: int = 8,
+    ) -> torch.Tensor:
+        # --- get current PointNet feature (num_envs, 1024) ---
+        depth = env.scene.sensors[depth_cfg.name].data.output["distance_to_image_plane"]
+        cam = env.scene.sensors[depth_cfg.name]
+        K = cam._data.intrinsic_matrices[0]
+        fx, fy, cx, cy = K[0][0], K[1][1], K[0][2], K[1][2]
+
+        depth_tensor = depth.squeeze(-1)
+        self._frame_counter += 1
+
+        batch_points_tensor = self.depth_to_pointcloud_batch_gpu(
+            depth_tensor, fx, fy, cx, cy,
+            num_points=1024,
+            save_ply_debug=False,
+            env_id=0,
+            frame_counter=self._frame_counter,
+            save_dir="debug_pointclouds",
+            env=env,
+        )
+
+        env.point_cloud_cache = batch_points_tensor.detach()
+        env._pcd_cache_step = env.common_step_counter
+
+        pts_input = batch_points_tensor.permute(0, 2, 1).contiguous()
+        with torch.no_grad():
+            current_feat = self._point_encoder(pts_input)  # (num_envs, 1024)
+
+        # --- lazy buffer init ---
+        if self._feat_buffer is None:
+            self._feat_buffer = torch.zeros(
+                env.num_envs, self._history_len, current_feat.shape[-1],
+                device=current_feat.device, dtype=current_feat.dtype,
+            )
+
+        # --- reset buffer for envs that just started a new episode ---
+        if hasattr(env, "episode_length_buf"):
+            just_reset = env.episode_length_buf == 1
+            if just_reset.any():
+                self._feat_buffer[just_reset] = 0.0
+
+        # --- shift buffer and insert new feature ---
+        # buffer[:, 0] = oldest, buffer[:, -1] = newest
+        self._feat_buffer = torch.roll(self._feat_buffer, shifts=-1, dims=1)
+        self._feat_buffer[:, -1] = current_feat.detach()
+
+        # --- self-attention over N tokens: (num_envs, N, 1024) ---
+        with torch.no_grad():
+            attended, _ = self._attn(
+                self._feat_buffer,
+                self._feat_buffer,
+                self._feat_buffer,
+            )  # (num_envs, N, 1024)
+
+        # return the attended representation of the most-recent token
+        return attended[:, -1, :].detach()
 
 
 """
@@ -1515,7 +1661,7 @@ def randomize_pointcloud_batch_torch(
     surface_jitter=0.0005,
     scale_min=0.9,
     scale_max=1.1,
-    skew_max=0.1,
+    skew_max=0.08,
 ):
     B, N, _ = pts.shape
     device = pts.device
@@ -1543,7 +1689,6 @@ def randomize_pointcloud_batch_torch(
     pts = (pts - centroid) * scale + centroid
 
     # 5. Random shear/skew on all axes
-
     S = (torch.rand(B, 3, 3, device=device, dtype=pts.dtype) * 2 - 1) * skew_max
     diag_mask = 1 - torch.eye(3, device=device, dtype=pts.dtype)
     S = S * diag_mask
