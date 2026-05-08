@@ -1802,16 +1802,11 @@ def randomize_object_pool_selection(
     asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
     balanced: bool = True,
 ):
-
-    import omni.usd
-    from pxr import UsdGeom, UsdPhysics, PhysxSchema
-
     if env_ids is None:
         env_ids = torch.arange(env.num_envs, device=env.device)
 
     object_collection = env.scene[asset_cfg.name]
     num_objects = len(object_collection.object_names)
-    stage = omni.usd.get_context().get_stage()
 
     if not hasattr(env, 'active_object_indices'):
         env.active_object_indices = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
@@ -1840,40 +1835,40 @@ def randomize_object_pool_selection(
         env.active_object_indices[env_idx] = active_idx
 
         for obj_idx in range(num_objects):
-            obj_name = object_collection.object_names[obj_idx]
-            obj_cfg = list(env.cfg.scene.object_pool.rigid_objects.values())[obj_idx]
-            obj_prim_path = obj_cfg.prim_path.replace("{ENV_REGEX_NS}", f"/World/envs/env_{env_idx}")
+            # obj_name = object_collection.object_names[obj_idx]
+            # obj_cfg = list(env.cfg.scene.object_pool.rigid_objects.values())[obj_idx]
+            # obj_prim_path = obj_cfg.prim_path.replace("{ENV_REGEX_NS}", f"/World/envs/env_{env_idx}")
 
-            obj_prim = stage.GetPrimAtPath(obj_prim_path)
+            # obj_prim = stage.GetPrimAtPath(obj_prim_path)
 
             if obj_idx == active_idx:
-                # Enable active object
-                if obj_prim.IsValid():
-                    obj_prim.SetActive(True)
-                    UsdGeom.Imageable(obj_prim).MakeVisible()
+                # # Enable active object
+                # if obj_prim.IsValid():
+                #     obj_prim.SetActive(True)
+                #     UsdGeom.Imageable(obj_prim).MakeVisible()
 
-                    rigid_body_api = UsdPhysics.RigidBodyAPI(obj_prim)
-                    if rigid_body_api:
-                        rigid_body_api.GetRigidBodyEnabledAttr().Set(True)
+                #     rigid_body_api = UsdPhysics.RigidBodyAPI(obj_prim)
+                #     if rigid_body_api:
+                #         rigid_body_api.GetRigidBodyEnabledAttr().Set(True)
 
-                    collision_api = UsdPhysics.CollisionAPI(obj_prim)
-                    if collision_api:
-                        collision_api.GetCollisionEnabledAttr().Set(True)
+                #     collision_api = UsdPhysics.CollisionAPI(obj_prim)
+                #     if collision_api:
+                #         collision_api.GetCollisionEnabledAttr().Set(True)
 
                 pos = torch.tensor([0.28, 0.0, 0.0], device=env.device)
             else:
-                # Disable inactive object
-                if obj_prim.IsValid():
-                    obj_prim.SetActive(False)
-                    UsdGeom.Imageable(obj_prim).MakeInvisible()
+                # # Disable inactive object
+                # if obj_prim.IsValid():
+                #     obj_prim.SetActive(False)
+                #     UsdGeom.Imageable(obj_prim).MakeInvisible()
                     
-                    rigid_body_api = UsdPhysics.RigidBodyAPI(obj_prim)
-                    if rigid_body_api:
-                        rigid_body_api.GetRigidBodyEnabledAttr().Set(False)
+                #     rigid_body_api = UsdPhysics.RigidBodyAPI(obj_prim)
+                #     if rigid_body_api:
+                #         rigid_body_api.GetRigidBodyEnabledAttr().Set(False)
                     
-                    collision_api = UsdPhysics.CollisionAPI(obj_prim)
-                    if collision_api:
-                        collision_api.GetCollisionEnabledAttr().Set(False)
+                #     collision_api = UsdPhysics.CollisionAPI(obj_prim)
+                #     if collision_api:
+                #         collision_api.GetCollisionEnabledAttr().Set(False)
 
                 pos = torch.tensor([100.0, 100.0, -10.0], device=env.device)
 
@@ -1892,43 +1887,74 @@ def randomize_object_pool_selection(
 def reset_object_pool_state_uniform_for_object(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
-    object_name: str,
+    object_names: str | list[str],
     pose_range: dict[str, tuple[float, float]],
     velocity_range: dict[str, tuple[float, float]],
+    yaw_ranges: list[tuple[float, float]] | None = None,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
 ):
-    """Reset the active object in the pool only for environments where ``object_name`` is active.
+    """Reset active pool objects only for environments where one of ``object_names`` is active.
+
     This allows per-object pose randomization ranges on top of the default
-    ``reset_object_pool_state_uniform`` event.  Add a second ``EventTerm``
-    that calls this function with the desired ``object_name`` and ``pose_range``.
+    ``reset_object_pool_state_uniform`` event. Pass either a single object name
+    or a list of object names that should share the same pose randomization range.
+    When ``yaw_ranges`` is provided, yaw is sampled from one of those disjoint
+    intervals instead of the continuous ``pose_range["yaw"]`` interval.
     """
     from isaaclab.assets import RigidObjectCollection
     import isaaclab.utils.math as math_utils
+
     if not hasattr(env, "active_object_indices"):
         raise RuntimeError("active_object_indices not found")
+
     object_collection: RigidObjectCollection = env.scene[asset_cfg.name]
-    # Find the integer index of the named object
-    if object_name not in object_collection.object_names:
-        raise ValueError(f"Object '{object_name}' not found in pool. Available: {object_collection.object_names}")
-    target_obj_idx = object_collection.object_names.index(object_name)
-    # Filter env_ids to only those where this object is the active one
+
+    if isinstance(object_names, str):
+        object_names = [object_names]
+
+    invalid_object_names = [name for name in object_names if name not in object_collection.object_names]
+    if invalid_object_names:
+        raise ValueError(
+            f"Object(s) {invalid_object_names} not found in pool. Available: {object_collection.object_names}"
+        )
+
+    target_obj_ids = torch.tensor(
+        [object_collection.object_names.index(name) for name in object_names],
+        device=object_collection.device,
+        dtype=torch.long,
+    )
+
+    # Filter env_ids to only those where one of the target objects is active.
     active_for_env = env.active_object_indices[env_ids]
-    mask = active_for_env == target_obj_idx
+    mask = (active_for_env[:, None] == target_obj_ids[None, :]).any(dim=1)
     filtered_env_ids = env_ids[mask]
+    filtered_obj_ids = active_for_env[mask]
     if len(filtered_env_ids) == 0:
         return
-    # Sample pose randomization for the filtered envs
+
+    # Sample pose randomization for the filtered envs.
     pose_range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
     pose_ranges = torch.tensor(pose_range_list, device=object_collection.device)
     pose_rand_samples = math_utils.sample_uniform(
         pose_ranges[:, 0], pose_ranges[:, 1], (len(filtered_env_ids), 6), device=object_collection.device
     )
+
+    if yaw_ranges is not None:
+        yaw_ranges_tensor = torch.tensor(yaw_ranges, device=object_collection.device, dtype=pose_rand_samples.dtype)
+        yaw_range_indices = torch.randint(
+            0, yaw_ranges_tensor.shape[0], (len(filtered_env_ids),), device=object_collection.device
+        )
+        selected_yaw_ranges = yaw_ranges_tensor[yaw_range_indices]
+        pose_rand_samples[:, 5] = torch.rand(
+            len(filtered_env_ids), device=object_collection.device, dtype=pose_rand_samples.dtype
+        ) * (selected_yaw_ranges[:, 1] - selected_yaw_ranges[:, 0]) + selected_yaw_ranges[:, 0]
     vel_range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
     vel_ranges = torch.tensor(vel_range_list, device=object_collection.device)
     vel_rand_samples = math_utils.sample_uniform(
         vel_ranges[:, 0], vel_ranges[:, 1], (len(filtered_env_ids), 6), device=object_collection.device
     )
-    for idx, env_idx in enumerate(filtered_env_ids):
+
+    for idx, (env_idx, target_obj_idx) in enumerate(zip(filtered_env_ids, filtered_obj_ids)):
         root_state = object_collection.data.default_object_state[env_idx, target_obj_idx].clone()
         position = root_state[0:3] + env.scene.env_origins[env_idx] + pose_rand_samples[idx, 0:3]
         orientation_delta = math_utils.quat_from_euler_xyz(
@@ -1939,8 +1965,8 @@ def reset_object_pool_state_uniform_for_object(
         new_state = torch.cat([position, orientation, velocity], dim=-1)
         object_collection.write_object_state_to_sim(
             new_state.unsqueeze(0),
-            env_ids=torch.tensor([env_idx], device=object_collection.device),
-            object_ids=torch.tensor([target_obj_idx], device=object_collection.device),
+            env_ids=env_idx.unsqueeze(0),
+            object_ids=target_obj_idx.unsqueeze(0),
         )
 
 
@@ -2117,6 +2143,92 @@ def reset_object_pool_state_uniform_for_object2(
 
 
 def reset_object_pool_state_uniform_for_object3(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    object_names: str | list[str],
+    pose_range: dict[str, tuple[float, float]],
+    velocity_range: dict[str, tuple[float, float]],
+    yaw_ranges: list[tuple[float, float]] | None = None,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+):
+    """Reset active pool objects only for environments where one of ``object_names`` is active.
+
+    This allows per-object pose randomization ranges on top of the default
+    ``reset_object_pool_state_uniform`` event. Pass either a single object name
+    or a list of object names that should share the same pose randomization range.
+    When ``yaw_ranges`` is provided, yaw is sampled from one of those disjoint
+    intervals instead of the continuous ``pose_range["yaw"]`` interval.
+    """
+    from isaaclab.assets import RigidObjectCollection
+    import isaaclab.utils.math as math_utils
+
+    if not hasattr(env, "active_object_indices"):
+        raise RuntimeError("active_object_indices not found")
+
+    object_collection: RigidObjectCollection = env.scene[asset_cfg.name]
+
+    if isinstance(object_names, str):
+        object_names = [object_names]
+
+    invalid_object_names = [name for name in object_names if name not in object_collection.object_names]
+    if invalid_object_names:
+        raise ValueError(
+            f"Object(s) {invalid_object_names} not found in pool. Available: {object_collection.object_names}"
+        )
+
+    target_obj_ids = torch.tensor(
+        [object_collection.object_names.index(name) for name in object_names],
+        device=object_collection.device,
+        dtype=torch.long,
+    )
+
+    # Filter env_ids to only those where one of the target objects is active.
+    active_for_env = env.active_object_indices[env_ids]
+    mask = (active_for_env[:, None] == target_obj_ids[None, :]).any(dim=1)
+    filtered_env_ids = env_ids[mask]
+    filtered_obj_ids = active_for_env[mask]
+    if len(filtered_env_ids) == 0:
+        return
+
+    # Sample pose randomization for the filtered envs.
+    pose_range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    pose_ranges = torch.tensor(pose_range_list, device=object_collection.device)
+    pose_rand_samples = math_utils.sample_uniform(
+        pose_ranges[:, 0], pose_ranges[:, 1], (len(filtered_env_ids), 6), device=object_collection.device
+    )
+
+    if yaw_ranges is not None:
+        yaw_ranges_tensor = torch.tensor(yaw_ranges, device=object_collection.device, dtype=pose_rand_samples.dtype)
+        yaw_range_indices = torch.randint(
+            0, yaw_ranges_tensor.shape[0], (len(filtered_env_ids),), device=object_collection.device
+        )
+        selected_yaw_ranges = yaw_ranges_tensor[yaw_range_indices]
+        pose_rand_samples[:, 5] = torch.rand(
+            len(filtered_env_ids), device=object_collection.device, dtype=pose_rand_samples.dtype
+        ) * (selected_yaw_ranges[:, 1] - selected_yaw_ranges[:, 0]) + selected_yaw_ranges[:, 0]
+    vel_range_list = [velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+    vel_ranges = torch.tensor(vel_range_list, device=object_collection.device)
+    vel_rand_samples = math_utils.sample_uniform(
+        vel_ranges[:, 0], vel_ranges[:, 1], (len(filtered_env_ids), 6), device=object_collection.device
+    )
+
+    for idx, (env_idx, target_obj_idx) in enumerate(zip(filtered_env_ids, filtered_obj_ids)):
+        root_state = object_collection.data.default_object_state[env_idx, target_obj_idx].clone()
+        position = root_state[0:3] + env.scene.env_origins[env_idx] + pose_rand_samples[idx, 0:3]
+        orientation_delta = math_utils.quat_from_euler_xyz(
+            pose_rand_samples[idx, 3], pose_rand_samples[idx, 4], pose_rand_samples[idx, 5]
+        )
+        orientation = math_utils.quat_mul(root_state[3:7], orientation_delta)
+        velocity = root_state[7:13] + vel_rand_samples[idx]
+        new_state = torch.cat([position, orientation, velocity], dim=-1)
+        object_collection.write_object_state_to_sim(
+            new_state.unsqueeze(0),
+            env_ids=env_idx.unsqueeze(0),
+            object_ids=target_obj_idx.unsqueeze(0),
+        )
+
+
+def reset_object_pool_state_uniform_for_object4(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     object_names: str | list[str],

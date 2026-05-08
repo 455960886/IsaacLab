@@ -75,6 +75,11 @@ import torch
 from datetime import datetime
 
 from rsl_rl.runners import OnPolicyRunner
+import rsl_rl.runners.on_policy_runner as rsl_on_policy_runner
+from positive_m5_actor_critic import PositiveM5ActorCritic, TransformerFusionActorCritic
+
+rsl_on_policy_runner.PositiveM5ActorCritic = PositiveM5ActorCritic
+rsl_on_policy_runner.TransformerFusionActorCritic = TransformerFusionActorCritic
 
 from isaaclab.envs import (
     DirectMARLEnv,

@@ -26,7 +26,12 @@ from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 from rsl_rl.runners import OnPolicyRunner
+import rsl_rl.runners.on_policy_runner as rsl_on_policy_runner
 import isaaclab_tasks  # noqa: F401
+from positive_m5_actor_critic import PositiveM5ActorCritic, TransformerFusionActorCritic
+
+rsl_on_policy_runner.PositiveM5ActorCritic = PositiveM5ActorCritic
+rsl_on_policy_runner.TransformerFusionActorCritic = TransformerFusionActorCritic
 
 import gymnasium as gym
 

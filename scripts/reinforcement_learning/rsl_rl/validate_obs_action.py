@@ -34,6 +34,11 @@ simulation_app = app_launcher.app
 
 import gymnasium as gym
 from rsl_rl.runners import OnPolicyRunner
+import rsl_rl.runners.on_policy_runner as rsl_on_policy_runner
+from positive_m5_actor_critic import PositiveM5ActorCritic, TransformerFusionActorCritic
+
+rsl_on_policy_runner.PositiveM5ActorCritic = PositiveM5ActorCritic
+rsl_on_policy_runner.TransformerFusionActorCritic = TransformerFusionActorCritic
 from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkpoint

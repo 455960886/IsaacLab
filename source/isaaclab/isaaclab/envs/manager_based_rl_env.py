@@ -211,52 +211,6 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
             # print("ee_data22: ",self.scene["ee_frame"].data.target_pos_w[..., 0, :])
             self.scene.update(dt=self.physics_dt)
             # print("ee_data33: ",self.scene["ee_frame"].data.target_pos_w[..., 0, :])
-            # --- debug: M5 wrist link linear velocity every physics substep ---
-        #     if hasattr(self, '_debug_wrist_vel') and self._debug_wrist_vel:
-        #         _robot = self.scene["robot"]
-        #         if not hasattr(self, '_debug_wrist_idx'):
-        #             self._debug_wrist_idx = list(_robot.data.body_names).index("M5_wrist_link")
-        #         if not hasattr(self, '_debug_vel_buf'):
-        #             self._debug_vel_buf = []
-        #         _vel = _robot.data.body_link_state_w[0, self._debug_wrist_idx, 7:10]
-        #         self._debug_vel_buf.append(_vel.detach().cpu().tolist())
-
-        # # --- debug: plot and save velocity curve after each full action ---
-        # if hasattr(self, '_debug_wrist_vel') and self._debug_wrist_vel \
-        #         and hasattr(self, '_debug_vel_buf') and self._debug_vel_buf:
-        #     import os
-        #     import matplotlib
-        #     matplotlib.use('Agg')
-        #     import matplotlib.pyplot as plt
-
-        #     save_dir = getattr(self, '_debug_vel_save_dir', '/tmp/wrist_vel_plots')
-        #     os.makedirs(save_dir, exist_ok=True)
-
-        #     data = self._debug_vel_buf
-        #     xs = list(range(len(data)))
-        #     vx = [d[0] for d in data]
-        #     vy = [d[1] for d in data]
-        #     vz = [d[2] for d in data]
-
-        #     fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
-        #     fig.suptitle(f'M5 Wrist Linear Velocity — action step {self.common_step_counter}')
-        #     print (f"saved plot for action step {self.common_step_counter}")
-        #     for ax, vals, label, color in zip(axes,
-        #                                        [vx, vy, vz],
-        #                                        ['Vx (m/s)', 'Vy (m/s)', 'Vz (m/s)'],
-        #                                        ['tab:red', 'tab:green', 'tab:blue']):
-        #         ax.plot(xs, vals, color=color)
-        #         ax.axhline(0, color='k', linewidth=0.5, linestyle='--')
-        #         ax.set_ylabel(label)
-        #         ax.grid(True)
-        #     axes[-1].set_xlabel('Physics substep')
-        #     plt.tight_layout()
-        #     save_path = os.path.join(save_dir, f'wrist_vel_{self.common_step_counter:06d}.png')
-        #     plt.savefig(save_path, dpi=100)
-        #     plt.close(fig)
-
-        #     self._debug_vel_last_action = list(self._debug_vel_buf)  # snapshot for play.py live plotter
-        #     self._debug_vel_buf = []  # clear for next action
 
         # post-step:
         # -- update env counters (used for curriculum generation)
