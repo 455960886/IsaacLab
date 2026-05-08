@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import combine_frame_transforms
+from .rewards import get_active_object_states
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -51,3 +52,24 @@ def object_reached_goal(
 
     # rewarded if the object is lifted above the threshold
     return distance < threshold
+
+
+def object_lifted_during_grasp(
+    env: ManagerBasedRLEnv,
+    excess_z_limit: float = 0.08,
+    grasp_action_idx: int = 3,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+) -> torch.Tensor:
+    """Terminate when a grasp attempt lifts the object beyond excess_z_limit."""
+    if not hasattr(env, '_grasp_pen_prev_z'):
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    grasp_attempt = (
+        (env.action_manager.prev_action[:, grasp_action_idx] >= 0) &
+        (env.action_manager.action[:, grasp_action_idx] < 0)
+    )
+
+    active_pos_w, _ = get_active_object_states(env, object_cfg)
+    obj_z = active_pos_w[:, 2]
+    excess_lift = obj_z - env._grasp_pen_prev_z - excess_z_limit
+    return grasp_attempt & (excess_lift > 0.0)

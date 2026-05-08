@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import math
 
-from isaaclab.assets import RigidObject
+from isaaclab.assets import RigidObject, Articulation
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import FrameTransformer
 from isaaclab.utils.math import combine_frame_transforms, matrix_from_quat
@@ -57,6 +57,135 @@ def is_terminated(env: ManagerBasedRLEnv) -> torch.Tensor:
     return env.termination_manager.terminated.float()
 
 
+def cache_object_initial_z(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+) -> None:
+    """Reset event: store each environment's post-reset object Z into _grasp_pen_prev_z."""
+    active_pos_w, _ = get_active_object_states(env, object_cfg)
+    obj_z = active_pos_w[:, 2]
+    if not hasattr(env, '_grasp_pen_prev_z'):
+        env._grasp_pen_prev_z = obj_z.clone()
+    else:
+        env._grasp_pen_prev_z[env_ids] = obj_z[env_ids]
+
+
+def penalize_object_lift_during_grasp(
+    env: ManagerBasedRLEnv,
+    grasp_action_idx: int = 3,
+    z_threshold: float = 0.005,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
+) -> torch.Tensor:
+    """Penalize positive Z displacement of the object during a grasp attempt step.
+
+    A grasp attempt is when the gripper action transitions from open (>=0) to close (<0).
+    If the object moves upward by more than z_threshold during that step, apply a penalty
+    proportional to the excess displacement. This discourages lifting while clamping.
+    """
+    active_pos_w, _ = get_active_object_states(env, object_cfg)
+    obj_z = active_pos_w[:, 2]
+
+    if not hasattr(env, '_grasp_pen_prev_z'):
+        env._grasp_pen_prev_z = obj_z.clone()
+        return torch.zeros(env.num_envs, device=env.device)
+
+    delta_z = obj_z - env._grasp_pen_prev_z  # signed: positive = moved up
+    env._grasp_pen_prev_z = obj_z.clone()
+
+    grasp_attempt = (
+        (env.action_manager.prev_action[:, grasp_action_idx] >= 0) &
+        (env.action_manager.action[:, grasp_action_idx] < 0)
+    )
+
+    # Penalize only when grasping AND object moved upward beyond threshold
+    excess_lift = torch.clamp(delta_z - z_threshold, min=0.0)
+    penalty = torch.where(grasp_attempt, -excess_lift, torch.zeros_like(excess_lift))
+    
+    # print(grasp_attempt)
+    # print(f"penalty: {penalty}")
+    # print()
+
+    return penalty
+
+
+def wrist_x_stability_on_grasp(
+    env: ManagerBasedRLEnv,
+    sigma: float = 0.02,
+    grasp_action_idx: int = 3,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward the arm for keeping the wrist link still in X during a grasp attempt.
+
+    A grasp attempt is detected when the action at `grasp_action_idx` transitions
+    from positive (open) to negative (close) between consecutive policy steps.
+    The reward is a Gaussian centred at zero X-displacement: 1.0 when the wrist
+    does not move in X, decaying to ~0 when displacement exceeds ~2*sigma.
+
+    Args:
+        sigma:           Scale of acceptable X movement in metres (default 2 cm).
+        grasp_action_idx: Index in the flat action vector that represents the
+                         gripper/wrist command whose sign-flip signals a grasp.
+        asset_cfg:       Robot articulation config.
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # Cache wrist body index once
+    if not hasattr(env, '_wrist_stab_body_idx'):
+        env._wrist_stab_body_idx = list(asset.data.body_names).index("M5_wrist_link")
+
+    # Current wrist X position in world frame  (N,)
+    wrist_x = asset.data.body_link_state_w[:, env._wrist_stab_body_idx, 0]
+
+    # First call: just store and return zeros
+    if not hasattr(env, '_wrist_stab_prev_x'):
+        env._wrist_stab_prev_x = wrist_x.clone()
+        return torch.zeros(env.num_envs, device=env.device)
+
+    # X displacement during this action execution
+    delta_x = torch.abs(wrist_x - env._wrist_stab_prev_x)
+
+    # Update stored position for next step
+    env._wrist_stab_prev_x = wrist_x.clone()
+
+    # --- debug: dump full action vector to identify correct gripper index ---
+    act  = env.action_manager.action[0].detach().cpu().tolist()
+    prev = env.action_manager.prev_action[0].detach().cpu().tolist()
+    print(f"[GRASP_DBG] prev={[f'{v:+.3f}' for v in prev]}  cur={[f'{v:+.3f}' for v in act]}")
+
+    # Detect grasp attempt: gripper transitions from open (≥0) to close (<0)
+    # Use >= 0 for prev because reset initialises prev_action to 0.0 (open state)
+    grasp_attempt = (
+        (env.action_manager.prev_action[:, grasp_action_idx] >= 0) &
+        (env.action_manager.action[:, grasp_action_idx] < 0)
+    )
+
+    # Gaussian reward: 1.0 when still, smoothly decays as X movement grows
+    stability_reward = torch.exp(-delta_x ** 2 / (2.0 * sigma ** 2))
+
+    # Only reward during a grasp attempt
+    reward = torch.where(grasp_attempt, stability_reward, torch.zeros_like(stability_reward))
+    print(f"[WRIST_STAB] idx={grasp_action_idx}  prev={prev[grasp_action_idx]:+.3f}  cur={act[grasp_action_idx]:+.3f}  grasp={grasp_attempt[0].item()}  reward={reward[0].item():.4f}")
+    return reward
+
+
+def debug_joint_velocity(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["M3", "M4"]),
+    env_id: int = 0,
+) -> torch.Tensor:
+    """Print M3 and M4 angular velocities (rad/s) for one env every policy step. Returns zero reward."""
+    from isaaclab.assets import Articulation
+    robot: Articulation = env.scene[robot_cfg.name]
+    # joint_ids resolved by SceneEntityCfg — no hardcoded indices
+    vel = robot.data.joint_vel[:, robot_cfg.joint_ids]  # (num_envs, 2)
+    m3_vel = vel[env_id, 0].item()
+    m4_vel = vel[env_id, 1].item()
+    step = env.common_step_counter
+    print(f"[VEL] step={step} env={env_id} | M3={m3_vel:+.4f} rad/s  M4={m4_vel:+.4f} rad/s")
+    return torch.zeros(env.num_envs, device=env.device)
+
+
 def object_is_lifted(
     env: ManagerBasedRLEnv, minimal_height: float, object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool")):
     """Reward the agent for lifting the active object above the minimal height."""
@@ -68,30 +197,24 @@ def object_is_lifted(
 
 
 def object_is_lifted_linear(
-    env: ManagerBasedRLEnv, 
-    minimal_height: float, 
+    env: ManagerBasedRLEnv,
+    minimal_height: float,
     max_height: float,
+    gripper_action_idx: int = 3,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    enabled_object_names: list[str] | None = None,
-    ):
-    """Linearly reward the agent for lifting the active object above the minimal height."""
-    # Get active object positions
+):
+    """Linearly reward the agent for lifting the active object above the minimal height.
+    Only fires when the gripper action is currently close (<0).
+    """
     active_pos_w, _ = get_active_object_states(env, object_cfg)
-    
     current_height = active_pos_w[:, 2]
-    
-    # Clip height between [minimal_height, max_height]
+
     clipped_height = torch.clamp(current_height, minimal_height, max_height)
-    # Normalize linearly to [0, 1]
     normalized = (clipped_height - minimal_height) / (max_height - minimal_height)
-    # Square to increase reward for higher lifts
     reward = torch.square(normalized)
 
-    if enabled_object_names is not None:
-        enabled_mask = get_active_object_name_mask(env, enabled_object_names, object_cfg)
-        reward = torch.where(enabled_mask, reward, torch.zeros_like(reward))
-    
-    return reward
+    gripper_closed = env.action_manager.prev_action[:, gripper_action_idx] < 0
+    return torch.where(gripper_closed, reward, torch.zeros_like(reward))
 
 
 def object_is_lifted_with_contact(
@@ -159,12 +282,17 @@ def object_is_lifted_with_contact(
         # At least one finger in contact (more lenient)
         proper_contact = left_contact | right_contact
 
-    # 7. Only reward lifting when proper contact is detected
+    # 7. Only reward when contact detected AND gripper was close in both prev and current step
+    gripper_close_prev = env.action_manager.prev_action[:, 3] < 0
+    gripper_close_now  = env.action_manager.action[:, 3] < 0
+
     reward = torch.where(
-        proper_contact,
-        height_reward,  # Give height reward when contact verified
-        torch.zeros_like(height_reward)  # Zero reward without contact
+        proper_contact & gripper_close_prev & gripper_close_now,
+        height_reward,
+        torch.zeros_like(height_reward)
     )
+
+    # print(reward)
 
     return reward
 
@@ -456,8 +584,6 @@ def pcd_contain_object(
     contact_force_threshold: float = 1.5,
     require_both_contacts: bool = True,
     excluded_objects: list[str] | None = None,
-    enabled_object_names: list[str] | None = None,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
     max_sphere_radius: float = 0.015,
     sphere_z_offset: float = 0.01,
 ) -> torch.Tensor:
@@ -481,23 +607,15 @@ def pcd_contain_object(
         require_both_contacts: If True, both fingers must contact. If False, at least one.
         excluded_objects: List of object name patterns to exclude (e.g., ["slipper", "shoe"]).
                          Uses substring matching. Returns zero reward for these objects.
-        enabled_object_names: Exact object names that can receive this reward. If provided,
-            all other active objects receive zero reward.
 
     Returns:
         Reward tensor (num_envs,)
     """
     from .gripper_transform import transform_world_to_camera, calculate_pointcloud_density_in_sphere
 
-    enabled_mask = None
-    if enabled_object_names is not None:
-        enabled_mask = get_active_object_name_mask(env, enabled_object_names, object_cfg)
-        if not enabled_mask.any():
-            return torch.zeros(env.num_envs, device=env.device)
-
     # Check for excluded objects - return zero for those environments
     if excluded_objects:
-        excluded_mask = get_excluded_object_mask(env, excluded_objects, object_cfg)
+        excluded_mask = get_excluded_object_mask(env, excluded_objects)
         if excluded_mask.all():
             # All environments have excluded objects
             return torch.zeros(env.num_envs, device=env.device)
@@ -582,10 +700,8 @@ def pcd_contain_object(
 
         # Zero out reward for excluded objects
         if excluded_objects:
-            excluded_mask = get_excluded_object_mask(env, excluded_objects, object_cfg)
+            excluded_mask = get_excluded_object_mask(env, excluded_objects)
             reward = torch.where(excluded_mask, torch.zeros_like(reward), reward)
-        if enabled_mask is not None:
-            reward = torch.where(enabled_mask, reward, torch.zeros_like(reward))
 
         return reward
 
@@ -640,10 +756,8 @@ def pcd_contain_object(
 
     # Zero out reward for excluded objects
     if excluded_objects:
-        excluded_mask = get_excluded_object_mask(env, excluded_objects, object_cfg)
+        excluded_mask = get_excluded_object_mask(env, excluded_objects)
         reward = torch.where(excluded_mask, torch.zeros_like(reward), reward)
-    if enabled_mask is not None:
-        reward = torch.where(enabled_mask, reward, torch.zeros_like(reward))
 
     return reward
 
@@ -690,32 +804,41 @@ def contact_clamp_object(
     Binary reward for clamping - either 1.0 or 0.0.
     Simpler version that just checks if grasp is good enough.
     """
-    # Check gripper closed
+    # # --- delta_x debug ---
+    # asset: Articulation = env.scene["robot"]
+    # if not hasattr(env, '_clamp_wrist_body_idx'):
+    #     env._clamp_wrist_body_idx = list(asset.data.body_names).index("M5_wrist_link")
+    # wrist_xz = asset.data.body_link_state_w[:, env._clamp_wrist_body_idx, [0, 2]]  # (N, 2) x and z
+    # if not hasattr(env, '_clamp_wrist_prev_xz'):
+    #     env._clamp_wrist_prev_xz = wrist_xz.clone()
+    #     delta_x = torch.zeros(env.num_envs, device=env.device)
+    #     delta_z = torch.zeros(env.num_envs, device=env.device)
+    # else:
+    #     diff = wrist_xz - env._clamp_wrist_prev_xz  # signed
+    #     delta_x = diff[:, 0]
+    #     delta_z = diff[:, 1]
+    # env._clamp_wrist_prev_xz = wrist_xz.clone()
+    # e = 0
+    # print(f"[CLAMP] delta_x={delta_x[e].item()*100:+.2f}cm  delta_z={delta_z[e].item()*100:+.2f}cm")
+
+    # --- Grasp conditions ---
     joint_positions = env.scene['robot'].data.joint_pos_target
     gripper_closed = (torch.abs(joint_positions[:, 5]) < gripper_closed_threshold) & \
                      (torch.abs(joint_positions[:, 6]) < gripper_closed_threshold)
 
-    # Get contact forces
     left_sensor = env.scene.sensors[left_sensor_cfg.name]
     right_sensor = env.scene.sensors[right_sensor_cfg.name]
 
     if left_sensor.data.net_forces_w is None or right_sensor.data.net_forces_w is None:
         return torch.zeros(env.num_envs, device=env.device)
 
-    # Y-axis forces (raw values)
     left_y_raw = left_sensor.data.net_forces_w[:, 0, 1]
     right_y_raw = right_sensor.data.net_forces_w[:, 0, 1]
-    
-    # Check opposite signs (clamping from opposite directions)
     opposite_forces = (left_y_raw * right_y_raw) < 0
 
-    # Average force magnitude check
-    left_y = torch.abs(left_y_raw)
-    right_y = torch.abs(right_y_raw)
-    avg_force = (left_y + right_y) / 2.0
+    avg_force = (torch.abs(left_y_raw) + torch.abs(right_y_raw)) / 2.0
     good_grasp = avg_force > contact_force_threshold
 
-    # Binary reward - all conditions must be met
     reward = torch.where(
         gripper_closed & good_grasp & opposite_forces,
         torch.ones(env.num_envs, device=env.device) * reward_value,
@@ -925,7 +1048,8 @@ def wrist_object_orientation_alignment(
     std: float = 0.2,  # 越小越严格（单位：弧度），0.2rad≈11.5°
     object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    enabled_object_names: list[str] | None = None,
+    peak_shift_object_names: list[str] | None = None,
+    peak_shift_value: float = math.pi / 2,
     debug: bool = False,
 ) -> torch.Tensor:
     _, active_quat_w = get_active_object_states(env, object_cfg)
@@ -939,74 +1063,54 @@ def wrist_object_orientation_alignment(
     m5_idx = robot.joint_names.index("M5")
     wrist_yaw = robot.data.joint_pos[:, m5_idx]
 
-    # M5 only moves in [0, pi]. Use the active object yaw as the nominal wrist target.
+    # M5 only moves in [0, pi]. Use the active object yaw as the nominal wrist target,
+    # then optionally shift the Gaussian peak for a configured subset of objects.
     target_wrist_yaw = -object_yaw
 
     raw_diff = wrist_yaw - target_wrist_yaw
-    centered_diff = torch.atan2(torch.sin(raw_diff), torch.cos(raw_diff))  # wrap to [-pi, pi]
+    peak_shift = torch.where(
+        get_active_object_name_mask(env, peak_shift_object_names, object_cfg),
+        torch.full_like(raw_diff, peak_shift_value),
+        torch.zeros_like(raw_diff),
+    )
+
+    centered_diff = torch.atan2(torch.sin(raw_diff - peak_shift), torch.cos(raw_diff - peak_shift))  # wrap to [-pi, pi]
     angle_diff = torch.abs(centered_diff)
 
-    # 高斯奖励：默认在 diff=0 处峰值为 1。
+    # 高斯奖励：默认在 diff=0 处峰值为 1；特殊物体可通过 peak_shift_value 将峰值平移。
     reward = torch.exp(-0.5 * (angle_diff / std) ** 2)
 
-    if enabled_object_names is not None:
-        enabled_mask = get_active_object_name_mask(env, enabled_object_names, object_cfg)
-        reward = torch.where(enabled_mask, reward, torch.zeros_like(reward))
-
     if debug:
+        peak_raw_diff = peak_shift
+        peak_raw_diff_deg = peak_raw_diff * (180.0 / math.pi)
+        angle_diff_deg = angle_diff * (180.0 / math.pi)
+        std_deg = std * (180.0 / math.pi)
         print(
             f"[腕部朝向奖励调试]\n"
+            f"1. 原始角差公式: raw_diff = wrist_yaw - target_wrist_yaw\n"
             f"   target_wrist_yaw = {target_wrist_yaw}\n"
             f"   wrist_yaw        = {wrist_yaw}\n"
             f"   raw_diff         = {raw_diff}\n"
-            f"   enabled_objects  = {enabled_object_names}\n",
+            f"2. reward 峰值对应的原始角差: raw_diff_peak = peak_shift\n"
+            f"   peak_shift       = {peak_raw_diff} rad ({peak_raw_diff_deg} deg)\n"
+            f"   含义: 当 raw_diff 接近这个值时，reward 最大。\n"
+            f"3. 真正用于奖励的角差:\n"
+            f"   centered_diff = wrap_to_pi(raw_diff - peak_shift)\n"
+            f"   centered_diff   = {centered_diff}\n"
+            f"   |centered_diff| = {angle_diff} rad ({angle_diff_deg} deg)\n"
+            f"4. 奖励公式:\n"
+            f"   reward = exp(-0.5 * (|centered_diff| / {std:.4f})^2)\n"
+            f"   当前 reward     = {reward}\n"
+            f"   当前 std        = {std:.4f} rad ({std_deg:.2f} deg)\n"
+            f"5. 参考尺度:\n"
+            f"   |centered_diff| = 0        -> reward = 1.000\n"
+            f"   |centered_diff| = 1 * std  -> reward = {math.exp(-0.5):.3f}\n"
+            f"   |centered_diff| = 2 * std  -> reward = {math.exp(-2.0):.3f}\n"
+            f"   |centered_diff| = 3 * std  -> reward = {math.exp(-4.5):.3f}",
             flush=True,
         )
 
     return reward
-
-
-def penalize_object_lift_during_grasp(
-    env: ManagerBasedRLEnv,
-    grasp_action_idx: int = 3,
-    z_threshold: float = 0.005,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object_pool"),
-    disabled_object_names: list[str] | None = None,
-) -> torch.Tensor:
-    """Penalize positive Z displacement of the object during a grasp attempt step.
-
-    A grasp attempt is when the gripper action transitions from open (>=0) to close (<0).
-    If the object moves upward by more than z_threshold during that step, apply a penalty
-    proportional to the excess displacement. This discourages lifting while clamping.
-    """
-    active_pos_w, _ = get_active_object_states(env, object_cfg)
-    obj_z = active_pos_w[:, 2]
-
-    if not hasattr(env, '_grasp_pen_prev_z'):
-        env._grasp_pen_prev_z = obj_z.clone()
-        return torch.zeros(env.num_envs, device=env.device)
-
-    delta_z = obj_z - env._grasp_pen_prev_z  # signed: positive = moved up
-    env._grasp_pen_prev_z = obj_z.clone()
-
-    grasp_attempt = (
-        (env.action_manager.prev_action[:, grasp_action_idx] >= 0) &
-        (env.action_manager.action[:, grasp_action_idx] < 0)
-    )
-
-    # Penalize only when grasping AND object moved upward beyond threshold
-    excess_lift = torch.clamp(delta_z - z_threshold, min=0.0)
-    penalty = torch.where(grasp_attempt, -excess_lift, torch.zeros_like(excess_lift))
-
-    if disabled_object_names is not None:
-        disabled_mask = get_active_object_name_mask(env, disabled_object_names, object_cfg)
-        penalty = torch.where(disabled_mask, torch.zeros_like(penalty), penalty)
-    
-    # print(grasp_attempt)
-    # print(f"penalty: {penalty}")
-    # print()
-
-    return penalty
 
 
 def debug_m5_episode_range(
@@ -1063,4 +1167,33 @@ def debug_m5_episode_range(
 
     setattr(env, min_attr, ep_min)
     setattr(env, max_attr, ep_max)
+    return torch.zeros(env.num_envs, device=env.device)
+
+
+def debug_contact_forces(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Minimal contact force debug - just XYZ components."""
+
+    if env.common_step_counter % 1 == 0:
+        left_sensor = env.scene.sensors["contact_forces_left"]
+        right_sensor = env.scene.sensors["contact_forces_right"]
+        # middle_sensor = env.scene.sensors['contact_forces_middle']
+
+        if left_sensor.data.net_forces_w is not None:
+            left_force = left_sensor.data.net_forces_w[0].cpu().numpy().flatten()
+        else:
+            left_force = [0, 0, 0]
+
+        if right_sensor.data.net_forces_w is not None:
+            right_force = right_sensor.data.net_forces_w[0].cpu().numpy().flatten()
+        else:
+            right_force = [0, 0, 0]
+
+        # if middle_sensor.data.net_forces_w is not None:
+        #     middle_force = middle_sensor.data.net_forces_w[0].cpu().numpy().flatten()
+        # else:
+        #     middle_force = [0, 0, 0]
+
+        print(f"[Step {env.common_step_counter}] Left: [{left_force[0]:.3f}, {left_force[1]:.3f}, {left_force[2]:.3f}] | Right: [{right_force[0]:.3f}, {right_force[1]:.3f}, {right_force[2]:.3f}]")
+        # print(f"[Step {env.common_step_counter}] Middle: [{middle_force[0]:.3f}, {middle_force[1]:.3f}, {middle_force[2]:.3f}]")
+
     return torch.zeros(env.num_envs, device=env.device)

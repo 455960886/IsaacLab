@@ -5,9 +5,12 @@
 
 from dataclasses import MISSING
 
+import math
+
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, DeformableObjectCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -16,13 +19,18 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransformerCfg
-from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
+from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from isaaclab.utils import configclass
-from isaaclab.sensors import TiledCameraCfg, ContactSensorCfg
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from isaaclab.sensors import TiledCameraCfg, CameraCfg, ContactSensorCfg
 
+from isaaclab.sensors.ray_caster import RayCasterCfg, patterns
 
+from isaaclab.sensors.camera.utils import create_pointcloud_from_depth
 # from isaaclab.sensors.ray_caster.patterns.patterns_cfg import LidarPatternCfg
 
+import torch
+import torch.nn as nn
 # from .custom_ray_caster import FixedRayCaster
 
 from . import mdp
@@ -48,6 +56,25 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     # target object: will be populated by agent env cfg
     object: RigidObjectCfg | DeformableObjectCfg = MISSING
 
+    # # distractor cube — visual prop placed on the table each episode.
+    # # Rigid body (so reset_root_state_uniform can move it) but no collider
+    # # and gravity disabled — it floats in place and does not interact physically.
+    # distractor_cube: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/DistractorCube",
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=(0.35, 0.15, 0.05),
+    #         rot=(1.0, 0.0, 0.0, 0.0),
+    #     ),
+    #     spawn=sim_utils.CuboidCfg(
+    #         size=(0.04, 0.04, 0.04),
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             disable_gravity=True,
+    #         ),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.001),
+    #         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.7, 0.2, 0.2)),
+    #     ),
+    # )
+
     # room
     FloorWithPanels = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/FloorwithPanels",
@@ -55,7 +82,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
             pos=[0.0, 0.0, 0.0],
             rot=[0, 0, 0, 1],
         ),
-        spawn=UsdFileCfg(usd_path="/home/robo/drl_manipulation/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/FloorWithPanels.usd"),
+        spawn=UsdFileCfg(usd_path="/home/roborock/data/private/shengmei/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/lift/robot_model/arm_description/urdf/R50/FloorWithPanels.usd"),
     )
 
     # Global lights (3 sphere lights covering entire training area)
@@ -222,12 +249,8 @@ class ActionsCfg:
 
 @configclass
 class ResNet18ObservationCfg:
-    """Observation specifications for the MDP."""
-
     @configclass
     class ResNet18FeaturesCameraPolicyCfg(ObsGroup):
-        """Observations for policy group with features extracted from RGB images with a frozen ResNet18."""
-
         image = ObsTerm(
             func=mdp.image_features,
             params={
@@ -250,11 +273,55 @@ class ResNet18ObservationCfg:
                 "debug_every": 200,
             },
         )
+    @configclass
+    class CriticPrivilegedObsCfg(ObsGroup):
+        joint_pos = ObsTerm(
+            func=mdp.joint_pos_with_binary_m6_latched,
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=["M[345]", "M6_.*"]),
+                "action_name": "gripper_action",
+                "action_index": 0,
+                "m6_open_value": 1,
+                "m6_close_value": 0,
+                "toggle_threshold": 0,
+                "debug": False,
+                "debug_every": 200,
+            },
+        )
+        object_yaw = ObsTerm(
+            func=mdp.active_object_yaw,
+            params={"object_cfg": SceneEntityCfg("object_pool")},
+        )
+    policy: ObsGroup = ResNet18FeaturesCameraPolicyCfg()
+    critic: ObsGroup = CriticPrivilegedObsCfg()
+
+
+@configclass
+class PointNetOnlyObservationCfg:
+    """Observation using PointNet features only (no ResNet)."""
+
+    @configclass
+    class PointNetPolicyCfg(ObsGroup):
+        image = ObsTerm(
+            func=mdp.pointnet_features,
+            params={"depth_cfg": SceneEntityCfg("depth_camera")},
+        )
+        joint_pos = ObsTerm(
+            func=mdp.joint_pos_with_binary_m6_latched,
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=["M[345]", "M6_.*"]),
+                "action_name": "gripper_action",
+                "action_index": 0,
+                "m6_open_value": 1,
+                "m6_close_value": 0,
+                "toggle_threshold": 0,
+                "debug": False,
+                "debug_every": 200,
+            },
+        )
 
     @configclass
     class CriticPrivilegedObsCfg(ObsGroup):
-        """Low-dimensional privileged observations for critic only."""
-
         joint_pos = ObsTerm(
             func=mdp.joint_pos_with_binary_m6_latched,
             params={
@@ -273,7 +340,59 @@ class ResNet18ObservationCfg:
             params={"object_cfg": SceneEntityCfg("object_pool")},
         )
 
-    policy: ObsGroup = ResNet18FeaturesCameraPolicyCfg()
+    policy: ObsGroup = PointNetPolicyCfg()
+    critic: ObsGroup = CriticPrivilegedObsCfg()
+
+
+@configclass
+class PointNetTemporalObservationCfg:
+    """Observation using PointNet features with temporal self-attention over N timesteps."""
+
+    @configclass
+    class PointNetTemporalPolicyCfg(ObsGroup):
+        image = ObsTerm(
+            func=mdp.pointnet_features_temporal,
+            params={
+                "depth_cfg": SceneEntityCfg("depth_camera"),
+                "history_len": 4,
+                "num_heads": 8,
+            },
+        )
+        joint_pos = ObsTerm(
+            func=mdp.joint_pos_with_binary_m6_latched,
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=["M[345]", "M6_.*"]),
+                "action_name": "gripper_action",
+                "action_index": 0,
+                "m6_open_value": 1,
+                "m6_close_value": 0,
+                "toggle_threshold": 0,
+                "debug": False,
+                "debug_every": 200,
+            },
+        )
+
+    @configclass
+    class CriticPrivilegedObsCfg(ObsGroup):
+        joint_pos = ObsTerm(
+            func=mdp.joint_pos_with_binary_m6_latched,
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=["M[345]", "M6_.*"]),
+                "action_name": "gripper_action",
+                "action_index": 0,
+                "m6_open_value": 1,
+                "m6_close_value": 0,
+                "toggle_threshold": 0,
+                "debug": False,
+                "debug_every": 200,
+            },
+        )
+        object_yaw = ObsTerm(
+            func=mdp.active_object_yaw,
+            params={"object_cfg": SceneEntityCfg("object_pool")},
+        )
+
+    policy: ObsGroup = PointNetTemporalPolicyCfg()
     critic: ObsGroup = CriticPrivilegedObsCfg()
 
 
@@ -286,25 +405,11 @@ class EventCfg:
         mode="startup"
     )
 
-    randomize_object_pool_scale = EventTerm(
-        func=mdp.randomize_object_pool_scale_prestartup,
-        mode="prestartup",
-        params={
-            "scale_factor_range": (0.85, 1.15),
-            "asset_cfg": SceneEntityCfg("object_pool"),
-            # 是否打印每个 env 的每个物体最终 scale。
-            # 当前任务是 128 个 env * 8 个物体，会输出 1024 行。
-            # 这里只做尺寸随机化和缓存，不在这里逐环境打印。
-            "log_per_env_scales": False,
-
-        },
-    )
-
     randomize_floor = EventTerm(
         func=mdp.randomize_floor_texture,
         mode="reset",
         params={
-            "texture_txt_path": "/home/robo/drl_manipulation/assets/Floor/floor.txt"
+            "texture_txt_path": "/home/roborock/data/private/shengmei/IsaacLab/assets/Floor/floor.txt"
         },
     )
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
@@ -326,57 +431,10 @@ class EventCfg:
         params={"asset_cfg": SceneEntityCfg("object_pool")},
     )
 
-    # 注意这里要放在 object_pool_spawn 后面，确保 active_object_indices 已经确定
-    # log_active_object_pool_scale = EventTerm(
-    #     func=mdp.log_active_object_pool_scale,
-    #     mode="startup",
-    #     params={"asset_cfg": SceneEntityCfg("object_pool")},
-    # )
-
     reset_object_position = EventTerm(
         func=mdp.reset_object_pool_state_uniform,
         mode="reset",
         params={
-            "pose_range": {
-                "x": (-0.03, 0.02),
-                # "x": (-0.03, 0.1),
-                "y": (-0.015, 0.015),
-                "z": (0.0, 0.0),
-                "roll": (0.0, 0.0),
-                "pitch": (0, 0),
-                "yaw": (-3.0, 0.015),
-            },
-            "velocity_range": {},
-            "asset_cfg": SceneEntityCfg("object_pool"),
-        },
-    )
-
-    reset_object_position_fense = EventTerm(
-        func=mdp.reset_object_pool_state_uniform_for_object,
-        mode="reset",
-        params={
-            "object_name": "fensemiantuo",
-            "pose_range": {
-                "x": (0.02, 0.07),
-                # "x": (-0.03, 0.1),
-                "y": (-0.05, 0.05),
-                # "y": (-0.02, -0.02),
-                "z": (0.0, 0.0),
-                "roll": (0.0, 0.0),
-                "pitch": (0, 0),
-                "yaw": (-0.5, 0.5),
-                # "yaw": (0.0, 0.0),
-            },
-            "velocity_range": {},
-            "asset_cfg": SceneEntityCfg("object_pool"),
-        },
-    )
-
-    reset_object_position_slippers_9 = EventTerm(
-        func=mdp.reset_object_pool_state_uniform_for_object,
-        mode="reset",
-        params={
-            "object_name": "baisetuoxie_9",
             "pose_range": {
                 "x": (0.02, 0.07),
                 # "x": (-0.03, 0.1),
@@ -385,13 +443,59 @@ class EventCfg:
                 "z": (0.0, 0.0),
                 "roll": (0.0, 0.0),
                 "pitch": (0, 0),
-                "yaw": (-0.4, -0.4),
+                "yaw": (-0.3, -0.3),
                 # "yaw": (0.0, 0.0),
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object_pool"),
         },
     )
+
+
+    reset_object_position_bokenxie = EventTerm(
+        func=mdp.reset_object_pool_state_uniform_for_object,
+        mode="reset",
+        params={
+            "object_name": "bokenxie",
+            "pose_range": {
+                "x": (0.02, 0.07),
+                # "x": (-0.03, 0.1),
+                "y": (-0.05, 0.05),
+                # "y": (-0.02, -0.02),
+                "z": (0.0, 0.0),
+                "roll": (0.0, 0.0),
+                "pitch": (0, 0),
+                "yaw": (-0.3, 0.3),
+                # "yaw": (0.0, 0.0),
+            },
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("object_pool"),
+        },
+    )
+
+
+    reset_object_position_chengse = EventTerm(
+        func=mdp.reset_object_pool_state_uniform_for_object,
+        mode="reset",
+        params={
+            "object_name": "chengsetuoxie",
+            "pose_range": {
+                "x": (0.02, 0.07),
+                # "x": (-0.03, 0.1),
+                "y": (-0.03, 0.03),
+                # "y": (-0.02, -0.02),
+                "z": (0.0, 0.0),
+                "roll": (0.0, 0.0),
+                "pitch": (0, 0),
+                "yaw": (-0.3, 0.3),
+                # "yaw": (0.0, 0.0),
+            },
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("object_pool"),
+        },
+    )
+
+
     reset_object_position_renzituo = EventTerm(
         func=mdp.reset_object_pool_state_uniform_for_object,
         mode="reset",
@@ -405,22 +509,191 @@ class EventCfg:
                 "z": (0.0, 0.0),
                 "roll": (0.0, 0.0),
                 "pitch": (0, 0),
-                "yaw": (-0.5, 0.5),
+                "yaw": (-0.4, 0.4),
                 # "yaw": (0.0, 0.0),
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object_pool"),
         },
     )
+
+
+    reset_object_position_yundongxie = EventTerm(
+        func=mdp.reset_object_pool_state_uniform_for_object,
+        mode="reset",
+        params={
+            "object_name": "baiseyundongxie",
+            "pose_range": {
+                "x": (0.02, 0.04),
+                # "x": (-0.03, 0.1),
+                "y": (-0.02, 0.02),
+                # "y": (-0.02, -0.02),
+                "z": (0.0, 0.0),
+                "roll": (0.0, 0.0),
+                "pitch": (0, 0),
+                "yaw": (-1.0, 1.0),
+                # "yaw": (0.0, 0.0),
+            },
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("object_pool"),
+        },
+    )
+
+
+    reset_object_position_fense = EventTerm(
+        func=mdp.reset_object_pool_state_uniform_for_object,
+        mode="reset",
+        params={
+            "object_name": "fensemiantuo",
+            "pose_range": {
+                "x": (0.02, 0.07),
+                # "x": (-0.03, 0.1),
+                "y": (-0.04, 0.04),
+                # "y": (-0.02, -0.02),
+                "z": (0.0, 0.0),
+                "roll": (0.0, 0.0),
+                "pitch": (0, 0),
+                "yaw": (-0.3, 0.3),
+                # "yaw": (0.0, 0.0),
+            },
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("object_pool"),
+        },
+    )
+
+
+    # reset_object_position_slippers_4 = EventTerm(
+    #     func=mdp.reset_object_pool_state_uniform_for_object,
+    #     mode="reset",
+    #     params={
+    #         "object_name": "baisetuoxie_4",
+    #         "pose_range": {
+    #             "x": (0.02, 0.07),
+    #             # "x": (-0.03, 0.1),
+    #             "y": (-0.045, 0.005),
+    #             # "y": (-0.02, -0.02),
+    #             "z": (0.0, 0.0),
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0, 0),
+    #             "yaw": (-0.3, 0.3),
+    #             # "yaw": (0.0, 0.0),
+    #         },
+    #         "velocity_range": {},
+    #         "asset_cfg": SceneEntityCfg("object_pool"),
+    #     },
+    # )
+
+    reset_object_position_slippers_6 = EventTerm(
+        func=mdp.reset_object_pool_state_uniform_for_object,
+        mode="reset",
+        params={
+            "object_name": "baisetuoxie_6",
+            "pose_range": {
+                "x": (0.02, 0.07),
+                # "x": (-0.03, 0.1),
+                "y": (-0.06, 0.02),
+                # "y": (-0.02, -0.02),
+                "z": (0.0, 0.0),
+                "roll": (0.0, 0.0),
+                "pitch": (0, 0),
+                "yaw": (-0.5, -0.5),
+                # "yaw": (0.0, 0.0),
+            },
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("object_pool"),
+        },
+    )
+
+    # reset_object_position_slippers_7 = EventTerm(
+    #     func=mdp.reset_object_pool_state_uniform_for_object,
+    #     mode="reset",
+    #     params={
+    #         "object_name": "baisetuoxie_7",
+    #         "pose_range": {
+    #             "x": (0.02, 0.07),
+    #             # "x": (-0.03, 0.1),
+    #             "y": (-0.065, 0.025),
+    #             # "y": (-0.02, -0.02),
+    #             "z": (0.0, 0.0),
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0, 0),
+    #             "yaw": (-0.5, -0.5),
+    #             # "yaw": (0.0, 0.0),
+    #         },
+    #         "velocity_range": {},
+    #         "asset_cfg": SceneEntityCfg("object_pool"),
+    #     },
+    # )
+
+    # reset_object_position_slippers_8 = EventTerm(
+    #     func=mdp.reset_object_pool_state_uniform_for_object,
+    #     mode="reset",
+    #     params={
+    #         "object_name": "baisetuoxie_8",
+    #         "pose_range": {
+    #             "x": (0.02, 0.07),
+    #             # "x": (-0.03, 0.1),
+    #             "y": (-0.04, 0.00),
+    #             # "y": (-0.02, -0.02),
+    #             "z": (0.0, 0.0),
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0, 0),
+    #             "yaw": (-0.3, 0.3),
+    #             # "yaw": (0.0, 0.0),
+    #         },
+    #         "velocity_range": {},
+    #         "asset_cfg": SceneEntityCfg("object_pool"),
+    #     },
+    # )
+
+    # reset_object_position_slippers_9 = EventTerm(
+    #     func=mdp.reset_object_pool_state_uniform_for_object,
+    #     mode="reset",
+    #     params={
+    #         "object_name": "baisetuoxie_9",
+    #         "pose_range": {
+    #             "x": (0.02, 0.07),
+    #             # "x": (-0.03, 0.1),
+    #             "y": (-0.06, 0.02),
+    #             # "y": (-0.02, -0.02),
+    #             "z": (0.0, 0.0),
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0, 0),
+    #             "yaw": (-0.4, -0.4),
+    #             # "yaw": (0.0, 0.0),
+    #         },
+    #         "velocity_range": {},
+    #         "asset_cfg": SceneEntityCfg("object_pool"),
+    #     },
+    # )
+
+    # reset_distractor_cube = EventTerm(
+    #     func=mdp.reset_root_state_uniform,
+    #     mode="reset",
+    #     params={
+    #         "pose_range": {
+    #             "x": (-0.25, 0.25),
+    #             "y": (-0.3, 0.3),
+    #             "z": (-0.01, 0.1),
+    #             "roll":  (0.0, 6.2832),
+    #             "pitch": (0.0, 6.2832),
+    #             "yaw":   (0.0, 6.2832),   # full 360° rotation
+    #         },
+    #         "velocity_range": {},
+    #         "asset_cfg": SceneEntityCfg("distractor_cube"),
+    #     },
+    # )
+
     cache_grasp_pen_initial_z = EventTerm(
         func=mdp.cache_object_initial_z,
         mode="reset",
         params={"object_cfg": SceneEntityCfg("object_pool")},
     )
+
     randomize_lighting_interval = EventTerm(
         func=mdp.randomize_global_sphere_lights,
         mode="interval",
-        interval_range_s=(1, 1),  # Randomize every 0.1 seconds
+        interval_range_s=(0.3, 0.3),  # Randomize every 0.1 seconds
         is_global_time=True,
         params={
             "light_paths": ["/World/GlobalLight_0", "/World/GlobalLight_1", "/World/GlobalLight_2"],
@@ -437,29 +710,28 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     termination_penalty = RewTerm(func=mdp.is_terminated, weight=-50.0)
+
     # debug_contact = RewTerm(func=mdp.debug_contact_forces, weight=0.01)
 
     reaching_object = RewTerm(
         func=mdp.object_ee_distance,
         params={"std": 0.1},
+        # weight=20.0,
         weight=5.0,
     )
 
-    lifting_object_linear = RewTerm(
-        func=mdp.object_is_lifted_linear,
-        params={
-            "minimal_height": 0.09,
-            "max_height": 0.3,
-            "enabled_object_names": ["paper", "bus", "lego"],
-        },
-        weight=50.0,   # 1500  150
-    )
+    # lifting_object_linear = RewTerm(
+    #     func=mdp.object_is_lifted_linear,
+    #     params={"minimal_height": 0.09, "max_height": 0.3},
+    #     # weight=5.0,   # 1500  150
+    #     weight=20.0,   # 1500  150
+    # )
 
     # NEW: Lifting with contact verification
     lifting_object_linear_contact = RewTerm(
         func=mdp.object_is_lifted_with_contact,
         params={
-            "minimal_height": 0.09,
+            "minimal_height": 0.04,
             "max_height": 0.3,
             "contact_force_threshold": 1.5,  # 1.5N on Y-axis (based on your data)
             "require_both_contacts": True,  # Both fingers must contact
@@ -467,18 +739,18 @@ class RewardsCfg:
         weight=100.0,
     )
 
-    pcd_contain_object = RewTerm(
-        func=mdp.pcd_contain_object,
-        params={
-            "density_scale": 1.0,
-            "use_tanh": True,  # Set True for smoother gradients
-            "min_ee_robot_distance": 0.26,
-            "max_ee_height": 0.06,
-            "enabled_object_names": ["paper", "bus", "lego"],
-        },
-        # weight=20.0,  # Tune this: 5.0-20.0 depending on importance
-        weight=2.0,
-    )
+    # pcd_contain_object = RewTerm(
+    #     func=mdp.pcd_contain_object,
+    #     params={
+    #         "density_scale": 1.0,
+    #         "use_tanh": True,  # Set True for smoother gradients
+    #         "min_ee_robot_distance": 0.26,
+    #         "max_ee_height": 0.06,
+    #         "excluded_objects": ["slipper"],
+    #     },
+    #     # weight=20.0,  # Tune this: 5.0-20.0 depending on importance
+    #     weight=2.0,
+    # )
 
     # contain_object = RewTerm(
     #     func=mdp.contain_object,
@@ -489,23 +761,11 @@ class RewardsCfg:
     clamp_object_contact = RewTerm(
         func=mdp.contact_clamp_object,
         params={
-            "contact_force_threshold": 0.2,
+            "contact_force_threshold": 0.5,
             "reward_value": 1.0,
             "gripper_closed_threshold": 0.2,
         },
-        weight=30.0,
-    )
-
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
-
-    # M5 (wrist) alignment with object orientation
-    wrist_alignment = RewTerm(
-        func=mdp.wrist_object_orientation_alignment,
-        params={
-            "std": 0.5,  # Smaller = sharper reward peak (more precise alignment required)
-            "enabled_object_names": ["paper", "bus", "lego"],
-        },
-        weight=5.0,  # Positive reward for good alignment
+        weight=50.0,
     )
 
     penalize_lift_during_grasp = RewTerm(
@@ -513,10 +773,24 @@ class RewardsCfg:
         params={
             "grasp_action_idx": 3,
             "z_threshold": 0.003,  # ignore up to 5mm — penalise anything beyond
-            "disabled_object_names": ["paper", "bus", "lego"],
         },
         weight=2000.0,
     )
+
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+
+    # debug_joint_vel = RewTerm(func=mdp.debug_joint_velocity, weight=0.0)
+
+    # # M5 (wrist) alignment with object orientation
+    # wrist_alignment = RewTerm(
+    #     func=mdp.wrist_object_orientation_alignment,
+    #     params={
+    #         "std": 0.5,  # Smaller = sharper reward peak (more precise alignment required)
+    #         "peak_shift_object_names": ["baisetuoxie", "fensemiantuo"],  # Objects that benefit from a specific wrist orientation
+    #         "peak_shift_value": math.pi / 2,
+    #     },
+    #     weight=1.0,  # Positive reward for good alignment
+    # )
 
 
 @configclass
@@ -529,16 +803,25 @@ class TerminationsCfg:
     robot_base_orientation = DoneTerm(
         func=mdp.bad_orientation,
         params={
-            "limit_angle": 0.05,  # 0.5 rad ≈ 28.6° tilt limit
+            "limit_angle": 0.06,  # 0.5 rad ≈ 28.6° tilt limit
             "asset_cfg": SceneEntityCfg("robot"),
+        },
+    )
+
+    object_lifted_during_grasp = DoneTerm(
+        func=mdp.object_lifted_during_grasp,
+        params={
+            "excess_z_limit": 0.08,
+            "grasp_action_idx": 3,
+            "object_cfg": SceneEntityCfg("object_pool"),
         },
     )
 
     object_pushed = DoneTerm(
         func=mdp.object_pushed_away,
         params={
-            "x_limits": (0.15, 0.6),
-            "y_tolerance": 0.08,
+            "x_limits": (0.1, 0.6),
+            "y_tolerance": 0.15,
             "object_cfg": SceneEntityCfg("object_pool"),
             "robot_cfg": SceneEntityCfg("robot")
         },
@@ -560,8 +843,9 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=100, env_spacing=2)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=128, env_spacing=4)
     observations: ResNet18ObservationCfg = ResNet18ObservationCfg()
+    # observations: PointNetOnlyObservationCfg = PointNetOnlyObservationCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()
     # MDP settings
@@ -574,24 +858,32 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
 
         """Post initialization."""
         self.sim.dt = 0.01  # 100Hz
+        
         self.decimation = 40  # 2 20 48
-        self.episode_length_s = 10 * self.decimation * self.sim.dt
-
         # self.decimation = 1
-        # self.episode_length_s = 10
-
+        
         self.sim.render_interval = self.decimation
         # self.sim.render_interval = 1
 
+        self.rerender_on_reset = True  
+        
+        # self.episode_length_s = 10 
+        # self.episode_length_s = 20 * self.decimation * self.sim.dt
+        self.episode_length_s = 4.0
+
+        # self.sim.physx.bounce_threshold_velocity = 0.01
+        # self.sim.physx.gpu_found_lost_pairs_capacity = 1024 * 1024 * 8       # 4M — required for 480 envs
+        # self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
+        # self.sim.physx.gpu_total_aggregate_pairs_capacity = 32 * 1024
+        # self.sim.physx.friction_correlation_distance = 0.00625
+        # self.sim.physx.gpu_heap_capacity = 256 * 1024 * 1024          # 256 MB
+        # self.sim.physx.gpu_temp_buffer_capacity = 128 * 1024 * 1024   # 128 MB
+        # self.sim.physx.gpu_max_rigid_contact_count = 2_000_000        # 接触对上限
+        # self.sim.physx.gpu_max_rigid_patch_count = 1_000_000          # 接触 patch 上限
+        # self.sim.physx.gpu_collision_stack_size = 96 * 1024 * 1024    # ≈ 100 MB
+
+        self.sim.physx.bounce_threshold_velocity = 0.2
         self.sim.physx.bounce_threshold_velocity = 0.01
-        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
-        self.sim.physx.gpu_total_aggregate_pairs_capacity = 32 * 1024
+        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 16
+        self.sim.physx.gpu_total_aggregate_pairs_capacity = 256 * 1024
         self.sim.physx.friction_correlation_distance = 0.00625
-
-        self.sim.physx.gpu_heap_capacity = 256 * 1024 * 1024          # 256 MB
-        self.sim.physx.gpu_temp_buffer_capacity = 128 * 1024 * 1024   # 128 MB
-
-        self.sim.physx.gpu_max_rigid_contact_count = 2_000_000        # 接触对上限
-        self.sim.physx.gpu_max_rigid_patch_count = 1_000_000          # 接触 patch 上限
-
-        self.sim.physx.gpu_collision_stack_size = 96 * 1024 * 1024    # ≈ 100 MB
