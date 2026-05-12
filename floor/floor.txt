@@ -1,0 +1,17 @@
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/Fabric065_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor057_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor040_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/Fabric063_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor054_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor053_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/Fabric061_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor037_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor052_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor056_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/Fabric062_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor039_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor034_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor051_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor035_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/DiamondPlate009_1K-JPG_Color.jpg
+/home/roborock/data/private/shengmei/IsaacLab/floor/dataset/WoodFloor036_1K-JPG_Color.jpg

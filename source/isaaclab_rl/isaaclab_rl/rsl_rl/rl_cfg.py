@@ -43,6 +43,20 @@ class RslRlPpoActorCriticCfg:
 
 
 @configclass
+class RslRlPpoProjectedActorCriticCfg(RslRlPpoActorCriticCfg):
+    """Configuration for actor-critic networks with per-modality actor projections."""
+
+    actor_feature_dims: list[int] = MISSING
+    """Flattened actor observation slices to project independently before actor fusion."""
+
+    actor_feature_projection_dim: int = 128
+    """Output dimension of each actor observation slice projection."""
+
+    actor_feature_projection_hidden_dims: list[int] = []
+    """Optional hidden dimensions inside each per-modality actor projector."""
+
+
+@configclass
 class RslRlPpoActorCriticRecurrentCfg(RslRlPpoActorCriticCfg):
     """Configuration for the PPO actor-critic networks with recurrent layers."""
 

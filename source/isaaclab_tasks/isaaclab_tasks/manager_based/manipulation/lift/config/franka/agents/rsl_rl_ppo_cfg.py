@@ -5,7 +5,7 @@
 
 from isaaclab.utils import configclass
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoAlgorithmCfg, RslRlPpoProjectedActorCriticCfg
 
 
 @configclass
@@ -17,9 +17,12 @@ class LiftCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     empirical_normalization = True
     # empirical_normalization = True
 
-    policy = RslRlPpoActorCriticCfg(
+    policy = RslRlPpoProjectedActorCriticCfg(
         class_name="PositiveM5ActorCritic",
         init_noise_std=0.2,
+        actor_feature_dims=[512, 1024, 5],
+        actor_feature_projection_dim=128,
+        actor_feature_projection_hidden_dims=[],
         actor_hidden_dims=[512, 256, 128, 64],
         critic_hidden_dims=[512, 256, 128, 64],
         activation="elu",

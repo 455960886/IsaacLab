@@ -1,0 +1,9 @@
+# File produced by Open Asset Import Library (http://www.assimp.sf.net)
+# (assimp v5.4.4108939008)
+
+newmtl Plush_Unicorn
+illum 1
+map_Kd ./Image_0.png
+bump ./Image_2.png
+map_bump ./Image_2.png
+

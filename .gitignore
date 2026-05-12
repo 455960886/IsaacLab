@@ -9,10 +9,10 @@
 **/.thumbs
 
 # No USD files allowed in the repo
-**/*.usd
-**/*.usda
-**/*.usdc
-**/*.usdz
+# **/*.usd
+# **/*.usda
+# **/*.usdc
+# **/*.usdz
 
 # Python
 .DS_Store
@@ -70,6 +70,6 @@ tests/
 # Docker history
 .isaac-lab-docker-history
 *.zip
-*.txt
-assets1/
-assets/toy1/toy.obj
+# *.txt
+# assets1/
+# assets/toy1/toy.obj
